@@ -2,6 +2,14 @@
 // Microsoft Visual C++ generated include file.
 // Used by BasicGameEngine.rc
 
+#define MAX_LOADSTRING 100
+#define ID_TRAY_RESTORE  40001
+#define ID_TRAY_EXIT     40002
+#define IDS_APP_TITLE           103
+#define IDC_BASICGAMEENGINE     109
+#define IDI_BASICGAMEENGINE     107
+#define IDI_SMALL               108
+
 #define IDS_APP_TITLE			103
 
 #define IDR_MAINFRAME			128

@@ -9,8 +9,13 @@
 #include <iostream>
 #include <thread>
 #include "resource.h" // or "globals.h"
+#include <shellapi.h>
 
-#define MAX_LOADSTRING 100
+// resource.h - Resource file for BasicGameEngine
+
+NOTIFYICONDATA nid;
+HMENU hTrayMenu; // Handle to the tray icon menu
+HMENU hMainMenu; // Handle to the main menu
 
 StatusBarMgr statusBarMgr; // Instance of the StatusBarMgr class
 
@@ -84,6 +89,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                 TranslateMessage(&msg);
                 DispatchMessage(&msg);
             }
+        }
+
+        // Check if the window is minimized
+        if (IsIconic(GetActiveWindow()))
+        {
+            // Sleep for a longer duration to reduce CPU usage when minimized
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue; // Skip the rest of the loop
         }
 
         // If the game is paused, wait until it resumes
@@ -226,15 +239,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_COMMAND:
     {
         int wmId = LOWORD(wParam);
-        // Parse the menu selections:
+        // Handle menu commands from the tray menu
         switch (wmId)
         {
-        case IDM_ABOUT:
-            DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+        case ID_TRAY_RESTORE: // Restore option
+            ShowWindow(hWnd, SW_RESTORE);
+            RemoveTrayIcon();
             break;
-        case IDM_EXIT:
-            DestroyWindow(hWnd);
+
+        case ID_TRAY_EXIT: // Exit option
+            DestroyWindow(hWnd); // Close the application
             break;
+
         default:
             return DefWindowProc(hWnd, message, wParam, lParam);
         }
@@ -243,10 +259,48 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_SIZE:
     {
-        // Call the Resize method of the StatusBarMgr class
+        switch (wParam)
+        {
+        case SIZE_MINIMIZED:
+            // Handle when the window is minimized
+            isPaused = true;
+            
+            // Hide the window and add the system tray icon
+            ShowWindow(hWnd, SW_HIDE);
+            AddTrayIcon(hWnd);
+            break;
+
+        case SIZE_MAXIMIZED:
+        case SIZE_RESTORED:
+            // Handle when the window is maximized or restored
+            isPaused = false;
+
+            // Remove the tray icon when restored
+            RemoveTrayIcon();
+            break;
+
+        case SIZE_MAXHIDE:
+            // Handle when the window is hidden as part of a group of windows
+            isPaused = true;  // Pause the game loop if minimized
+
+            // Hide the window and add the system tray icon
+            ShowWindow(hWnd, SW_HIDE);
+            AddTrayIcon(hWnd);
+            break;
+
+        case SIZE_MAXSHOW:
+            // Handle when the window is restored after being hidden as part of a group
+            isPaused = false; // Resume the game loop if restored or maximized
+
+            // Remove the tray icon when restored
+            RemoveTrayIcon();
+            break;
+        }
+
+        // Optionally, resize other components like status bars
         statusBarMgr.Resize();
 
-        // Invalidate the window to redraw everything
+        // Redraw the window
         InvalidateRect(hWnd, NULL, TRUE);
     }
     break;
@@ -322,6 +376,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         PostQuitMessage(0);
         break;
 
+    case WM_APP: // Custom message identifier for tray icon
+    {
+        if (lParam == WM_RBUTTONDOWN) // Right-click on the tray icon
+        {
+            // Display the context menu
+            POINT pt;
+            GetCursorPos(&pt);
+            SetForegroundWindow(hWnd); // Required to show menu properly
+            TrackPopupMenu(hTrayMenu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, pt.x, pt.y, 0, hWnd, NULL);
+        }
+        else if (lParam == WM_LBUTTONDOWN) // Left-click on the tray icon
+        {
+            // Restore the window when left-clicked
+            ShowWindow(hWnd, SW_RESTORE);
+            RemoveTrayIcon(); // Remove the tray icon
+        }
+    }
+    break;
+
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
@@ -347,3 +420,30 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
     }
     return (INT_PTR)FALSE;
 }
+
+void AddTrayIcon(HWND hWnd)
+{
+    nid.cbSize = sizeof(NOTIFYICONDATA);
+    nid.hWnd = hWnd;
+    nid.uID = 1001; // Unique ID for the icon
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.uCallbackMessage = WM_APP; // Custom message identifier
+    nid.hIcon = LoadIcon(NULL, IDI_APPLICATION); // Use an appropriate icon
+    lstrcpy(nid.szTip, L"Basic Game Engine");
+
+    // Add the icon to the system tray
+    Shell_NotifyIcon(NIM_ADD, &nid);
+}
+
+void RemoveTrayIcon()
+{
+    Shell_NotifyIcon(NIM_DELETE, &nid);
+}
+
+void CreateTrayMenu()
+{
+    hTrayMenu = CreatePopupMenu(); // Create a new pop-up menu
+    AppendMenu(hTrayMenu, MF_STRING, ID_TRAY_RESTORE, L"Restore"); // Add "Restore" option
+    AppendMenu(hTrayMenu, MF_STRING, ID_TRAY_EXIT, L"Exit"); // Add "Exit" option
+}
+
