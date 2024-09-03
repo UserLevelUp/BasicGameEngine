@@ -14,19 +14,6 @@ StatusBar::~StatusBar()
 {
 }
 
-//void StatusBar::Create(HWND hWndParent, HINSTANCE hInstance)
-//{
-//    // Create the status bar as a child of the main window
-//    hStatusBar = CreateWindowEx(0, STATUSCLASSNAME, NULL,
-//        WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
-//        hWndParent, (HMENU)IDC_STATUSBAR, hInstance, NULL);
-//
-//    if (hStatusBar)
-//    {
-//        SendMessage(hStatusBar, SB_SETTEXT, 0, (LPARAM)L"Ready");
-//    }
-//}
-
 void StatusBar::UpdateText(const wchar_t* text)
 {
     if (hStatusBar)

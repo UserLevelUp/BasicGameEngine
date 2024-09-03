@@ -1,7 +1,6 @@
 // BasicGameEngine.cpp : Defines the entry point for the application.
 //
 
-//#include "StatusBar.h"
 #include "StatusBarMgr.h"
 
 #include "framework.h"
@@ -13,7 +12,6 @@
 
 #define MAX_LOADSTRING 100
 
-//StatusBar statusBar; // Instance of the StatusBar class
 StatusBarMgr statusBarMgr; // Instance of the StatusBarMgr class
 
 // Define global variables
@@ -67,7 +65,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     LARGE_INTEGER previousTime, currentTime;
     QueryPerformanceCounter(&previousTime);
 
-    const int targetFPS = 60; // Target frames per second
+    const int targetFPS = 200; // Target frames per second
     const double targetFrameDuration = 1000.0 / targetFPS; // Target duration for each frame in milliseconds
 
     while (isRunning)
@@ -91,8 +89,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         // If the game is paused, wait until it resumes
         if (isPaused)
         {
-            // Reset the timing mechanism when paused
-            QueryPerformanceCounter(&previousTime);
+            QueryPerformanceCounter(&previousTime); // Reset the timing mechanism when paused
             std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Sleep for a longer period when paused
             continue; // Skip the rest of the loop
         }
@@ -130,16 +127,27 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         // Update the status bar
         statusBarMgr.Update();
 
-        // Introduce a delay to cap the frame rate
+        // Measure time taken for this frame
         QueryPerformanceCounter(&currentTime);
         double frameTime = (double)(currentTime.QuadPart - previousTime.QuadPart) * 1000.0 / frequency.QuadPart;
 
+        // Introduce a more precise delay to cap the frame rate
         if (frameTime < targetFrameDuration)
         {
-            // Sleep for the remaining time to achieve the target frame duration
-            std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(targetFrameDuration - frameTime)));
+            // Sleep for most of the remaining time
+            std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(targetFrameDuration - frameTime - 1)));
+
+            // Busy-wait loop to achieve precise frame timing
+            while (true)
+            {
+                QueryPerformanceCounter(&currentTime);
+                frameTime = (double)(currentTime.QuadPart - previousTime.QuadPart) * 1000.0 / frequency.QuadPart;
+                if (frameTime >= targetFrameDuration)
+                    break;
+            }
         }
     }
+
     return (int)msg.wParam;
 }
 
@@ -194,9 +202,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
-
-    // Create the status bar
-    //statusBar.Create(hWnd, hInstance);
 
     // Create the status bar
     statusBarMgr.Create(hWnd, hInstance);
