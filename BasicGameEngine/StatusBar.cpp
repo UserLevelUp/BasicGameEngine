@@ -1,32 +1,27 @@
-// StatusBar.cpp
-
 #include "StatusBar.h"
-#include "resource.h" // or "globals.h" for IDC_STATUSBAR
+// Changed StatusBar to be more of a model than 
+// used to manage the StatusBar
 
-#define IDC_STATUSBAR 101 // Unique identifier for the status bar
+StatusBar::StatusBar() : framerate(0.0), statusMessage(L"Ready") {}
 
-StatusBar::StatusBar()
-    : hStatusBar(NULL)
+StatusBar::~StatusBar() {}
+
+void StatusBar::SetFramerate(double fps)
 {
+    framerate = fps;
 }
 
-StatusBar::~StatusBar()
+void StatusBar::SetStatus(const std::wstring& status)
 {
+    statusMessage = status;
 }
 
-void StatusBar::UpdateText(const wchar_t* text)
+double StatusBar::GetFramerate() const
 {
-    if (hStatusBar)
-    {
-        SendMessage(hStatusBar, SB_SETTEXT, 0, (LPARAM)text);
-    }
+    return framerate;
 }
 
-void StatusBar::Resize()
+std::wstring StatusBar::GetStatus() const
 {
-    if (hStatusBar)
-    {
-        // Resize the status bar when the parent window is resized
-        SendMessage(hStatusBar, WM_SIZE, 0, 0);
-    }
+    return statusMessage;
 }

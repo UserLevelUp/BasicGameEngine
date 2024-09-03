@@ -1,6 +1,5 @@
 #pragma once
-#include <windows.h>
-#include <CommCtrl.h>
+#include <string>
 
 class StatusBar
 {
@@ -8,10 +7,14 @@ public:
     StatusBar();
     ~StatusBar();
 
-    void Create(HWND hWndParent, HINSTANCE hInstance); // Create the status bar
-    void UpdateText(const wchar_t* text);              // Update the text displayed on the status bar
-    void Resize();                                     // Resize the status bar
+    // Methods to set and get the status information
+    void SetFramerate(double fps);
+    void SetStatus(const std::wstring& status);
+
+    double GetFramerate() const;
+    std::wstring GetStatus() const;
 
 private:
-    HWND hStatusBar; // Handle to the status bar (private to encapsulate it)
+    double framerate;               // Stores the framerate
+    std::wstring statusMessage;     // Stores the status message
 };
