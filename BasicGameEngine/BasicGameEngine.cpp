@@ -88,10 +88,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             }
         }
 
-        // Check if the window is minimized or paused
-        if (IsIconic(GetActiveWindow()) || isPaused)
+        // Check if the window is minimized or not the foreground window
+        if (IsIconic(GetActiveWindow()) || isPaused || GetForegroundWindow() != GetActiveWindow())
         {
-            // Sleep to reduce CPU usage when minimized or paused
+            // Sleep to reduce CPU usage when minimized or not focused
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue; // Skip the rest of the loop
         }
@@ -117,9 +117,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         if (lineX < 10) lineX = 10; // Clamp to lower bound
         if (lineX > 200) lineX = 200; // Clamp to upper bound
 
-        // Request a redraw of the window
-        InvalidateRect(GetActiveWindow(), NULL, FALSE); // Request a redraw
-        UpdateWindow(GetActiveWindow()); // Force an immediate redraw
+        // Request a redraw of the window only if it is the active window
+        InvalidateRect(GetActiveWindow(), NULL, FALSE);
 
         // Update the status bar
         statusBarMgr.Update();
