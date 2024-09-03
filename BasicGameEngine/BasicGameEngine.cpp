@@ -61,16 +61,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_BASICGAMEENGINE));
 
     MSG msg;
-    bool isRunning = true; // Add a flag for the game loop
-
-    // Main game loop
     LARGE_INTEGER frequency;
     QueryPerformanceFrequency(&frequency);
 
     LARGE_INTEGER previousTime, currentTime;
     QueryPerformanceCounter(&previousTime);
 
-    const int targetFPS = 200; // Target frames per second
+    const int targetFPS = 60; // Target frames per second
     const double targetFrameDuration = 1000.0 / targetFPS; // Target duration for each frame in milliseconds
 
     while (isRunning)
@@ -91,19 +88,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             }
         }
 
-        // Check if the window is minimized
-        if (IsIconic(GetActiveWindow()))
+        // Check if the window is minimized or paused
+        if (IsIconic(GetActiveWindow()) || isPaused)
         {
-            // Sleep for a longer duration to reduce CPU usage when minimized
+            // Sleep to reduce CPU usage when minimized or paused
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            continue; // Skip the rest of the loop
-        }
-
-        // If the game is paused, wait until it resumes
-        if (isPaused)
-        {
-            QueryPerformanceCounter(&previousTime); // Reset the timing mechanism when paused
-            std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Sleep for a longer period when paused
             continue; // Skip the rest of the loop
         }
 
@@ -128,14 +117,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         if (lineX < 10) lineX = 10; // Clamp to lower bound
         if (lineX > 200) lineX = 200; // Clamp to upper bound
 
-        // Redraw only the specific area where the line is moving
-        RECT updateRect;
-        updateRect.left = 0; // Start from the top-left corner of the window
-        updateRect.top = 0;
-        updateRect.right = 220; // Width of the line drawing area
-        updateRect.bottom = 220; // Height of the line drawing area
-
-        InvalidateRect(GetActiveWindow(), &updateRect, FALSE);
+        // Request a redraw of the window
+        InvalidateRect(GetActiveWindow(), NULL, FALSE); // Request a redraw
+        UpdateWindow(GetActiveWindow()); // Force an immediate redraw
 
         // Update the status bar
         statusBarMgr.Update();
@@ -144,26 +128,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         QueryPerformanceCounter(&currentTime);
         double frameTime = (double)(currentTime.QuadPart - previousTime.QuadPart) * 1000.0 / frequency.QuadPart;
 
-        // Introduce a more precise delay to cap the frame rate
+        // Introduce a delay to cap the frame rate
         if (frameTime < targetFrameDuration)
         {
-            // Sleep for most of the remaining time
-            std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(targetFrameDuration - frameTime - 1)));
-
-            // Busy-wait loop to achieve precise frame timing
-            while (true)
-            {
-                QueryPerformanceCounter(&currentTime);
-                frameTime = (double)(currentTime.QuadPart - previousTime.QuadPart) * 1000.0 / frequency.QuadPart;
-                if (frameTime >= targetFrameDuration)
-                    break;
-            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(targetFrameDuration - frameTime)));
         }
     }
 
     return (int)msg.wParam;
 }
-
 
 //
 //  FUNCTION: MyRegisterClass()
@@ -236,86 +209,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
-    case WM_COMMAND:
-    {
-        int wmId = LOWORD(wParam);
-        // Handle menu commands from the tray menu
-        switch (wmId)
-        {
-        case ID_TRAY_RESTORE: // Restore option
-            ShowWindow(hWnd, SW_RESTORE);
-            RemoveTrayIcon();
-            break;
-
-        case ID_TRAY_EXIT: // Exit option
-            DestroyWindow(hWnd); // Close the application
-            break;
-
-        default:
-            return DefWindowProc(hWnd, message, wParam, lParam);
-        }
-    }
-    break;
-
     case WM_SIZE:
     {
-        switch (wParam)
+        if (wParam == SIZE_MINIMIZED)
         {
-        case SIZE_MINIMIZED:
-            // Handle when the window is minimized
-            isPaused = true;
-            
-            // Hide the window and add the system tray icon
-            ShowWindow(hWnd, SW_HIDE);
-            AddTrayIcon(hWnd);
-            break;
-
-        case SIZE_MAXIMIZED:
-        case SIZE_RESTORED:
-            // Handle when the window is maximized or restored
-            isPaused = false;
-
-            // Remove the tray icon when restored
-            RemoveTrayIcon();
-            break;
-
-        case SIZE_MAXHIDE:
-            // Handle when the window is hidden as part of a group of windows
             isPaused = true;  // Pause the game loop if minimized
 
             // Hide the window and add the system tray icon
             ShowWindow(hWnd, SW_HIDE);
             AddTrayIcon(hWnd);
-            break;
-
-        case SIZE_MAXSHOW:
-            // Handle when the window is restored after being hidden as part of a group
+        }
+        else if (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED)
+        {
             isPaused = false; // Resume the game loop if restored or maximized
 
             // Remove the tray icon when restored
             RemoveTrayIcon();
-            break;
         }
 
-        // Optionally, resize other components like status bars
+        // Handle other size-related actions
         statusBarMgr.Resize();
-
-        // Redraw the window
         InvalidateRect(hWnd, NULL, TRUE);
-    }
-    break;
-
-    case WM_ACTIVATE:
-    {
-        // Check if the window is being activated or deactivated
-        if (wParam == WA_INACTIVE) // Window is losing focus
-        {
-            isPaused = true;  // Pause the game loop
-        }
-        else  // Window is gaining focus
-        {
-            isPaused = false; // Resume the game loop
-        }
     }
     break;
 
@@ -356,25 +270,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         EndPaint(hWnd, &ps);
     }
-    break;
-
-    case WM_ENTERSIZEMOVE:
-    {
-        // When the user starts resizing, pause the game loop
-        isPaused = true;
-    }
-    break;
-
-    case WM_EXITSIZEMOVE:
-    {
-        // When the user stops resizing, resume the game loop
-        isPaused = false;
-    }
-    break;
-
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        break;
+    break;  
 
     case WM_APP: // Custom message identifier for tray icon
     {
@@ -391,9 +287,37 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             // Restore the window when left-clicked
             ShowWindow(hWnd, SW_RESTORE);
             RemoveTrayIcon(); // Remove the tray icon
+            isPaused = false; // Resume the game loop
         }
     }
     break;
+
+    case WM_COMMAND:
+    {
+        int wmId = LOWORD(wParam);
+        // Handle menu commands from the tray menu
+        switch (wmId)
+        {
+        case ID_TRAY_RESTORE: // Restore option
+            ShowWindow(hWnd, SW_RESTORE);
+            RemoveTrayIcon();
+            isPaused = false; // Resume the game loop
+            break;
+
+        case ID_TRAY_EXIT: // Exit option
+            DestroyWindow(hWnd); // Close the application
+            break;
+
+        default:
+            return DefWindowProc(hWnd, message, wParam, lParam);
+        }
+    }
+    break;
+
+    case WM_DESTROY:
+        RemoveTrayIcon(); // Clean up tray icon on exit
+        PostQuitMessage(0);
+        break;
 
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
