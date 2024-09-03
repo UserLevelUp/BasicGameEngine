@@ -1,7 +1,9 @@
 // BasicGameEngine.cpp : Defines the entry point for the application.
 //
 
-#include "StatusBar.h"
+//#include "StatusBar.h"
+#include "StatusBarMgr.h"
+
 #include "framework.h"
 #include "BasicGameEngine.h"
 #include <chrono>
@@ -11,7 +13,8 @@
 
 #define MAX_LOADSTRING 100
 
-StatusBar statusBar; // Instance of the StatusBar class
+//StatusBar statusBar; // Instance of the StatusBar class
+StatusBarMgr statusBarMgr; // Instance of the StatusBarMgr class
 
 // Define global variables
 HINSTANCE hInst;
@@ -57,6 +60,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     MSG msg;
     bool isRunning = true; // Add a flag for the game loop
 
+    // Main game loop
     LARGE_INTEGER frequency;
     QueryPerformanceFrequency(&frequency);
 
@@ -87,7 +91,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         // If the game is paused, wait until it resumes
         if (isPaused)
         {
-            // Store the time when paused to handle elapsed time correctly
+            // Reset the timing mechanism when paused
             QueryPerformanceCounter(&previousTime);
             std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Sleep for a longer period when paused
             continue; // Skip the rest of the loop
@@ -123,11 +127,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
         InvalidateRect(GetActiveWindow(), &updateRect, FALSE);
 
-        // Calculate the FPS for display purposes
-        double actualFPS = 1000.0 / deltaTime;
-        wchar_t fpsText[50];
-        swprintf_s(fpsText, 50, L"FPS: %.2f", actualFPS);
-        statusBar.UpdateText(fpsText);
+        // Update the status bar
+        statusBarMgr.Update();
 
         // Introduce a delay to cap the frame rate
         QueryPerformanceCounter(&currentTime);
@@ -195,7 +196,10 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     UpdateWindow(hWnd);
 
     // Create the status bar
-    statusBar.Create(hWnd, hInstance);
+    //statusBar.Create(hWnd, hInstance);
+
+    // Create the status bar
+    statusBarMgr.Create(hWnd, hInstance);
 
     return TRUE;
 }
@@ -234,9 +238,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_SIZE:
     {
-        // Call the Resize method of the StatusBar class
-        statusBar.Resize();
-        InvalidateRect(hWnd, NULL, FALSE);  // Redraw the entire window to handle status bar properly
+        // Call the Resize method of the StatusBarMgr class
+        statusBarMgr.Resize();
+
+        // Invalidate the window to redraw everything
+        InvalidateRect(hWnd, NULL, TRUE);
     }
     break;
 
@@ -293,6 +299,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     }
     break;
 
+    case WM_ENTERSIZEMOVE:
+    {
+        // When the user starts resizing, pause the game loop
+        isPaused = true;
+    }
+    break;
+
+    case WM_EXITSIZEMOVE:
+    {
+        // When the user stops resizing, resume the game loop
+        isPaused = false;
+    }
+    break;
+
     case WM_DESTROY:
         PostQuitMessage(0);
         break;
@@ -302,7 +322,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     }
     return 0;
 }
-
 
 // Message handler for about box.
 INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
