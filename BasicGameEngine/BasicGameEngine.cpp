@@ -10,6 +10,9 @@
 #include <thread>
 #include "resource.h" // or "globals.h"
 #include <shellapi.h>
+#include "TaskBarMgr.h" // Include the new TaskBarMgr header
+
+TaskBarMgr taskBarMgr; // Instance of the TaskBarMgr class
 
 // resource.h - Resource file for BasicGameEngine
 
@@ -188,11 +191,15 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
 
+    // Initialize the taskbar manager
+    taskBarMgr.Initialize(hWnd, hInstance);
+
     // Create the status bar
     statusBarMgr.Create(hWnd, hInstance);
 
     return TRUE;
 }
+
 
 //
 //  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
@@ -210,23 +217,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
     case WM_SIZE:
     {
-        if (wParam == SIZE_MINIMIZED)
+        switch (wParam)
         {
-            isPaused = true;  // Pause the game loop if minimized
-
-            // Hide the window and add the system tray icon
+        case SIZE_MINIMIZED:
+            isPaused = true;
             ShowWindow(hWnd, SW_HIDE);
-            AddTrayIcon(hWnd);
-        }
-        else if (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED)
-        {
-            isPaused = false; // Resume the game loop if restored or maximized
+            taskBarMgr.AddTrayIcon(); // Use TaskBarMgr to add tray icon
+            break;
 
-            // Remove the tray icon when restored
-            RemoveTrayIcon();
+        case SIZE_MAXIMIZED:
+        case SIZE_RESTORED:
+            isPaused = false;
+            taskBarMgr.RemoveTrayIcon(); // Use TaskBarMgr to remove tray icon
+            break;
         }
 
-        // Handle other size-related actions
         statusBarMgr.Resize();
         InvalidateRect(hWnd, NULL, TRUE);
     }
@@ -275,18 +280,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         if (lParam == WM_RBUTTONDOWN) // Right-click on the tray icon
         {
-            // Display the context menu
-            POINT pt;
-            GetCursorPos(&pt);
-            SetForegroundWindow(hWnd); // Required to show menu properly
-            TrackPopupMenu(hTrayMenu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, pt.x, pt.y, 0, hWnd, NULL);
+            taskBarMgr.ShowContextMenu(); // Use TaskBarMgr to show the context menu
         }
         else if (lParam == WM_LBUTTONDOWN) // Left-click on the tray icon
         {
-            // Restore the window when left-clicked
             ShowWindow(hWnd, SW_RESTORE);
-            RemoveTrayIcon(); // Remove the tray icon
-            isPaused = false; // Resume the game loop
+            taskBarMgr.RemoveTrayIcon();
+            isPaused = false;
         }
     }
     break;
@@ -299,7 +299,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
         case ID_TRAY_RESTORE: // Restore option
             ShowWindow(hWnd, SW_RESTORE);
-            RemoveTrayIcon();
+            taskBarMgr.RemoveTrayIcon();
             isPaused = false; // Resume the game loop
             break;
 
@@ -314,7 +314,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     break;
 
     case WM_DESTROY:
-        RemoveTrayIcon(); // Clean up tray icon on exit
+        taskBarMgr.RemoveTrayIcon(); // Clean up tray icon on exit
         PostQuitMessage(0);
         break;
 
@@ -343,30 +343,3 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
     }
     return (INT_PTR)FALSE;
 }
-
-void AddTrayIcon(HWND hWnd)
-{
-    nid.cbSize = sizeof(NOTIFYICONDATA);
-    nid.hWnd = hWnd;
-    nid.uID = 1001; // Unique ID for the icon
-    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    nid.uCallbackMessage = WM_APP; // Custom message identifier
-    nid.hIcon = LoadIcon(NULL, IDI_APPLICATION); // Use an appropriate icon
-    lstrcpy(nid.szTip, L"Basic Game Engine");
-
-    // Add the icon to the system tray
-    Shell_NotifyIcon(NIM_ADD, &nid);
-}
-
-void RemoveTrayIcon()
-{
-    Shell_NotifyIcon(NIM_DELETE, &nid);
-}
-
-void CreateTrayMenu()
-{
-    hTrayMenu = CreatePopupMenu(); // Create a new pop-up menu
-    AppendMenu(hTrayMenu, MF_STRING, ID_TRAY_RESTORE, L"Restore"); // Add "Restore" option
-    AppendMenu(hTrayMenu, MF_STRING, ID_TRAY_EXIT, L"Exit"); // Add "Exit" option
-}
-
