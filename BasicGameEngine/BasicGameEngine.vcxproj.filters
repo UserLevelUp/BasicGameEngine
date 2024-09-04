@@ -39,6 +39,15 @@
     <ClInclude Include="WindowMutexMgr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="WindowMutex.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="InterprocessComm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="InterprocessCommMgr.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BasicGameEngine.cpp">
@@ -54,6 +63,15 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="WindowMutexMgr.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="WindowMutex.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="InterprocessComm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="InterprocessCommMgr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

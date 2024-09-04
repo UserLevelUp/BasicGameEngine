@@ -11,6 +11,7 @@
 #include <shellapi.h>
 #include "TaskBarMgr.h"
 #include "WindowMutexMgr.h"
+#include "InterprocessCommMgr.h"  // Include the InterprocessCommMgr header
 
 WindowMutexMgr windowMutexMgr; // Instance of the WindowMutexMgr
 TaskBarMgr taskBarMgr; // Instance of the TaskBarMgr class
@@ -33,6 +34,10 @@ double speed = 0.1;            // Speed in pixels per millisecond (adjustable)
 
 HWND g_hWnd; // Global handle to the main window
 
+// Interprocess communication manager
+InterprocessCommMgr& commMgr = InterprocessCommMgr::GetInstance();
+InterprocessComm* comm = nullptr;  // Pointer to the shared memory communication
+
 // Function declarations
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
@@ -48,13 +53,24 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
 
-    // Create a unique mutex for this instance using WindowMutexMgr
+    // Try to create a new instance mutex
     std::wstring mutexName = windowMutexMgr.CreateInstanceMutex();
-    if (mutexName.empty())  // Check if mutex creation failed
-    {
+    if (mutexName.empty()) {
+        // Mutex already exists, another instance is running
         MessageBox(NULL, L"Another instance is already running.", L"Basic Game Engine", MB_OK | MB_ICONWARNING);
-        return 0; // Exit if a mutex could not be created
+        return 0;
     }
+
+    // Initialize shared memory using InterprocessCommMgr
+    comm = commMgr.CreateInterprocessComm(L"Global\\BasicGameEngineSharedMemory", sizeof(int));
+    if (!comm)
+    {
+        MessageBox(NULL, L"Could not create or access shared memory.", L"Error", MB_OK | MB_ICONERROR);
+        return 0;
+    }
+
+    // Increment the shared counter
+    InterlockedIncrement(reinterpret_cast<LONG*>(comm->GetSharedMemoryPointer()));
 
     // Initialize global strings, register class, etc.
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -65,6 +81,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     {
         return FALSE;
     }
+
+    // Update the instance count in the status bar
+    int instanceCount = *reinterpret_cast<LONG*>(comm->GetSharedMemoryPointer());
+    statusBarMgr.UpdateInstanceCount(instanceCount); // Update status bar with instance count
 
     // Start the game loop in a separate thread
     gameThread = std::thread(GameLoop);
@@ -80,6 +100,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             DispatchMessage(&msg);
         }
     }
+
+    // Decrement the shared counter before exit
+    InterlockedDecrement(reinterpret_cast<LONG*>(comm->GetSharedMemoryPointer()));
+
+    // Clean up shared memory
+    commMgr.ReleaseInterprocessComm(L"Global\\BasicGameEngineSharedMemory");
 
     // Clean up when exiting
     shouldRun = false; // Signal the thread to stop
@@ -230,6 +256,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
     case WM_ACTIVATE:
         isFocused = (wParam != WA_INACTIVE);
+
+        // Update instance count when window becomes active
+        if (isFocused)
+        {
+            int instanceCount = *reinterpret_cast<LONG*>(comm->GetSharedMemoryPointer()); // Get the updated count from shared memory or IPC
+            statusBarMgr.UpdateInstanceCount(instanceCount); // Update the status bar with the new count
+        }
         break;
 
     case WM_PAINT:
