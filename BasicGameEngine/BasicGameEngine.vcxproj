@@ -134,12 +134,14 @@
     <ClInclude Include="StatusBarMgr.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="TaskBarMgr.h" />
+    <ClInclude Include="WindowMutexMgr.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BasicGameEngine.cpp" />
     <ClCompile Include="StatusBar.cpp" />
     <ClCompile Include="StatusBarMgr.cpp" />
     <ClCompile Include="TaskBarMgr.cpp" />
+    <ClCompile Include="WindowMutexMgr.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="BasicGameEngine.rc" />

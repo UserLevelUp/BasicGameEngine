@@ -1,69 +1,100 @@
 // BasicGameEngine.cpp : Defines the entry point for the application.
-//
 
 #include "StatusBarMgr.h"
-
 #include "framework.h"
 #include "BasicGameEngine.h"
 #include <chrono>
 #include <iostream>
 #include <thread>
-#include "resource.h" // or "globals.h"
+#include <mutex> // For std::mutex and std::lock_guard
+#include "resource.h"
 #include <shellapi.h>
-#include "TaskBarMgr.h" // Include the new TaskBarMgr header
+#include "TaskBarMgr.h"
+#include "WindowMutexMgr.h"
 
+WindowMutexMgr windowMutexMgr; // Instance of the WindowMutexMgr
 TaskBarMgr taskBarMgr; // Instance of the TaskBarMgr class
-
-// resource.h - Resource file for BasicGameEngine
-
-NOTIFYICONDATA nid;
-HMENU hTrayMenu; // Handle to the tray icon menu
-HMENU hMainMenu; // Handle to the main menu
-
 StatusBarMgr statusBarMgr; // Instance of the StatusBarMgr class
 
-// Define global variables
 HINSTANCE hInst;
 WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
 
-// Forward declarations of functions included in this code module:
+std::thread gameThread;        // Game loop thread
+std::mutex gameLoopMutex;      // Mutex for synchronizing game loop
+bool isFocused = true;         // Indicates whether this instance is focused
+bool shouldRun = true;         // Controls the main game loop
+bool isPaused = false;         // Indicates whether the game is paused
+
+double lineX = 10.0; // Initial X position of the line
+double lineY = 10.0; // Initial Y position of the line
+bool movingRight = true;       // Direction of movement
+double speed = 0.1;            // Speed in pixels per millisecond (adjustable)
+
+HWND g_hWnd; // Global handle to the main window
+
+// Function declarations
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
-
-double lineX = 10.0; // Use double for precision
-double lineY = 10.0; // Use double for precision
-
-bool movingRight = true;         // Direction of movement
-double speed = 0.1;              // Speed in pixels per millisecond (adjustable)
-
-bool isRunning = true;     // Controls the main game loop
-bool isPaused = false;     // Indicates whether the game is paused
+void GameLoop();               // Game loop function
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     _In_opt_ HINSTANCE hPrevInstance,
-    _In_ LPWSTR    lpCmdLine,
-    _In_ int       nCmdShow)
+    _In_ LPWSTR lpCmdLine,
+    _In_ int nCmdShow)
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
 
-    // Initialize global strings
+    // Create a unique mutex for this instance
+    std::wstring mutexName = windowMutexMgr.CreateInstanceMutex();
+    if (mutexName.empty()) {
+        MessageBox(NULL, L"Another instance is already running.", L"Basic Game Engine", MB_OK | MB_ICONWARNING);
+        return 0; // Exit if a mutex could not be created
+    }
+
+    // Initialize global strings, register class, etc.
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_BASICGAMEENGINE, szWindowClass, MAX_LOADSTRING);
     MyRegisterClass(hInstance);
 
-    // Perform application initialization:
     if (!InitInstance(hInstance, nCmdShow))
     {
         return FALSE;
     }
 
+    // Start the game loop in a separate thread
+    gameThread = std::thread(GameLoop);
+
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_BASICGAMEENGINE));
 
     MSG msg;
+    while (GetMessage(&msg, nullptr, 0, 0))
+    {
+        if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
+        {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+    }
+
+    // Clean up when exiting
+    shouldRun = false; // Signal the thread to stop
+    if (gameThread.joinable())
+    {
+        gameThread.join(); // Wait for the game thread to finish
+    }
+
+    windowMutexMgr.ReleaseInstanceMutex(mutexName); // Release the mutex
+
+    return (int)msg.wParam;
+}
+
+// Game loop function running in a separate thread
+void GameLoop()
+{
     LARGE_INTEGER frequency;
     QueryPerformanceFrequency(&frequency);
 
@@ -73,31 +104,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     const int targetFPS = 60; // Target frames per second
     const double targetFrameDuration = 1000.0 / targetFPS; // Target duration for each frame in milliseconds
 
-    while (isRunning)
+    while (shouldRun)
     {
-        // Process Windows messages
-        while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+        // Check if this instance should run based on focus and foreground window
+        if (!isFocused || GetForegroundWindow() != g_hWnd)
         {
-            if (msg.message == WM_QUIT)
-            {
-                isRunning = false;
-                break;
-            }
-
-            if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
-            {
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
-            }
-        }
-
-        // Check if the window is minimized or not the foreground window
-        if (IsIconic(GetActiveWindow()) || isPaused || GetForegroundWindow() != GetActiveWindow())
-        {
-            // Sleep to reduce CPU usage when minimized or not focused
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            continue; // Skip the rest of the loop
+            continue;
         }
+
+        // Lock the game loop for thread safety
+        std::lock_guard<std::mutex> lock(gameLoopMutex);
 
         // Calculate deltaTime in milliseconds
         QueryPerformanceCounter(&currentTime);
@@ -116,12 +133,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             if (lineX <= 10) movingRight = true; // Stop and reverse direction
         }
 
-        // Ensure the line does not exceed its boundaries
-        if (lineX < 10) lineX = 10; // Clamp to lower bound
-        if (lineX > 200) lineX = 200; // Clamp to upper bound
+        // Redraw only the specific area where the line is moving
+        RECT updateRect;
+        updateRect.left = 0; // Start from the top-left corner of the window
+        updateRect.top = 0;
+        updateRect.right = 220; // Width of the line drawing area
+        updateRect.bottom = 220; // Height of the line drawing area
 
-        // Request a redraw of the window only if it is the active window
-        InvalidateRect(GetActiveWindow(), NULL, FALSE);
+        InvalidateRect(g_hWnd, &updateRect, FALSE); // Use g_hWnd instead of GetActiveWindow()
 
         // Update the status bar
         statusBarMgr.Update();
@@ -130,14 +149,20 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         QueryPerformanceCounter(&currentTime);
         double frameTime = (double)(currentTime.QuadPart - previousTime.QuadPart) * 1000.0 / frequency.QuadPart;
 
-        // Introduce a delay to cap the frame rate
+        // Introduce a more precise delay to cap the frame rate
         if (frameTime < targetFrameDuration)
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(targetFrameDuration - frameTime)));
+            std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(targetFrameDuration - frameTime - 1)));
+
+            while (true)
+            {
+                QueryPerformanceCounter(&currentTime);
+                frameTime = (double)(currentTime.QuadPart - previousTime.QuadPart) * 1000.0 / frequency.QuadPart;
+                if (frameTime >= targetFrameDuration)
+                    break;
+            }
         }
     }
-
-    return (int)msg.wParam;
 }
 
 //
@@ -151,17 +176,17 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 
     wcex.cbSize = sizeof(WNDCLASSEX);
 
-    wcex.style          = CS_HREDRAW | CS_VREDRAW;
-    wcex.lpfnWndProc    = WndProc;
-    wcex.cbClsExtra     = 0;
-    wcex.cbWndExtra     = 0;
-    wcex.hInstance      = hInstance;
-    wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_BASICGAMEENGINE));
-    wcex.hCursor        = LoadCursor(nullptr, IDC_ARROW);
-    wcex.hbrBackground  = (HBRUSH)(COLOR_WINDOW+1);
-    wcex.lpszMenuName   = MAKEINTRESOURCEW(IDC_BASICGAMEENGINE);
-    wcex.lpszClassName  = szWindowClass;
-    wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
+    wcex.style = CS_HREDRAW | CS_VREDRAW;
+    wcex.lpfnWndProc = WndProc;
+    wcex.cbClsExtra = 0;
+    wcex.cbWndExtra = 0;
+    wcex.hInstance = hInstance;
+    wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_BASICGAMEENGINE));
+    wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_BASICGAMEENGINE);
+    wcex.lpszClassName = szWindowClass;
+    wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
     return RegisterClassExW(&wcex);
 }
@@ -170,11 +195,6 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 //   FUNCTION: InitInstance(HINSTANCE, int)
 //
 //   PURPOSE: Saves instance handle and creates main window
-//
-//   COMMENTS:
-//
-//        In this function, we save the instance handle in a global variable and
-//        create and display the main program window.
 //
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
@@ -188,6 +208,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
         return FALSE;
     }
 
+    g_hWnd = hWnd; // Store the handle in a global variable
+
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
 
@@ -200,42 +222,14 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     return TRUE;
 }
 
-
-//
-//  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
-//
-//  PURPOSE: Processes messages for the main window.
-//
-//  WM_COMMAND  - process the application menu
-//  WM_PAINT    - Paint the main window
-//  WM_DESTROY  - post a quit message and return
-//
-//
+// Window Procedure to handle window events
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
-    case WM_SIZE:
-    {
-        switch (wParam)
-        {
-        case SIZE_MINIMIZED:
-            isPaused = true;
-            ShowWindow(hWnd, SW_HIDE);
-            taskBarMgr.AddTrayIcon(); // Use TaskBarMgr to add tray icon
-            break;
-
-        case SIZE_MAXIMIZED:
-        case SIZE_RESTORED:
-            isPaused = false;
-            taskBarMgr.RemoveTrayIcon(); // Use TaskBarMgr to remove tray icon
-            break;
-        }
-
-        statusBarMgr.Resize();
-        InvalidateRect(hWnd, NULL, TRUE);
-    }
-    break;
+    case WM_ACTIVATE:
+        isFocused = (wParam != WA_INACTIVE);
+        break;
 
     case WM_PAINT:
     {
@@ -247,34 +241,28 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         HBITMAP hbmMem = CreateCompatibleBitmap(hdc, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top);
         HBITMAP hbmOld = (HBITMAP)SelectObject(hdcMem, hbmMem);
 
-        // Clear the memory context
         HBRUSH hbrBkGnd = CreateSolidBrush(RGB(255, 255, 255)); // White background
         FillRect(hdcMem, &ps.rcPaint, hbrBkGnd);
         DeleteObject(hbrBkGnd);
 
-        // Set the pen color and draw a line on the memory context
         HPEN hPen = CreatePen(PS_SOLID, 2, RGB(255, 0, 0)); // Red line, 2 pixels wide
         HPEN hOldPen = (HPEN)SelectObject(hdcMem, hPen);
 
-        // Draw the line from (lineX, lineY) to (200, 200)
         MoveToEx(hdcMem, static_cast<int>(lineX), static_cast<int>(lineY), NULL);
         LineTo(hdcMem, 200, 200);
 
-        // Restore the old pen and clean up
         SelectObject(hdcMem, hOldPen);
         DeleteObject(hPen);
 
-        // Copy the off-screen buffer to the main window
         BitBlt(hdc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top, hdcMem, 0, 0, SRCCOPY);
 
-        // Clean up the memory device context and bitmap
         SelectObject(hdcMem, hbmOld);
         DeleteObject(hbmMem);
         DeleteDC(hdcMem);
 
         EndPaint(hWnd, &ps);
     }
-    break;  
+    break;
 
     case WM_APP: // Custom message identifier for tray icon
     {
@@ -294,16 +282,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_COMMAND:
     {
         int wmId = LOWORD(wParam);
-        // Handle menu commands from the tray menu
         switch (wmId)
         {
-        case ID_TRAY_RESTORE: // Restore option
+        case ID_TRAY_RESTORE:
             ShowWindow(hWnd, SW_RESTORE);
             taskBarMgr.RemoveTrayIcon();
             isPaused = false; // Resume the game loop
             break;
 
-        case ID_TRAY_EXIT: // Exit option
+        case ID_TRAY_EXIT:
             DestroyWindow(hWnd); // Close the application
             break;
 
@@ -314,7 +301,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     break;
 
     case WM_DESTROY:
-        taskBarMgr.RemoveTrayIcon(); // Clean up tray icon on exit
         PostQuitMessage(0);
         break;
 
@@ -329,7 +315,7 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
     UNREFERENCED_PARAMETER(lParam);
     switch (message)
-    {   
+    {
     case WM_INITDIALOG:
         return (INT_PTR)TRUE;
 
