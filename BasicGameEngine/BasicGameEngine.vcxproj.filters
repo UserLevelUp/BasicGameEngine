@@ -36,6 +36,9 @@
     <ClInclude Include="TaskBarMgr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="WindowMutexMgr.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BasicGameEngine.cpp">
@@ -48,6 +51,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="TaskBarMgr.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="WindowMutexMgr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
