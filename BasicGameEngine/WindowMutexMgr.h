@@ -1,18 +1,24 @@
 #pragma once
-#include <windows.h>
-#include <string>
+
+#include "WindowMutex.h"
 #include <map>
+#include <string>
 
 class WindowMutexMgr {
 public:
+    // Create or open a new instance mutex
     std::wstring CreateInstanceMutex();
+
+    // Release an instance mutex
     void ReleaseInstanceMutex(const std::wstring& name);
+
+    // Get the count of active instances
     int GetInstanceCount() const;
+
+    // Destructor to clean up all mutexes
     ~WindowMutexMgr();
 
 private:
-    std::map<std::wstring, HANDLE> instanceMutexes;
+    std::map<std::wstring, WindowMutex> instanceMutexes; // Use WindowMutex objects
     int instanceCount = 0;
-
-    std::wstring GenerateGUID();  // Function to generate a unique GUID
 };

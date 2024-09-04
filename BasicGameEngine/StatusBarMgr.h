@@ -13,6 +13,7 @@ public:
     void Update();                                     // Update the status bar display
     void CalculateFramerate();                         // Calculate the current framerate
     void Resize();                                     // Resize the status bar
+    void UpdateInstanceCount(int count);               // New method to update instance count
 
 private:
     HWND hStatusBar;                                   // Handle to the status bar
@@ -20,4 +21,5 @@ private:
     std::chrono::steady_clock::time_point lastFrameTime; // Last time a frame was rendered
 
     void UpdateText(const wchar_t* text);               // Update the text displayed on the status bar
+    int instanceCount; // Store the instance count
 };
