@@ -48,9 +48,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
 
-    // Create a unique mutex for this instance
+    // Create a unique mutex for this instance using WindowMutexMgr
     std::wstring mutexName = windowMutexMgr.CreateInstanceMutex();
-    if (mutexName.empty()) {
+    if (mutexName.empty())  // Check if mutex creation failed
+    {
         MessageBox(NULL, L"Another instance is already running.", L"Basic Game Engine", MB_OK | MB_ICONWARNING);
         return 0; // Exit if a mutex could not be created
     }
@@ -87,7 +88,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         gameThread.join(); // Wait for the game thread to finish
     }
 
-    windowMutexMgr.ReleaseInstanceMutex(mutexName); // Release the mutex
+    windowMutexMgr.ReleaseInstanceMutex(mutexName); // Release the unique mutex
 
     return (int)msg.wParam;
 }
