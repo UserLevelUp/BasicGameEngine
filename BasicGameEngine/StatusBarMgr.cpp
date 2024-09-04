@@ -33,8 +33,8 @@ void StatusBarMgr::Update()
     double fps = statusBar.GetFramerate();
 
     // Create a formatted string to display, including instance count
-    wchar_t displayText[100];
-    swprintf_s(displayText, 100, L"%s | FPS: %.2f | Instances: %d", statusText.c_str(), fps, instanceCount);
+    wchar_t displayText[256]; // Increase to 256 or an appropriate size
+    swprintf_s(displayText, sizeof(displayText) / sizeof(displayText[0]), L"%s | FPS: %.2f | Instances: %d", statusText.c_str(), fps, instanceCount);
 
     // Update the text displayed on the status bar
     UpdateText(displayText);
