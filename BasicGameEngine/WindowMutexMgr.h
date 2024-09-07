@@ -20,5 +20,5 @@ public:
 
 private:
     std::map<std::wstring, WindowMutex> instanceMutexes; // Use WindowMutex objects
-    int instanceCount = 0;
+    //int instanceCount = 0;
 };

@@ -12,6 +12,7 @@
 #include "TaskBarMgr.h"
 #include "WindowMutexMgr.h"
 #include "InterprocessCommMgr.h"  // Include the InterprocessCommMgr header
+#include "SharedMemoryData.h"      // Include the shared memory struct
 
 WindowMutexMgr windowMutexMgr; // Instance of the WindowMutexMgr
 TaskBarMgr taskBarMgr; // Instance of the TaskBarMgr class
@@ -62,15 +63,24 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     }
 
     // Initialize shared memory using InterprocessCommMgr
-    comm = commMgr.CreateInterprocessComm(L"Global\\BasicGameEngineSharedMemory", sizeof(int));
+    comm = commMgr.CreateInterprocessComm(L"Global\\BasicGameEngineSharedMemory", sizeof(SharedMemoryData));
     if (!comm)
     {
         MessageBox(NULL, L"Could not create or access shared memory.", L"Error", MB_OK | MB_ICONERROR);
         return 0;
     }
 
-    // Increment the shared counter
-    InterlockedIncrement(reinterpret_cast<LONG*>(comm->GetSharedMemoryPointer()));
+    // Access the shared data structure
+    SharedMemoryData* sharedData = comm->GetSharedMemoryPointer();
+    if (sharedData)
+    {
+        //InterlockedIncrement(&sharedData->instanceCount); // Safely increment the instance count
+    }
+    else
+    {
+        MessageBox(NULL, L"Could not access shared memory.", L"Error", MB_OK | MB_ICONERROR);
+        return 0; // Handle the error appropriately
+    }
 
     // Initialize global strings, register class, etc.
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -83,8 +93,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     }
 
     // Update the instance count in the status bar
-    int instanceCount = *reinterpret_cast<LONG*>(comm->GetSharedMemoryPointer());
-    statusBarMgr.UpdateInstanceCount(instanceCount); // Update status bar with instance count
+    if (sharedData) {
+        statusBarMgr.UpdateInstanceCount(sharedData->instanceCount); // Update status bar with instance count
+    }
 
     // Start the game loop in a separate thread
     gameThread = std::thread(GameLoop);
@@ -100,9 +111,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             DispatchMessage(&msg);
         }
     }
-
-    // Decrement the shared counter before exit
-    InterlockedDecrement(reinterpret_cast<LONG*>(comm->GetSharedMemoryPointer()));
 
     // Clean up shared memory
     commMgr.ReleaseInterprocessComm(L"Global\\BasicGameEngineSharedMemory");
@@ -128,61 +136,47 @@ void GameLoop()
     LARGE_INTEGER previousTime, currentTime;
     QueryPerformanceCounter(&previousTime);
 
-    const int targetFPS = 60; // Target frames per second
-    const double targetFrameDuration = 1000.0 / targetFPS; // Target duration for each frame in milliseconds
+    const int targetFPS = 60;
+    const double targetFrameDuration = 1000.0 / targetFPS;
 
-    while (shouldRun)
-    {
-        // Check if this instance should run based on focus and foreground window
-        if (!isFocused || GetForegroundWindow() != g_hWnd)
-        {
+    while (shouldRun) {
+        if (!isFocused || GetForegroundWindow() != g_hWnd) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
 
-        // Lock the game loop for thread safety
         std::lock_guard<std::mutex> lock(gameLoopMutex);
 
-        // Calculate deltaTime in milliseconds
         QueryPerformanceCounter(&currentTime);
         double deltaTime = (double)(currentTime.QuadPart - previousTime.QuadPart) * 1000.0 / frequency.QuadPart;
-        previousTime = currentTime; // Update the previous time
+        previousTime = currentTime;
 
-        // Update the position of the line based on speed and deltaTime
-        if (movingRight)
-        {
-            lineX += speed * deltaTime; // Adjust the position based on speed and deltaTime
-            if (lineX >= 200) movingRight = false; // Stop and reverse direction
+        if (movingRight) {
+            lineX += speed * deltaTime;
+            if (lineX >= 200) movingRight = false;
         }
-        else
-        {
-            lineX -= speed * deltaTime; // Adjust the position based on speed and deltaTime
-            if (lineX <= 10) movingRight = true; // Stop and reverse direction
+        else {
+            lineX -= speed * deltaTime;
+            if (lineX <= 10) movingRight = true;
         }
 
-        // Redraw only the specific area where the line is moving
         RECT updateRect;
-        updateRect.left = 0; // Start from the top-left corner of the window
+        updateRect.left = 0;
         updateRect.top = 0;
-        updateRect.right = 220; // Width of the line drawing area
-        updateRect.bottom = 220; // Height of the line drawing area
+        updateRect.right = 220;
+        updateRect.bottom = 220;
 
-        InvalidateRect(g_hWnd, &updateRect, FALSE); // Use g_hWnd instead of GetActiveWindow()
+        InvalidateRect(g_hWnd, &updateRect, FALSE);
 
-        // Update the status bar
         statusBarMgr.Update();
 
-        // Measure time taken for this frame
         QueryPerformanceCounter(&currentTime);
         double frameTime = (double)(currentTime.QuadPart - previousTime.QuadPart) * 1000.0 / frequency.QuadPart;
 
         // Introduce a more precise delay to cap the frame rate
-        if (frameTime < targetFrameDuration)
-        {
+        if (frameTime < targetFrameDuration) {
             std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(targetFrameDuration - frameTime - 1)));
-
-            while (true)
-            {
+            while (true) {
                 QueryPerformanceCounter(&currentTime);
                 frameTime = (double)(currentTime.QuadPart - previousTime.QuadPart) * 1000.0 / frequency.QuadPart;
                 if (frameTime >= targetFrameDuration)
@@ -191,6 +185,22 @@ void GameLoop()
         }
     }
 }
+
+//// Update your `StatusBarMgr` class to read the `instanceCount` from shared memory whenever necessary.
+//void StatusBarMgr::Update()
+//{
+//    // Get updated data from shared memory
+//    SharedMemoryData* sharedData = reinterpret_cast<SharedMemoryData*>(comm->GetSharedMemoryPointer());
+//    if (!sharedData) return;
+//
+//    std::wstring statusText = statusBar.GetStatus();
+//    double fps = statusBar.GetFramerate();
+//
+//    wchar_t displayText[100];
+//    swprintf_s(displayText, 100, L"%s | FPS: %.2f | Instances: %d", statusText.c_str(), fps, sharedData->instanceCount);
+//
+//    UpdateText(displayText);
+//}
 
 //
 //  FUNCTION: MyRegisterClass()
@@ -246,6 +256,9 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     // Create the status bar
     statusBarMgr.Create(hWnd, hInstance);
 
+    // Set a timer to update every 1000 milliseconds (1 second)
+    SetTimer(hWnd, 1, 1000, NULL);
+
     return TRUE;
 }
 
@@ -254,6 +267,34 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
+    case WM_LBUTTONDOWN:
+        // Update instance count when the window is clicked
+        if (isFocused)
+        {
+            int instanceCount = *reinterpret_cast<LONG*>(comm->GetSharedMemoryPointer()); // Get the updated count from shared memory
+            statusBarMgr.UpdateInstanceCount(instanceCount); // Update the status bar with the new count
+        }
+    break;
+    case WM_SIZE:
+    {
+        // Handle resizing the window
+        if (wParam != SIZE_MINIMIZED) // Ignore if the window is minimized
+        {
+            // Adjust the size of the status bar to fit the bottom of the window
+            RECT rcClient;
+            GetClientRect(hWnd, &rcClient); // Get the new client area of the window
+
+            // Reposition the status bar at the bottom of the window
+            if (statusBarMgr.GetHandle()) // Ensure status bar handle is valid
+            {
+                SetWindowPos(statusBarMgr.GetHandle(), nullptr, 0, 0, rcClient.right, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+            }
+
+            // Resize other components as needed (e.g., taskbar)
+            statusBarMgr.Resize(); // Make sure your TaskBarMgr has a Resize function to handle resizing if needed
+        }
+    }
+    break;
     case WM_ACTIVATE:
         isFocused = (wParam != WA_INACTIVE);
 
