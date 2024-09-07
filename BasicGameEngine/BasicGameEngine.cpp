@@ -74,7 +74,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     SharedMemoryData* sharedData = comm->GetSharedMemoryPointer();
     if (sharedData)
     {
-        InterlockedIncrement(&sharedData->instanceCount); // Safely increment the instance count
+        //InterlockedIncrement(&sharedData->instanceCount); // Safely increment the instance count
     }
     else
     {
@@ -110,11 +110,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
-    }
-
-    // Decrement the shared counter before exit
-    if (sharedData) {
-        InterlockedDecrement(&sharedData->instanceCount);
     }
 
     // Clean up shared memory
@@ -261,6 +256,9 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     // Create the status bar
     statusBarMgr.Create(hWnd, hInstance);
 
+    // Set a timer to update every 1000 milliseconds (1 second)
+    SetTimer(hWnd, 1, 1000, NULL);
+
     return TRUE;
 }
 
@@ -269,6 +267,34 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
+    case WM_LBUTTONDOWN:
+        // Update instance count when the window is clicked
+        if (isFocused)
+        {
+            int instanceCount = *reinterpret_cast<LONG*>(comm->GetSharedMemoryPointer()); // Get the updated count from shared memory
+            statusBarMgr.UpdateInstanceCount(instanceCount); // Update the status bar with the new count
+        }
+    break;
+    case WM_SIZE:
+    {
+        // Handle resizing the window
+        if (wParam != SIZE_MINIMIZED) // Ignore if the window is minimized
+        {
+            // Adjust the size of the status bar to fit the bottom of the window
+            RECT rcClient;
+            GetClientRect(hWnd, &rcClient); // Get the new client area of the window
+
+            // Reposition the status bar at the bottom of the window
+            if (statusBarMgr.GetHandle()) // Ensure status bar handle is valid
+            {
+                SetWindowPos(statusBarMgr.GetHandle(), nullptr, 0, 0, rcClient.right, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+            }
+
+            // Resize other components as needed (e.g., taskbar)
+            statusBarMgr.Resize(); // Make sure your TaskBarMgr has a Resize function to handle resizing if needed
+        }
+    }
+    break;
     case WM_ACTIVATE:
         isFocused = (wParam != WA_INACTIVE);
 

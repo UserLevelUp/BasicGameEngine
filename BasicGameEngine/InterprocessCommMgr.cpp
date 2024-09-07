@@ -1,4 +1,5 @@
 #include "InterprocessCommMgr.h"
+#include <iostream>
 
 InterprocessCommMgr& InterprocessCommMgr::GetInstance()
 {
@@ -6,8 +7,10 @@ InterprocessCommMgr& InterprocessCommMgr::GetInstance()
     return instance;
 }
 
+// Constructor
 InterprocessCommMgr::InterprocessCommMgr() : instanceCount(0) {}
 
+// Destructor
 InterprocessCommMgr::~InterprocessCommMgr()
 {
     for (auto& entry : interprocessComms)
@@ -19,11 +22,13 @@ InterprocessCommMgr::~InterprocessCommMgr()
 
 InterprocessComm* InterprocessCommMgr::CreateInterprocessComm(const std::wstring& name, size_t size)
 {
+    // Check if an instance with the same name already exists
     if (interprocessComms.find(name) != interprocessComms.end())
     {
         return interprocessComms[name];
     }
 
+    // Create a new InterprocessComm instance
     InterprocessComm* comm = new InterprocessComm(name, size);
     if (comm->CreateSharedMemory())
     {
@@ -39,16 +44,16 @@ InterprocessComm* InterprocessCommMgr::CreateInterprocessComm(const std::wstring
     return comm;
 }
 
-void InterprocessCommMgr::ReleaseInterprocessComm(const std::wstring& name)
-{
+// Release an InterprocessComm instance and manage shared memory
+void InterprocessCommMgr::ReleaseInterprocessComm(const std::wstring& name) {
     auto it = interprocessComms.find(name);
-    if (it != interprocessComms.end())
-    {
+    if (it != interprocessComms.end()) {
+        // Clean up the InterprocessComm instance
         delete it->second;
         interprocessComms.erase(it);
-        instanceCount--;
     }
 }
+
 
 int InterprocessCommMgr::GetInstanceCount() const
 {

@@ -1,10 +1,34 @@
 #include "InterprocessComm.h"
+#include <iostream>
 
 InterprocessComm::InterprocessComm(const std::wstring& name, size_t size)
-    : name(name), size(size), hMapFile(NULL), pSharedMemory(NULL) {}
+    : name(name), size(size), hMapFile(NULL), pSharedMemory(NULL) {
+    if (CreateSharedMemory()) {
+        // Increment the instance count only when the shared memory is successfully created
+        SharedMemoryData* sharedData = GetSharedMemoryPointer();
+        if (sharedData) {
+            InterlockedIncrement(&sharedData->instanceCount);
+        }
+    }
+}
 
 InterprocessComm::~InterprocessComm() {
-    ReleaseSharedMemory();
+    // Decrement the instance count only when the instance is destroyed
+    SharedMemoryData* sharedData = GetSharedMemoryPointer();
+    if (sharedData) {
+        LONG newCount = InterlockedDecrement(&sharedData->instanceCount);
+        // Debug output
+        std::wcout << L"Decremented instance count to: " << newCount << std::endl;
+
+        // Only release shared memory if it's the last instance
+        if (newCount == 0) {
+            ReleaseSharedMemory();
+        }
+    }
+    else {
+        // If sharedData is null, just release the memory
+        ReleaseSharedMemory();
+    }
 }
 
 bool InterprocessComm::CreateSharedMemory() {
@@ -20,6 +44,9 @@ bool InterprocessComm::CreateSharedMemory() {
         return false;
     }
 
+    // Check if the memory mapping object already exists or not
+    bool alreadyExists = (GetLastError() == ERROR_ALREADY_EXISTS);
+
     pSharedMemory = MapViewOfFile(
         hMapFile,               // Handle to map object
         FILE_MAP_ALL_ACCESS,    // Read/write permission
@@ -31,6 +58,11 @@ bool InterprocessComm::CreateSharedMemory() {
         CloseHandle(hMapFile);
         hMapFile = NULL;
         return false;
+    }
+
+    // If this is a new shared memory (not previously existing), initialize it
+    if (!alreadyExists) {
+        ZeroMemory(pSharedMemory, size); // Initialize the shared memory to zero
     }
 
     return true;

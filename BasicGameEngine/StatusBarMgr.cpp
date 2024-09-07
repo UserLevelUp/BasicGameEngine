@@ -75,3 +75,9 @@ void StatusBarMgr::UpdateInstanceCount(int count)
     instanceCount = count; // Set the new instance count
     Update(); // Refresh the status bar text with the new count
 }
+
+// In StatusBarMgr.cpp
+HWND StatusBarMgr::GetHandle() const
+{
+    return hStatusBar;
+}

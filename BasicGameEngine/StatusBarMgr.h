@@ -14,6 +14,8 @@ public:
     void CalculateFramerate();                         // Calculate the current framerate
     void Resize();                                     // Resize the status bar
     void UpdateInstanceCount(int count);               // New method to update instance count
+    // In StatusBarMgr.h
+    HWND GetHandle() const;
 
 private:
     HWND hStatusBar;                                   // Handle to the status bar
