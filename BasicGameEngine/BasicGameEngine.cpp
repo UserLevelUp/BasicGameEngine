@@ -13,7 +13,9 @@
 #include "WindowMutexMgr.h"
 #include "InterprocessCommMgr.h"  // Include the InterprocessCommMgr header
 #include "SharedMemoryData.h"      // Include the shared memory struct
+#include "UserPrivilegeMgr.h"
 
+UserPrivilegeMgr userPrivilegeMgr;
 WindowMutexMgr windowMutexMgr; // Instance of the WindowMutexMgr
 TaskBarMgr taskBarMgr; // Instance of the TaskBarMgr class
 StatusBarMgr statusBarMgr; // Instance of the StatusBarMgr class
@@ -69,6 +71,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         MessageBox(NULL, L"Could not create or access shared memory.", L"Error", MB_OK | MB_ICONERROR);
         return 0;
     }
+
+    // Update the status bar with the privilege status
+    std::wstring privilegeStatus = userPrivilegeMgr.GetUserPrivilege().GetPrivilegeStatus();
+    statusBarMgr.UpdatePrivilegeStatus(privilegeStatus);
 
     // Access the shared data structure
     SharedMemoryData* sharedData = comm->GetSharedMemoryPointer();
@@ -255,6 +261,10 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     // Create the status bar
     statusBarMgr.Create(hWnd, hInstance);
+
+    // Update the status bar with the privilege status
+    std::wstring privilegeStatus = userPrivilegeMgr.GetUserPrivilege().GetPrivilegeStatus();
+    statusBarMgr.UpdatePrivilegeStatus(privilegeStatus);
 
     // Set a timer to update every 1000 milliseconds (1 second)
     SetTimer(hWnd, 1, 1000, NULL);
