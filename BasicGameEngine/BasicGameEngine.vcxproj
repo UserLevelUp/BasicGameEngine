@@ -137,6 +137,8 @@
     <ClInclude Include="StatusBarMgr.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="TaskBarMgr.h" />
+    <ClInclude Include="UserPrivilege.h" />
+    <ClInclude Include="UserPrivilegeMgr.h" />
     <ClInclude Include="WindowMutex.h" />
     <ClInclude Include="WindowMutexMgr.h" />
   </ItemGroup>
@@ -147,6 +149,8 @@
     <ClCompile Include="StatusBar.cpp" />
     <ClCompile Include="StatusBarMgr.cpp" />
     <ClCompile Include="TaskBarMgr.cpp" />
+    <ClCompile Include="UserPrivilege.cpp" />
+    <ClCompile Include="UserPrivilegeMgr.cpp" />
     <ClCompile Include="WindowMutex.cpp" />
     <ClCompile Include="WindowMutexMgr.cpp" />
   </ItemGroup>

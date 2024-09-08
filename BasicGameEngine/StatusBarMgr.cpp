@@ -2,7 +2,7 @@
 #include <CommCtrl.h>
 
 StatusBarMgr::StatusBarMgr()
-    : hStatusBar(NULL), instanceCount(0) // Initialize instanceCount
+    : hStatusBar(NULL), instanceCount(0), currentText(L""), privilegeStatus(L"Unknown"), lastFrameTime(std::chrono::steady_clock::now())
 {
     lastFrameTime = std::chrono::steady_clock::now();
 }
@@ -19,22 +19,23 @@ void StatusBarMgr::Create(HWND hWndParent, HINSTANCE hInstance)
 
     if (hStatusBar)
     {
-        SendMessage(hStatusBar, SB_SETTEXT, 0, (LPARAM)L"FPS: 0.00 | Instances: 0");
+        SendMessage(hStatusBar, SB_SETTEXT, 0, (LPARAM)L"FPS: 0.00 | Instances: 0 | Privilege: Unknown");
     }
 }
 
 void StatusBarMgr::Update()
 {
+    // Combine the different parts of the status text: Privilege Status, FPS, Instance Count
     // Calculate the framerate
     CalculateFramerate();
 
     // Get the status message and framerate from the StatusBar class
     std::wstring statusText = statusBar.GetStatus();
     double fps = statusBar.GetFramerate();
-
-    // Create a formatted string to display, including instance count
     wchar_t displayText[256]; // Increase to 256 or an appropriate size
-    swprintf_s(displayText, sizeof(displayText) / sizeof(displayText[0]), L"%s | FPS: %.2f | Instances: %d", statusText.c_str(), fps, instanceCount);
+    swprintf_s(displayText, sizeof(displayText) / sizeof(displayText[0]),
+        L"%s | FPS: %.2f | Instances: %d | Privilege: %s",
+        currentText.c_str(), statusBar.GetFramerate(), instanceCount, privilegeStatus.c_str());
 
     // Update the text displayed on the status bar
     UpdateText(displayText);
@@ -76,8 +77,27 @@ void StatusBarMgr::UpdateInstanceCount(int count)
     Update(); // Refresh the status bar text with the new count
 }
 
-// In StatusBarMgr.cpp
 HWND StatusBarMgr::GetHandle() const
 {
     return hStatusBar;
+}
+
+void StatusBarMgr::SetStatusText(const std::wstring& text)
+{
+    currentText = text;
+    if (hStatusBar)
+    {
+        SendMessage(hStatusBar, SB_SETTEXT, 0, (LPARAM)currentText.c_str());
+    }
+}
+
+std::wstring StatusBarMgr::GetStatusText() const
+{
+    return currentText; // Return the current text stored
+}
+
+void StatusBarMgr::UpdatePrivilegeStatus(const std::wstring& status)
+{
+    privilegeStatus = status; // Update the stored privilege status
+    Update(); // Refresh the status bar text with the new privilege status
 }
