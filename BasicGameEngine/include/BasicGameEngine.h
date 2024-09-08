@@ -1,6 +1,6 @@
 #pragma once
 
-#include "resource.h"
+#include "..\Resource.h"
 
 // Function declarations for tray icon management
 void AddTrayIcon(HWND hWnd);    // Declare the AddTrayIcon function
