@@ -1,5 +1,5 @@
 #include "TaskBarMgr.h"
-#include "resource.h" // Include your specific resource header file
+#include "..\resource.h" // Include your specific resource header file
 #include "StatusBarMgr.h"
 
 TaskBarMgr::TaskBarMgr()

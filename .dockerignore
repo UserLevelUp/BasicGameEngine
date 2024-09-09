@@ -1,0 +1,17 @@
+# Ignore Visual Studio files
+.vs/
+*.user
+*.suo
+*.VC.db
+
+# Ignore build directories
+x64/
+Debug/
+Release/
+
+# Ignore any other temporary files or directories
+*.log
+*.obj
+*.tlog
+*.idb
+*.pdb

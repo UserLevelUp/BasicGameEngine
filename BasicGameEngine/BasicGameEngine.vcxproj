@@ -76,6 +76,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>$(ProjectDir)\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -104,6 +105,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>$(ProjectDir)\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -127,32 +129,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="BasicGameEngine.h" />
-    <ClInclude Include="framework.h" />
-    <ClInclude Include="InterprocessComm.h" />
-    <ClInclude Include="InterprocessCommMgr.h" />
-    <ClInclude Include="Resource.h" />
-    <ClInclude Include="SharedMemoryData.h" />
-    <ClInclude Include="StatusBar.h" />
-    <ClInclude Include="StatusBarMgr.h" />
-    <ClInclude Include="targetver.h" />
-    <ClInclude Include="TaskBarMgr.h" />
-    <ClInclude Include="UserPrivilege.h" />
-    <ClInclude Include="UserPrivilegeMgr.h" />
-    <ClInclude Include="WindowMutex.h" />
-    <ClInclude Include="WindowMutexMgr.h" />
+    <ClInclude Include="include\**\*.h" />
+    <ClCompile Include="src\**\*.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="BasicGameEngine.cpp" />
-    <ClCompile Include="InterprocessComm.cpp" />
-    <ClCompile Include="InterprocessCommMgr.cpp" />
-    <ClCompile Include="StatusBar.cpp" />
-    <ClCompile Include="StatusBarMgr.cpp" />
-    <ClCompile Include="TaskBarMgr.cpp" />
-    <ClCompile Include="UserPrivilege.cpp" />
-    <ClCompile Include="UserPrivilegeMgr.cpp" />
-    <ClCompile Include="WindowMutex.cpp" />
-    <ClCompile Include="WindowMutexMgr.cpp" />
+    <ClInclude Include="targetver.h" />
+    <ClInclude Include="Resource.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="BasicGameEngine.rc" />
@@ -160,6 +142,13 @@
   <ItemGroup>
     <Image Include="BasicGameEngine.ico" />
     <Image Include="small.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="CMakeLists.txt" />
+    <Text Include="Dockerfile" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Dockerfile_MSVC" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

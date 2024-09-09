@@ -7,7 +7,7 @@
 #include <iostream>
 #include <thread>
 #include <mutex> // For std::mutex and std::lock_guard
-#include "resource.h"
+#include "..\resource.h"
 #include <shellapi.h>
 #include "TaskBarMgr.h"
 #include "WindowMutexMgr.h"
