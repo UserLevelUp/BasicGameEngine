@@ -145,7 +145,10 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="CMakeLists.txt" />
-    <Text Include="Dockerfile.txt" />
+    <Text Include="Dockerfile" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Dockerfile_MSVC" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

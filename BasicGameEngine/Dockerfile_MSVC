@@ -1,0 +1,47 @@
+# Use the official Microsoft Visual Studio Build Tools base image
+FROM mcr.microsoft.com/windows/servercore:ltsc2019
+
+# Set up proxy settings if needed
+ENV HTTP_PROXY=http://yourproxy:port
+ENV HTTPS_PROXY=http://yourproxy:port
+
+# Install Visual Studio Build Tools and CMake
+RUN powershell -Command " \
+    Set-ExecutionPolicy Bypass -Scope Process -Force; \
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; \
+    $retryCount = 0; \
+    $maxRetries = 5; \
+    while ($retryCount -lt $maxRetries) { \
+        try { \
+            Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vs_buildtools.exe' -OutFile 'vs_buildtools.exe'; \
+            Write-Host 'Downloading Visual Studio Build Tools...'; \
+            Start-Process -Wait -FilePath 'vs_buildtools.exe' -ArgumentList '--quiet', '--wait', '--add Microsoft.VisualStudio.Workload.VCTools'; \
+            Write-Host 'Visual Studio Build Tools installation completed.'; \
+            if (Test-Path 'C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC') { \
+                Write-Host 'MSVC installation verified.'; \
+                break; \
+            } else { \
+                Write-Error 'MSVC not found!'; \
+                Get-ChildItem 'C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools'; \
+                exit 1; \
+            } \
+        } catch { \
+            Write-Host 'Download failed, retrying...'; \
+            $retryCount++; \
+            Start-Sleep -Seconds 10; \
+        } \
+    }; \
+    if ($retryCount -eq $maxRetries) { \
+        Write-Error 'Failed to download Visual Studio Build Tools after multiple attempts.'; \
+        exit 1; \
+    }; \
+    Remove-Item -Force vs_buildtools.exe"
+
+# Set the working directory
+WORKDIR /app
+
+# Copy the current directory contents into the container at /app
+COPY . .
+
+# Run PowerShell in the container
+CMD ["powershell"]
