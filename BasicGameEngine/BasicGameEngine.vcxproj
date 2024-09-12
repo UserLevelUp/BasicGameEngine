@@ -76,6 +76,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -104,6 +105,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -127,32 +129,38 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="BasicGameEngine.h" />
+    <ClInclude Include="include\BasicGameEngine.h" />
     <ClInclude Include="framework.h" />
-    <ClInclude Include="InterprocessComm.h" />
-    <ClInclude Include="InterprocessCommMgr.h" />
+    <ClInclude Include="include\InterprocessComm.h" />
+    <ClInclude Include="include\InterprocessCommMgr.h" />
+    <ClInclude Include="include\op\OpNode.h" />
+    <ClInclude Include="include\op\IOperate.h" />
+    <ClInclude Include="include\op\OpNodeMgr.h" />
     <ClInclude Include="Resource.h" />
-    <ClInclude Include="SharedMemoryData.h" />
-    <ClInclude Include="StatusBar.h" />
-    <ClInclude Include="StatusBarMgr.h" />
+    <ClInclude Include="include\SharedMemoryData.h" />
+    <ClInclude Include="include\StatusBar.h" />
+    <ClInclude Include="include\StatusBarMgr.h" />
     <ClInclude Include="targetver.h" />
-    <ClInclude Include="TaskBarMgr.h" />
-    <ClInclude Include="UserPrivilege.h" />
-    <ClInclude Include="UserPrivilegeMgr.h" />
-    <ClInclude Include="WindowMutex.h" />
-    <ClInclude Include="WindowMutexMgr.h" />
+    <ClInclude Include="include\TaskBarMgr.h" />
+    <ClInclude Include="include\UserPrivilege.h" />
+    <ClInclude Include="include\UserPrivilegeMgr.h" />
+    <ClInclude Include="include\WindowMutex.h" />
+    <ClInclude Include="include\WindowMutexMgr.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="BasicGameEngine.cpp" />
-    <ClCompile Include="InterprocessComm.cpp" />
-    <ClCompile Include="InterprocessCommMgr.cpp" />
-    <ClCompile Include="StatusBar.cpp" />
-    <ClCompile Include="StatusBarMgr.cpp" />
-    <ClCompile Include="TaskBarMgr.cpp" />
-    <ClCompile Include="UserPrivilege.cpp" />
-    <ClCompile Include="UserPrivilegeMgr.cpp" />
-    <ClCompile Include="WindowMutex.cpp" />
-    <ClCompile Include="WindowMutexMgr.cpp" />
+    <ClCompile Include="src\op\IOperate.cpp" />
+    <ClCompile Include="src\op\OpNode.cpp" />
+    <ClCompile Include="src\BasicGameEngine.cpp" />
+    <ClCompile Include="src\InterprocessComm.cpp" />
+    <ClCompile Include="src\InterprocessCommMgr.cpp" />
+    <ClCompile Include="src\op\OpNodeMgr.cpp" />
+    <ClCompile Include="src\StatusBar.cpp" />
+    <ClCompile Include="src\StatusBarMgr.cpp" />
+    <ClCompile Include="src\TaskBarMgr.cpp" />
+    <ClCompile Include="src\UserPrivilege.cpp" />
+    <ClCompile Include="src\UserPrivilegeMgr.cpp" />
+    <ClCompile Include="src\WindowMutex.cpp" />
+    <ClCompile Include="src\WindowMutexMgr.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="BasicGameEngine.rc" />
