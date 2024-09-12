@@ -1,4 +1,4 @@
-#include "StatusBarMgr.h"
+#include "../include/StatusBarMgr.h"
 #include <CommCtrl.h>
 
 StatusBarMgr::StatusBarMgr()

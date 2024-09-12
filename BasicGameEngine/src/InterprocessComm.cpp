@@ -1,4 +1,4 @@
-#include "InterprocessComm.h"
+#include "../include/InterprocessComm.h"
 #include <iostream>
 
 InterprocessComm::InterprocessComm(const std::wstring& name, size_t size)

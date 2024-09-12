@@ -1,4 +1,4 @@
-#include "UserPrivilegeMgr.h"
+#include "../include/UserPrivilegeMgr.h"
 #include <iostream>
 
 UserPrivilegeMgr::UserPrivilegeMgr() {

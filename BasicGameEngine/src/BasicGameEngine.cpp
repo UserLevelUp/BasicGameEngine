@@ -1,19 +1,19 @@
 // BasicGameEngine.cpp : Defines the entry point for the application.
 
-#include "StatusBarMgr.h"
-#include "framework.h"
-#include "BasicGameEngine.h"
+#include "../include/StatusBarMgr.h"
+#include "../framework.h"
+#include "../include/BasicGameEngine.h"
 #include <chrono>
 #include <iostream>
 #include <thread>
 #include <mutex> // For std::mutex and std::lock_guard
-#include "resource.h"
+#include "../resource.h"
 #include <shellapi.h>
-#include "TaskBarMgr.h"
-#include "WindowMutexMgr.h"
-#include "InterprocessCommMgr.h"  // Include the InterprocessCommMgr header
-#include "SharedMemoryData.h"      // Include the shared memory struct
-#include "UserPrivilegeMgr.h"
+#include "../include/TaskBarMgr.h"
+#include "../include/WindowMutexMgr.h"
+#include "../include/InterprocessCommMgr.h"  // Include the InterprocessCommMgr header
+#include "../include/SharedMemoryData.h"      // Include the shared memory struct
+#include "../include/UserPrivilegeMgr.h"
 
 UserPrivilegeMgr userPrivilegeMgr;
 WindowMutexMgr windowMutexMgr; // Instance of the WindowMutexMgr

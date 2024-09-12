@@ -1,6 +1,6 @@
-#include "TaskBarMgr.h"
-#include "resource.h" // Include your specific resource header file
-#include "StatusBarMgr.h"
+#include "../include/TaskBarMgr.h"
+#include "../resource.h" // Include your specific resource header file
+#include "../include/StatusBarMgr.h"
 
 TaskBarMgr::TaskBarMgr()
     : hWnd_(nullptr), hInstance_(nullptr), hTrayMenu_(nullptr)

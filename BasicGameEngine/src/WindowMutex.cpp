@@ -1,4 +1,4 @@
-#include "WindowMutex.h"
+#include "../include/WindowMutex.h"
 
 // Default constructor
 WindowMutex::WindowMutex() : handle(nullptr) {}

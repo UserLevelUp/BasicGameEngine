@@ -1,4 +1,4 @@
-#include "StatusBar.h"
+#include "../include/StatusBar.h"
 // Changed StatusBar to be more of a model than 
 // used to manage the StatusBar
 

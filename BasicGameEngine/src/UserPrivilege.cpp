@@ -1,4 +1,4 @@
-#include "UserPrivilege.h"
+#include "../include/UserPrivilege.h"
 
 UserPrivilege::UserPrivilege() : privilegeStatus(L"Unknown") {}
 

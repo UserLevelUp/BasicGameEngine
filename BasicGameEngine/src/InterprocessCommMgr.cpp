@@ -1,4 +1,4 @@
-#include "InterprocessCommMgr.h"
+#include "../include/InterprocessCommMgr.h"
 #include <iostream>
 
 InterprocessCommMgr& InterprocessCommMgr::GetInstance()

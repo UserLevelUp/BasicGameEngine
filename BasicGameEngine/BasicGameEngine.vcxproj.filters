@@ -24,69 +24,69 @@
     <ClInclude Include="Resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="BasicGameEngine.h">
+    <ClInclude Include="include\BasicGameEngine.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="StatusBar.h">
+    <ClInclude Include="include\StatusBar.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="StatusBarMgr.h">
+    <ClInclude Include="include\StatusBarMgr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TaskBarMgr.h">
+    <ClInclude Include="include\TaskBarMgr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="WindowMutexMgr.h">
+    <ClInclude Include="include\WindowMutexMgr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="WindowMutex.h">
+    <ClInclude Include="include\WindowMutex.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="InterprocessComm.h">
+    <ClInclude Include="include\InterprocessComm.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="InterprocessCommMgr.h">
+    <ClInclude Include="include\InterprocessCommMgr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="SharedMemoryData.h">
+    <ClInclude Include="include\SharedMemoryData.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="UserPrivilege.h">
+    <ClInclude Include="include\UserPrivilege.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="UserPrivilegeMgr.h">
+    <ClInclude Include="include\UserPrivilegeMgr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="BasicGameEngine.cpp">
+    <ClCompile Include="src\BasicGameEngine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="StatusBar.cpp">
+    <ClCompile Include="src\StatusBar.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="StatusBarMgr.cpp">
+    <ClCompile Include="src\StatusBarMgr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="TaskBarMgr.cpp">
+    <ClCompile Include="src\TaskBarMgr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="WindowMutexMgr.cpp">
+    <ClCompile Include="src\WindowMutexMgr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="WindowMutex.cpp">
+    <ClCompile Include="src\WindowMutex.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="InterprocessComm.cpp">
+    <ClCompile Include="src\InterprocessComm.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="InterprocessCommMgr.cpp">
+    <ClCompile Include="src\InterprocessCommMgr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="UserPrivilege.cpp">
+    <ClCompile Include="src\UserPrivilege.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="UserPrivilegeMgr.cpp">
+    <ClCompile Include="src\UserPrivilegeMgr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

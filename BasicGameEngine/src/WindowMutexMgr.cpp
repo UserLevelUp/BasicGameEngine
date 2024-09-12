@@ -1,9 +1,9 @@
-#include "WindowMutexMgr.h"
+#include "../include/WindowMutexMgr.h"
 #include <sstream>
 #include <random>  // Include for generating a random number or GUID
-#include "SharedMemoryData.h"
+#include "../include/SharedMemoryData.h"
 #include <iostream>  // Include for debug output
-#include "InterprocessCommMgr.h"
+#include "../include/InterprocessCommMgr.h"
 #include <fstream>    // Include for file operations
 
 std::wstring WindowMutexMgr::CreateInstanceMutex() {
