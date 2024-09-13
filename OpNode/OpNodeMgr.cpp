@@ -1,12 +1,15 @@
-#include "../../include/op/OpNodeMgr.h"
+#include "pch.h"
+
+#include "OpNode.h"
+#include "OpNodeMgr.h"
 
 #ifndef OPNODEMGR_H
 #define OPNODEMGR_H
 
-#include "OpNode.h"
 #include <list>
 #include <memory>
 #include <string>
+#include "IOperate.h"
 
 // OpNode Manager class
 class OpNodeMgr {

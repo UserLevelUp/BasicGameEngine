@@ -1,6 +1,10 @@
-#include "../../include/op/OpNode.h"
-#include "../../include/op/IOperate.h"
+#include "pch.h"
+
+#include "OpNode.h"
+#include "IOperate.h"
 #include <algorithm> // For std::remove
+#include <string>
+
 
 // Constructors
 OpNode::OpNode() : name_(""), text_(""), tag_("") {}
@@ -67,6 +71,10 @@ std::string OpNode::GetValue(const std::string& key) const {
         return it->second;
     }
     return "";
+}
+
+const std::list<std::shared_ptr<OpNode>>& OpNode::GetChildren() const {
+    return children_;
 }
 
 // ... other methods remain the same

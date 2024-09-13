@@ -7,7 +7,8 @@
 #include <map>
 #include <regex>
 #include <iostream>
-#include <any> // Include the any header for std::any
+#include <any>
+
 
 // Forward declaration of IOperate interface
 class IOperate;
@@ -55,6 +56,9 @@ public:
     void SetText(const std::string& text);
     const std::any& GetTag() const; // Updated to use std::any
     void SetTag(const std::any& tag); // Updated to use std::any
+
+    // Getter for children
+    const std::list<std::shared_ptr<OpNode>>& GetChildren() const;
 
 private:
     std::string name_;
