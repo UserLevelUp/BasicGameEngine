@@ -4,6 +4,7 @@
 #include "IOperate.h"
 #include <algorithm> // For std::remove
 #include <string>
+#include "NameSpace.h"
 
 
 // Constructors
@@ -77,4 +78,10 @@ const std::list<std::shared_ptr<OpNode>>& OpNode::GetChildren() const {
     return children_;
 }
 
-// ... other methods remain the same
+const std::shared_ptr<NameSpace>& OpNode::GetNamespace() const {
+    return namespace_;
+}
+
+void OpNode::SetNamespace(const std::shared_ptr<NameSpace>& ns) {
+    namespace_ = ns;
+}

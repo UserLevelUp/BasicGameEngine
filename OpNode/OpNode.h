@@ -1,3 +1,4 @@
+// OpNode.h
 #ifndef OPNODE_H
 #define OPNODE_H
 
@@ -5,13 +6,10 @@
 #include <list>
 #include <memory>
 #include <map>
-#include <regex>
-#include <iostream>
 #include <any>
+#include "NameSpace.h" // Include the namespace header
 
-
-// Forward declaration of IOperate interface
-class IOperate;
+class IOperate; // Forward declaration
 
 class OpNode : public std::enable_shared_from_this<OpNode> {
 public:
@@ -40,8 +38,8 @@ public:
     void PerformOperations();
 
     // Serialization
-    void Serialize(); // Placeholder for serialization logic
-    void Deserialize(); // Placeholder for deserialization logic
+    void Serialize();
+    void Deserialize();
 
     // Utility functions
     std::string GetXmlName();
@@ -54,19 +52,24 @@ public:
     void SetName(const std::string& name);
     const std::string& GetText() const;
     void SetText(const std::string& text);
-    const std::any& GetTag() const; // Updated to use std::any
-    void SetTag(const std::any& tag); // Updated to use std::any
+    const std::any& GetTag() const;
+    void SetTag(const std::any& tag);
 
     // Getter for children
     const std::list<std::shared_ptr<OpNode>>& GetChildren() const;
 
+    // Namespace management
+    const std::shared_ptr<NameSpace>& GetNamespace() const;
+    void SetNamespace(const std::shared_ptr<NameSpace>& ns);
+
 private:
     std::string name_;
     std::string text_;
-    std::any tag_; // Updated to use std::any
+    std::any tag_;
     std::map<std::string, std::string> attributes_;
     std::list<std::shared_ptr<IOperate>> operations_;
     std::list<std::shared_ptr<OpNode>> children_;
+    std::shared_ptr<NameSpace> namespace_; // Use shared_ptr for namespace
     std::string errorString_;
 };
 

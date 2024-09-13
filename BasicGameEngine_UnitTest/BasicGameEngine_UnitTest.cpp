@@ -7,6 +7,23 @@ using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
 namespace BasicGameEngine_UnitTests
 {
+
+    TEST_CLASS(OpNodeNamespaceTests)
+    {
+    public:
+        TEST_METHOD(TestSetNamespace)
+        {
+            OpNode node("TestNode");
+            auto ns = std::make_shared<NameSpace>("ex", "suffix", "http://example.com/prefix", "http://example.com/suffix");
+            node.SetNamespace(ns);
+
+            Assert::AreEqual(std::string("ex"), node.GetNamespace()->GetPrefix());
+            Assert::AreEqual(std::string("suffix"), node.GetNamespace()->GetSuffix());
+            Assert::AreEqual(std::string("http://example.com/prefix"), node.GetNamespace()->GetURIPrefix());
+            Assert::AreEqual(std::string("http://example.com/suffix"), node.GetNamespace()->GetURISuffix());
+        }
+    };
+
     TEST_CLASS(OpNodeTests)
     {
     public:
@@ -41,4 +58,6 @@ namespace BasicGameEngine_UnitTests
             Assert::AreEqual(std::string("value"), node->GetValue("key"));
         }
     };
+
+
 }
