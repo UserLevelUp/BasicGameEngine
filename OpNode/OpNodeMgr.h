@@ -19,7 +19,7 @@ public:
     void AddRootNode(std::shared_ptr<OpNode> root);
     void RemoveRootNode(std::shared_ptr<OpNode> root);
 
-    // Execute all operations
+    // Execute all operations in all root nodes
     void ExecuteAllOperations();
 
     // Find a node by key
@@ -29,10 +29,19 @@ public:
     void SaveConfig(const std::string& filepath);
     void LoadConfig(const std::string& filepath);
 
+    // Namespace management
+    void AssignNamespaceToNode(std::shared_ptr<OpNode> node, const std::shared_ptr<NameSpace>& ns);
+    void PropagateNamespaceFromNode(std::shared_ptr<OpNode> node);
+
+    // Operation management
+    void ApplyOperationToNode(std::shared_ptr<IOperate> operation, std::shared_ptr<OpNode> node);
+    void EnforceOperationsRecursively(std::shared_ptr<OpNode> node);
+
 private:
     // Helper for recursive search
     std::shared_ptr<OpNode> FindNodeByKeyRecursive(const std::shared_ptr<OpNode>& current, const std::string& key) const;
 
+    // List of root nodes managed by the manager
     std::list<std::shared_ptr<OpNode>> root_nodes_;
 };
 

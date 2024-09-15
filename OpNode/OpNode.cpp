@@ -1,11 +1,16 @@
-#include "../../include/op/OpNode.h"
-#include "../../include/op/IOperate.h"
+#include "pch.h"
+
+#include "OpNode.h"
+#include "IOperate.h"
 #include <algorithm> // For std::remove
+#include <string>
+#include "NameSpace.h"
+
 
 // Constructors
 OpNode::OpNode() : name_(""), text_(""), tag_("") {}
 OpNode::OpNode(const std::string& name) : name_(name), text_(""), tag_("") {}
-OpNode::OpNode(const std::string& name, const std::string& tag) : name_(name), text_(""), tag_(tag) {}
+OpNode::OpNode(const std::string & name, const std::any & tag) : name_(name), tag_(tag) {}
 OpNode::OpNode(const std::string& name, int img1, int img2) : name_(name), text_(""), tag_("") {}
 
 // Destructor
@@ -69,4 +74,14 @@ std::string OpNode::GetValue(const std::string& key) const {
     return "";
 }
 
-// ... other methods remain the same
+const std::list<std::shared_ptr<OpNode>>& OpNode::GetChildren() const {
+    return children_;
+}
+
+const std::shared_ptr<NameSpace>& OpNode::GetNamespace() const {
+    return namespace_;
+}
+
+void OpNode::SetNamespace(const std::shared_ptr<NameSpace>& ns) {
+    namespace_ = ns;
+}
