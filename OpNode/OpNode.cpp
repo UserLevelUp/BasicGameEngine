@@ -10,7 +10,7 @@
 // Constructors
 OpNode::OpNode() : name_(""), text_(""), tag_("") {}
 OpNode::OpNode(const std::string& name) : name_(name), text_(""), tag_("") {}
-OpNode::OpNode(const std::string& name, const std::string& tag) : name_(name), text_(""), tag_(tag) {}
+OpNode::OpNode(const std::string & name, const std::any & tag) : name_(name), tag_(tag) {}
 OpNode::OpNode(const std::string& name, int img1, int img2) : name_(name), text_(""), tag_("") {}
 
 // Destructor

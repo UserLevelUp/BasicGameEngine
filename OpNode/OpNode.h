@@ -1,4 +1,3 @@
-// OpNode.h
 #ifndef OPNODE_H
 #define OPNODE_H
 
@@ -6,16 +5,19 @@
 #include <list>
 #include <memory>
 #include <map>
-#include <any>
-#include "NameSpace.h" // Include the namespace header
+#include <regex>
+#include <iostream>
+#include <any> 
+#include "NameSpace.h" // Include the NameSpace header
 
-class IOperate; // Forward declaration
+// Forward declaration of IOperate interface
+class IOperate;
 
 class OpNode : public std::enable_shared_from_this<OpNode> {
 public:
     OpNode();
     OpNode(const std::string& name);
-    OpNode(const std::string& name, const std::string& tag);
+    OpNode(const std::string& name, const std::any& tag);
     OpNode(const std::string& name, int img1, int img2);
     virtual ~OpNode();
 
@@ -23,6 +25,7 @@ public:
     void RemoveChild(const std::shared_ptr<OpNode>& child);
     void AddOperation(const std::shared_ptr<IOperate>& operation);
     void RemoveOperation(const std::shared_ptr<IOperate>& operation);
+    const std::list<std::shared_ptr<OpNode>>& GetChildren() const;
 
     // Attribute management
     std::list<std::string> GetKeys() const;
@@ -55,10 +58,7 @@ public:
     const std::any& GetTag() const;
     void SetTag(const std::any& tag);
 
-    // Getter for children
-    const std::list<std::shared_ptr<OpNode>>& GetChildren() const;
-
-    // Namespace management
+    // Getters and setters for namespace
     const std::shared_ptr<NameSpace>& GetNamespace() const;
     void SetNamespace(const std::shared_ptr<NameSpace>& ns);
 
@@ -69,7 +69,7 @@ private:
     std::map<std::string, std::string> attributes_;
     std::list<std::shared_ptr<IOperate>> operations_;
     std::list<std::shared_ptr<OpNode>> children_;
-    std::shared_ptr<NameSpace> namespace_; // Use shared_ptr for namespace
+    std::shared_ptr<NameSpace> namespace_; // Store the namespace object
     std::string errorString_;
 };
 
