@@ -5,6 +5,8 @@ OpNode is a lightweight C++ library designed for managing hierarchical, tree-lik
 
 While OpNode itself does not handle interprocess communication, it is designed to integrate seamlessly with a basic game engine that supports such capabilities. The game engine can manage multiple windows running as separate executables, utilizing mutexes and other mechanisms to handle interprocess communication between these windows. This makes OpNode an ideal candidate for applications requiring real-time synchronization and coordination between different components or processes.
 
+Notice that OpNode is a sub folder in the Basic Game Engine: https://github.com/UserLevelUp/BasicGameEngine/tree/master/OpNode.
+
 ### Use Case: Basic Game Engine Integration
 OpNode was designed to be integrated into a basic game engine to manage various elements, such as:
 
