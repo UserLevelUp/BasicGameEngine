@@ -4,13 +4,13 @@
 #include <memory>
 #include <string>
 
-class OpNode; // Forward declaration
+// Forward declaration of OpNode class
+class OpNode;
 
+// Definition of the IOperate interface
 class IOperate {
 public:
     virtual ~IOperate() = default;
-
-    // Pure virtual function that must be implemented by derived classes
     virtual std::string Symbol() const = 0;
     virtual void Operate(std::shared_ptr<OpNode> node) = 0;
 };

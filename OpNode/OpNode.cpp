@@ -85,3 +85,10 @@ const std::shared_ptr<NameSpace>& OpNode::GetNamespace() const {
 void OpNode::SetNamespace(const std::shared_ptr<NameSpace>& ns) {
     namespace_ = ns;
 }
+
+void OpNode::DeleteAttribute(const std::string& key) {
+    auto it = attributes_.find(key);
+    if (it != attributes_.end()) {
+        attributes_.erase(it);
+    }
+}

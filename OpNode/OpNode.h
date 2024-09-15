@@ -7,11 +7,9 @@
 #include <map>
 #include <regex>
 #include <iostream>
-#include <any> 
-#include "NameSpace.h" // Include the NameSpace header
-
-// Forward declaration of IOperate interface
-class IOperate;
+#include <any>
+#include "NameSpace.h"  // Include the NameSpace header
+#include "IOperate.h"   // Include IOperate header here
 
 class OpNode : public std::enable_shared_from_this<OpNode> {
 public:
@@ -32,6 +30,8 @@ public:
     std::string GetValue(const std::string& key) const;
     void AddAttribute(const std::string& key, const std::string& value);
     void DeleteAttribute(const std::string& key);
+    const std::map<std::string, std::string>& GetAttributes() const;
+
     void DetectComplexNodeName();
 
     // Operation management
@@ -69,7 +69,7 @@ private:
     std::map<std::string, std::string> attributes_;
     std::list<std::shared_ptr<IOperate>> operations_;
     std::list<std::shared_ptr<OpNode>> children_;
-    std::shared_ptr<NameSpace> namespace_; // Store the namespace object
+    std::shared_ptr<NameSpace> namespace_;  // Store the namespace object
     std::string errorString_;
 };
 
