@@ -68,6 +68,90 @@ int main() {
     return 0;
 }
 </code>
+
+Namespace Management
+The NameSpace class is pivotal in managing various aspects of node metadata within the OpNode system. Here's a detailed explanation of how prefixes and suffixes are utilized:
+
+Prefixes
+Purpose: Prefixes are used to indicate capabilities, modes, schema, or status related to the node and its parent. This includes tracking operational modes or states within the BasicGameEngine.
+Usage: Multiple prefixes can be assigned, separated by commas, to a node. This helps in categorizing and managing different operational or state-related aspects.
+cpp
+Copy code
+// Example of setting multiple prefixes
+auto ns = std::make_shared<NameSpace>("CapabilityA,ModeB", "Active", "http://example.com/prefix", "http://example.com/suffix");
+node->SetNamespace(ns);
+Suffixes
+Purpose: Suffixes are used in conjunction with undo/redo logic to track the state of a node, such as marking a node as deleted or active. They are integral to the CommandHistory mechanism for maintaining and reverting state changes.
+Usage: Suffixes help in managing the history of changes, such as adding a suffix to mark a node as deleted and removing it to restore the node.
+cpp
+Copy code
+// Example of setting suffix for undo/redo
+auto ns = std::make_shared<NameSpace>("Prefix", "Deleted", "http://example.com/prefix", "http://example.com/suffix");
+node->SetNamespace(ns);
+NameSpace Class
+Here’s a summary of the NameSpace class and its functionalities:
+
+cpp
+Copy code
+#include "pch.h"
+#include "NameSpace.h"
+
+// Constructor
+NameSpace::NameSpace(const std::string& prefix, const std::string& suffix, const std::string& uri_prefix, const std::string& uri_suffix)
+    : prefix_(prefix), suffix_(suffix), uri_prefix_(uri_prefix), uri_suffix_(uri_suffix) {}
+
+// Getters and Setters
+const std::string& NameSpace::GetPrefix() const {
+    return prefix_;
+}
+
+void NameSpace::SetPrefix(const std::string& prefix) {
+    prefix_ = prefix;
+}
+
+const std::string& NameSpace::GetSuffix() const {
+    return suffix_;
+}
+
+void NameSpace::SetSuffix(const std::string& suffix) {
+    suffix_ = suffix;
+}
+
+const std::string& NameSpace::GetURIPrefix() const {
+    return uri_prefix_;
+}
+
+void NameSpace::SetURIPrefix(const std::string& uri_prefix) {
+    uri_prefix_ = uri_prefix;
+}
+
+const std::string& NameSpace::GetURISuffix() const {
+    return uri_suffix_;
+}
+
+void NameSpace::SetURISuffix(const std::string& uri_suffix) {
+    uri_suffix_ = uri_suffix;
+}
+
+// Cloning method
+std::shared_ptr<NameSpace> NameSpace::Clone() const {
+    return std::make_shared<NameSpace>(prefix_, suffix_, uri_prefix_, uri_suffix_);
+}
+Constructor: Initializes the NameSpace with prefix, suffix, URI prefix, and URI suffix.
+Getters/Setters: Methods to access and modify the prefix, suffix, URI prefix, and URI suffix.
+Clone Method: Creates a copy of the current NameSpace instance.
+Processing Logic
+Selective Processing: Nodes are processed based on their relationship with nodes that implement the IOperate interface. Only relevant parent nodes and their ancestors are processed when a child node is added.
+
+Brute Force Processing:
+
+Depth-First Search: The system performs a depth-first search from the master node to identify all relevant leaf nodes.
+Processing Queue: Identified leaf nodes are queued and processed sequentially.
+Integration with BasicGameEngine
+Status Monitoring: The BasicGameEngine tracks changes to nodes and updates its status to indicate when content is ready for saving.
+Process Execution: Nodes are processed based on their operational requirements and the state of the IOperate interface.
+By clearly defining the roles of prefixes and suffixes, and documenting the NameSpace class functionalities, you ensure that users of the OpNode library can effectively utilize these features in their applications. If you need further assistance with documentation or implementation, feel free to ask!
+
 ### Next Steps for Testing
 To ensure that OpNode is performant and robust for various game engine use cases, a comprehensive suite of unit tests should be developed. This will verify all fundamental operations before adding more advanced functionality, such as configuration management, undo/redo logic, and graphical element management.
 
@@ -113,6 +197,10 @@ Suffixes defined at the namespace level can be added and used with basic CRUD op
 ### Testing Future Development
 
 Add tests first and most tests should fail starting out, and the project management story will identify tets that should pass.  Anything added to backlog must first have a test which will most likely fail first and a  comment of the backlog story identifier.  Later, the story and its associated failed test should pass when that task is completed.  This will make development simpler and easier to follow.  Any complex stroy should be grouped as a logic set of failed tests that should pass once everything is working as expected.
+
+## Other Notes:
+
+Also for future development would like to also mark nodes with an Error prefix for that OpNode. Any prefixes should be comma delimited since there is only one field for a prefix and a prefixuri, so to have multiple they need to be comma delimited in order they come or are detected like an error.  When the error goes away, it would remove that from the prefix for the namespace.  If the namespace doesn't exist it should create the namespace.  Saving the OpNode depends on the app using the OpNode library.  The basic game engine should have a status like ready for saving when content in the OpNode changes.  Items within the OpNode system should only be processed when a child item is added for a specific parent that has an IOperate interface implementation.   Only the parent and its parent that contain IOperate should be processed, nothing else.  It processes up.  The only other time is when a brute force process all nodes will happen.  Then it starts with the master node, uses depth first search to find any leaf parent nodes that have any child nodes and then adds them to some kind of process queue.  Once all have been found, then it processes all those leaf nodes until all are completed.  I'll add this to the readme.
 
 
 ## Conclusion

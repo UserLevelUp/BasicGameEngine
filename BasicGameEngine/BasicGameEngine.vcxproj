@@ -176,6 +176,9 @@
     <Image Include="small.ico" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\BasicGameEngine_UnitTest\BasicGameEngine_UnitTest.vcxproj">
+      <Project>{f8a3e592-77b2-4ca3-a566-d644a73fd623}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\OpNode\OpNode.vcxproj">
       <Project>{bb84b704-82c7-4696-b2b4-b8b5b51f57f7}</Project>
     </ProjectReference>
