@@ -5,6 +5,8 @@ OpNode is a lightweight C++ library designed for managing hierarchical, tree-lik
 
 While OpNode itself does not handle interprocess communication, it is designed to integrate seamlessly with a basic game engine that supports such capabilities. The game engine can manage multiple windows running as separate executables, utilizing mutexes and other mechanisms to handle interprocess communication between these windows. This makes OpNode an ideal candidate for applications requiring real-time synchronization and coordination between different components or processes.
 
+Notice that OpNode is a sub folder in the Basic Game Engine: https://github.com/UserLevelUp/BasicGameEngine/tree/master/OpNode.
+
 ### Use Case: Basic Game Engine Integration
 OpNode was designed to be integrated into a basic game engine to manage various elements, such as:
 
@@ -17,6 +19,8 @@ By utilizing OpNode, the game engine can leverage a generic yet powerful system 
 ## Basic Features
 ### 1. OpNode
 An OpNode represents a single node in a hierarchical structure. Each OpNode can have:
+
+#### Most of these base features have already been added to OpNode system.
 
 A name (e.g., the name of a graphical element or configuration setting).
 A value (e.g., the content or state of the node).
@@ -96,6 +100,20 @@ Set up a CI/CD pipeline (e.g., GitHub Actions) to automatically run tests on eve
 
 As new features are added to the OpNode library, expand the test suite to cover them.
 Include edge cases and performance scenarios.
+
+## Future Development
+
+### Prefixes
+
+Prefixes will be used primarily for identifying IOperator operations for a node within the OpNode system library.  An example might be for the parent of an OpNode would have an Add IOperate interface implemented, adn it would allow for thhe adding all the text or tag values of each of its child nodes.  All operations of the parent level are performed on the children and the final result orstate or both are updated to the parent having that operation upon completion.  Operations are assumed to only be appplied to all of its child nodes when processing any node with the IOperate interface.
+
+### Suffixes
+Suffixes defined at the namespace level can be added and used with basic CRUD operations, especially marking elements and attributes as deleted, active if there could be a question of it being active, or modes.   Undo and redo will work with the CommandHistory IOperate implementation which is always created for each MasterNode for a BasicGameEngine as a new OpNode child off the main master node to keep track of the commands used during the creation of a game in BGE.
+
+### Testing Future Development
+
+Add tests first and most tests should fail starting out, and the project management story will identify tets that should pass.  Anything added to backlog must first have a test which will most likely fail first and a  comment of the backlog story identifier.  Later, the story and its associated failed test should pass when that task is completed.  This will make development simpler and easier to follow.  Any complex stroy should be grouped as a logic set of failed tests that should pass once everything is working as expected.
+
 
 ## Conclusion
 The OpNode library provides a robust and flexible foundation for managing hierarchical data structures in a game engine environment. With its focus on high performance, configuration management, and easy integration, OpNode is ideal for developers seeking a simple yet powerful solution for handling complex graphical interfaces, game elements, and real-time collaboration.
