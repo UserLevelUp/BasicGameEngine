@@ -2,6 +2,7 @@
 #include "CommandHistoryOperation.h"
 #include <iostream>
 #include <functional>
+#include <algorithm>
 
 
 CommandHistoryOperation::CommandHistoryOperation(int maxDepth)
@@ -27,7 +28,7 @@ void CommandHistoryOperation::AddCommand(const std::shared_ptr<OpNode>& commandN
         return;
     }
 
-    // Check if we're appending or inserting a new command
+    // Determine if we are appending or inserting a new command
     bool isAppending = (cursorPosition_ == static_cast<int>(commandEntries_.size()) - 1) || commandEntries_.empty();
 
     if (!isAppending) {
@@ -46,8 +47,9 @@ void CommandHistoryOperation::AddCommand(const std::shared_ptr<OpNode>& commandN
 
         // Update current history and depth
         currentHistory_ = newBranch;
-        currentDepth_++;
-        std::cout << "currentDepth is incremented: " << currentDepth_;
+        currentDepth_ = CalculateDepth(*this);  // Adjust depth based on actual state
+
+        std::cout << "currentDepth is incremented: " << currentDepth_ << std::endl;  // Debug output
 
         // Move the cursor to the new leaf node
         MoveCursorToEnd();
@@ -57,8 +59,11 @@ void CommandHistoryOperation::AddCommand(const std::shared_ptr<OpNode>& commandN
         commandEntries_.emplace_back(CommandEntry{ commandNode, CommandState::Executed, nullptr });
         cursorPosition_ = static_cast<int>(commandEntries_.size()) - 1;  // Update the cursor to the end
 
+        // Calculate depth based on current state
+        currentDepth_ = CalculateDepth(*this);
+
         std::cout << "Appended a command. Current command count: " << commandEntries_.size()
-            << ", cursorPosition_: " << cursorPosition_ << std::endl;
+            << ", cursorPosition_: " << cursorPosition_ << ", currentDepth is incremented: " << currentDepth_ << std::endl;
     }
 
     // Enforce depth constraints
@@ -77,8 +82,10 @@ void CommandHistoryOperation::AddCommand(const std::shared_ptr<OpNode>& commandN
 bool CommandHistoryOperation::Undo() {
     if (cursorPosition_ > 0) {
         commandEntries_[cursorPosition_].state = CommandState::Undone;
-        std::cout << "Undoing command: " << commandEntries_[cursorPosition_].node->GetName() << std::endl;
-        MoveCursorUp();
+        cursorPosition_--;
+        currentDepth_ = CalculateDepth(*this);  // Adjust depth based on actual state
+        std::cout << "Undoing command: " << commandEntries_[cursorPosition_].node->GetName()
+            << ", cursorPosition is decremented and currentDepth is " << currentDepth_ << std::endl;
         return true;
     }
     return false;
@@ -163,7 +170,7 @@ void CommandHistoryOperation::TraverseCommands(std::function<void(const std::sha
     }
 }
 
-int CalculateDepth(const CommandHistoryOperation& history) {
+int CommandHistoryOperation::CalculateDepth(const CommandHistoryOperation& history) const {
     // Base depth is 1 for the current level
     int maxDepth = 1;
 

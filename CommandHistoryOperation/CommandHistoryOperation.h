@@ -59,7 +59,9 @@ public:
 
     // Get the current depth of the command history tree
     int GetCurrentDepth() const;
-    int CalculateDepth(const CommandHistoryOperation& history);
+
+    // Corrected: Only one declaration for CalculateDepth
+    int CalculateDepth(const CommandHistoryOperation& history) const;
 
     // Correct the method declaration for accessing entries
     const std::vector<CommandEntry>& GetCommandEntries() const;
@@ -71,7 +73,7 @@ private:
     int cursorPosition_;  // Track the current position of the cursor within the history
     std::map<std::string, std::string> attributes_;  // Store metadata attributes
 
-    // New: Pointer to track the current command history position
+    // Pointer to track the current command history position
     std::shared_ptr<CommandHistoryOperation> currentHistory_;
     int currentDepth_;  // Track the current depth level
 };
