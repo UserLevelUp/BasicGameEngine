@@ -1,46 +1,81 @@
 #ifndef COMMANDHISTORYOPERATION_H
 #define COMMANDHISTORYOPERATION_H
 
-#include "..\OpNode\IOperate.h"  // Ensure correct include path to IOperate
-#include "..\OpNode\OpNode.h"  // Ensure correct include path to IOperate
 #include <vector>
 #include <memory>
 #include <string>
+#include <functional>
+#include <map>
+#include "../OpNode/IOperate.h"
+#include "../OpNode/OpNode.h"
 
-// Define the export macro for Windows DLLs
+// Define export macros for DLL
 #ifdef COMMANDHISTORYOPERATION_EXPORTS
 #define COMMANDHISTORYOPERATION_API __declspec(dllexport)
 #else
 #define COMMANDHISTORYOPERATION_API __declspec(dllimport)
 #endif
 
-// CommandHistoryOperation class that implements the IOperate interface
-class COMMANDHISTORYOPERATION_API CommandHistoryOperation : public IOperate {
-public:
-    CommandHistoryOperation();
+// Forward declarations
+class CommandHistoryOperation;
 
-    // Implementation of the Symbol method from the IOperate interface
-    std::string Symbol() const override;
-
-    // Implementation of the Operate method from the IOperate interface
-    void Operate(std::shared_ptr<OpNode> node) override;
-
-    // Adds a command to the history
-    void AddCommand(const std::string& command);
-
-    // Undo the last command
-    bool Undo();
-
-    // Redo the last undone command
-    bool Redo();
-
-private:
-    std::string symbol_;                    // Symbol representing the operation type
-    std::vector<std::string> commands_;     // History of commands
-    int currentIndex_;                      // Current index in the command history
+enum class CommandState {
+    Executed,
+    Undone,
+    Branched  // Indicates that this node is tracking a new branch after an undo
 };
 
-// Factory function to create an instance of CommandHistoryOperation
+struct CommandEntry {
+    std::shared_ptr<OpNode> node;
+    CommandState state;
+    std::shared_ptr<CommandHistoryOperation> childCommandHistory;  // New branch for each undo + new command sequence
+};
+
+class COMMANDHISTORYOPERATION_API CommandHistoryOperation : public IOperate, public std::enable_shared_from_this<CommandHistoryOperation> {
+public:
+    CommandHistoryOperation(int maxDepth = 10);  // Maximum depth for nodes that require tracking
+    std::string Symbol() const override;
+    void Operate(std::shared_ptr<OpNode> node) override;
+
+    void AddCommand(const std::shared_ptr<OpNode>& commandNode);
+    bool Undo();
+    bool Redo();
+
+    void CleanUpOldHistory();
+    void TraverseCommands(std::function<void(const std::shared_ptr<OpNode>&)> visitor) const;
+
+    // Metadata Management for BasicGameEngine
+    void SetAttribute(const std::string& key, const std::string& value);
+    const std::map<std::string, std::string>& GetAttributes() const;
+
+    // Cursor management
+    void MoveCursorToEnd();
+    void MoveCursorUp();
+    void MoveCursorDown();
+    bool IsAtLeafNode() const;
+
+    // Return a new CommandHistoryOperation marked with attributes
+    std::shared_ptr<CommandHistoryOperation> CreateNewHistoryIfNeeded();
+
+    // Get the current depth of the command history tree
+    int GetCurrentDepth() const;
+    int CalculateDepth(const CommandHistoryOperation& history);
+
+    // Correct the method declaration for accessing entries
+    const std::vector<CommandEntry>& GetCommandEntries() const;
+
+private:
+    std::string symbol_;
+    std::vector<CommandEntry> commandEntries_;  // Tracks commands requiring history tracking
+    int maxDepth_;  // Maximum depth for nodes with ICommandHistoryOperation
+    int cursorPosition_;  // Track the current position of the cursor within the history
+    std::map<std::string, std::string> attributes_;  // Store metadata attributes
+
+    // New: Pointer to track the current command history position
+    std::shared_ptr<CommandHistoryOperation> currentHistory_;
+    int currentDepth_;  // Track the current depth level
+};
+
 extern "C" COMMANDHISTORYOPERATION_API IOperate* CreateInstance();
 
 #endif // COMMANDHISTORYOPERATION_H
