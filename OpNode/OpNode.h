@@ -37,6 +37,8 @@ public:
     void AddAttribute(const std::string& key, const std::string& value);
     void DeleteAttribute(const std::string& key);
     const std::map<std::string, std::string>& GetAttributes() const;
+    void SetAttribute(const std::string& key, const std::string& value);
+    std::string GetAttribute(const std::string& key) const;
 
     void DetectComplexNodeName();
 

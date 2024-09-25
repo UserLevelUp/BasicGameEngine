@@ -40,6 +40,7 @@ public:
     void AddCommand(const std::shared_ptr<OpNode>& commandNode);
     bool Undo();
     bool Redo();
+    void MarkCommandAsDeleted(const std::shared_ptr<OpNode>& commandNode);
 
     void CleanUpOldHistory();
     void TraverseCommands(std::function<void(const std::shared_ptr<OpNode>&)> visitor) const;

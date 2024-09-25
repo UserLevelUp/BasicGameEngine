@@ -184,9 +184,21 @@ int CommandHistoryOperation::CalculateDepth(const CommandHistoryOperation& histo
             }
         }
     }
-
+            
     return maxDepth;
 }
+
+void CommandHistoryOperation::MarkCommandAsDeleted(const std::shared_ptr<OpNode>& commandNode) {
+    if (!commandNode) {
+        std::cerr << "Error: Invalid command node." << std::endl;
+        return;
+    }
+
+    // Set an attribute on the command node to mark it as deleted
+    commandNode->SetAttribute("ulu:deleted", "true");
+    std::cout << "Command '" << commandNode->GetName() << "' marked as deleted." << std::endl;
+}
+
 
 extern "C" COMMANDHISTORYOPERATION_API IOperate* CreateInstance() {
     return new CommandHistoryOperation();

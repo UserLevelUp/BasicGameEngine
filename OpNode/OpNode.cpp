@@ -59,9 +59,25 @@ void OpNode::AddOperation(const std::shared_ptr<IOperate>& operation) {
     operations_.push_back(operation);
 }
 
+void OpNode::AddAttribute(const std::string& key, const std::string& value) {
+    attributes_[key] = value; // Correct map usage
+}
+
 // Remove an operation from the node
 void OpNode::RemoveOperation(const std::shared_ptr<IOperate>& operation) {
     operations_.remove_if([&](const std::shared_ptr<IOperate>& op) { return op == operation; });
+}
+
+void OpNode::SetAttribute(const std::string& key, const std::string& value) {
+    attributes_[key] = value;
+}
+
+std::string OpNode::GetAttribute(const std::string& key) const {
+    auto it = attributes_.find(key);
+    if (it != attributes_.end()) {
+        return it->second;
+    }
+    return "";  // Return empty string if the attribute is not found
 }
 
 // Getters and setters for properties
@@ -87,11 +103,6 @@ const std::any& OpNode::GetTag() const {
 
 void OpNode::SetTag(const std::any& tag) {
     tag_ = tag;
-}
-
-// Additional methods
-void OpNode::AddAttribute(const std::string& key, const std::string& value) {
-    attributes_[key] = value; // Correct map usage
 }
 
 std::string OpNode::GetValue(const std::string& key) const {
