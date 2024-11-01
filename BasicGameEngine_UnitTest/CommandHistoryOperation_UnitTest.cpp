@@ -243,7 +243,7 @@ namespace BasicGameEngine_UnitTests
             parent->AddChild(child);
 
             // Act: Traverse up from child to root
-            auto currentNode = child;
+            auto& currentNode = child;
             std::string ancestry;
             while (currentNode) {
                 ancestry = currentNode->GetName() + " -> " + ancestry;
@@ -436,6 +436,9 @@ namespace BasicGameEngine_UnitTests
         TEST_METHOD(TestUndoDrawingAction) {
             // Arrange: Create a future placeholder command for undoing a drawing action
             auto commandNode = std::make_shared<OpNode>("UndoDrawing");
+
+            //auto ns = std::make_shared<NameSpace>("ex", "suffix", "http://example.com/prefix", "http://example.com/suffix");
+            //node->SetNamespace(ns);
 
             // Placeholder attributes for undoing a drawing
             commandNode->AddAttribute("ShapeType", "Circle");
