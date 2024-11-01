@@ -5,6 +5,7 @@
 #include <list>
 #include <memory>
 #include <map>
+#include <vector>
 #include <regex>
 #include <iostream>
 #include <any>
@@ -25,12 +26,19 @@ public:
     void RemoveOperation(const std::shared_ptr<IOperate>& operation);
     const std::list<std::shared_ptr<OpNode>>& GetChildren() const;
 
+    // New methods for managing parent-child relationships
+    std::shared_ptr<OpNode> GetParent() const;
+    size_t GetChildIndex(const std::shared_ptr<OpNode>& child) const;
+    void InsertChildAt(size_t index, const std::shared_ptr<OpNode>& child);
+
     // Attribute management
     std::list<std::string> GetKeys() const;
     std::string GetValue(const std::string& key) const;
     void AddAttribute(const std::string& key, const std::string& value);
     void DeleteAttribute(const std::string& key);
     const std::map<std::string, std::string>& GetAttributes() const;
+    void SetAttribute(const std::string& key, const std::string& value);
+    std::string GetAttribute(const std::string& key) const;
 
     void DetectComplexNodeName();
 
@@ -69,6 +77,7 @@ private:
     std::map<std::string, std::string> attributes_;
     std::list<std::shared_ptr<IOperate>> operations_;
     std::list<std::shared_ptr<OpNode>> children_;
+    std::shared_ptr<OpNode> parent_; // Track parent node
     std::shared_ptr<NameSpace> namespace_;  // Store the namespace object
     std::string errorString_;
 };

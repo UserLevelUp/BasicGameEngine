@@ -1,53 +1,205 @@
 #include "pch.h"
 #include "CommandHistoryOperation.h"
 #include <iostream>
+#include <functional>
+#include <algorithm>
 
-// Constructor
-CommandHistoryOperation::CommandHistoryOperation() : symbol_("CH"), currentIndex_(-1) {}
 
-// Implementation of the Symbol method from the IOperate interface
+CommandHistoryOperation::CommandHistoryOperation(int maxDepth)
+    : symbol_("CH"), maxDepth_(maxDepth), cursorPosition_(0), currentHistory_(nullptr), currentDepth_(0) {}
+
 std::string CommandHistoryOperation::Symbol() const {
     return symbol_;
 }
 
-// Implementation of the Operate method from the IOperate interface
 void CommandHistoryOperation::Operate(std::shared_ptr<OpNode> node) {
     if (!node) return;
 
-    // Example operation: Print the node's name
     std::cout << "Operating on OpNode: " << node->GetName() << std::endl;
-
-    // Perform operations on child nodes
     for (const auto& child : node->GetChildren()) {
         std::cout << "Child Node: " << child->GetName() << std::endl;
     }
 }
 
-// Adds a command to the history
-void CommandHistoryOperation::AddCommand(const std::string& command) {
-    commands_.push_back(command);
-    currentIndex_ = commands_.size() - 1;
+void CommandHistoryOperation::AddCommand(const std::shared_ptr<OpNode>& commandNode) {
+    // Ensure the command node is valid
+    if (!commandNode) {
+        std::cerr << "Error: Invalid command node provided." << std::endl;
+        return;
+    }
+
+    // Determine if we are appending or inserting a new command
+    bool isAppending = (cursorPosition_ == static_cast<int>(commandEntries_.size()) - 1) || commandEntries_.empty();
+
+    if (!isAppending) {
+        // Check index validity before accessing
+        if (cursorPosition_ < 0 || cursorPosition_ >= static_cast<int>(commandEntries_.size())) {
+            std::cerr << "Error: cursorPosition_ is out of bounds!" << std::endl;
+            return;
+        }
+
+        // Inserting a command: create a new CommandHistoryOperation node
+        auto newBranch = std::make_shared<CommandHistoryOperation>(maxDepth_);
+        newBranch->AddCommand(commandNode);  // Add the command to the new branch
+
+        // Link the new branch as a child of the current history at the correct position
+        commandEntries_[cursorPosition_].childCommandHistory = newBranch;
+
+        // Update current history and depth
+        currentHistory_ = newBranch;
+        currentDepth_ = CalculateDepth(*this);  // Adjust depth based on actual state
+
+        std::cout << "currentDepth is incremented: " << currentDepth_ << std::endl;  // Debug output
+
+        // Move the cursor to the new leaf node
+        MoveCursorToEnd();
+    }
+    else {
+        // Appending a command: simply add it to the current leaf
+        commandEntries_.emplace_back(CommandEntry{ commandNode, CommandState::Executed, nullptr });
+        cursorPosition_ = static_cast<int>(commandEntries_.size()) - 1;  // Update the cursor to the end
+
+        // Calculate depth based on current state
+        currentDepth_ = CalculateDepth(*this);
+
+        std::cout << "Appended a command. Current command count: " << commandEntries_.size()
+            << ", cursorPosition_: " << cursorPosition_ << ", currentDepth is incremented: " << currentDepth_ << std::endl;
+    }
+
+    // Enforce depth constraints
+    if (currentDepth_ > maxDepth_) {
+        auto newHistory = CreateNewHistoryIfNeeded();
+        if (newHistory) {
+            newHistory->SetAttribute("NewHistory", "True");
+            newHistory->SetAttribute("Justification", "MaxDepthReached");
+            commandEntries_.back().childCommandHistory = newHistory;
+            currentHistory_ = newHistory;
+            currentDepth_ = 1;  // Reset depth for the new branch
+        }
+    }
 }
 
-// Undo the last command
 bool CommandHistoryOperation::Undo() {
-    if (currentIndex_ > 0) {
-        --currentIndex_;
+    if (cursorPosition_ > 0) {
+        commandEntries_[cursorPosition_].state = CommandState::Undone;
+        cursorPosition_--;
+        currentDepth_ = CalculateDepth(*this);  // Adjust depth based on actual state
+        std::cout << "Undoing command: " << commandEntries_[cursorPosition_].node->GetName()
+            << ", cursorPosition is decremented and currentDepth is " << currentDepth_ << std::endl;
         return true;
     }
     return false;
 }
 
-// Redo the last undone command
 bool CommandHistoryOperation::Redo() {
-    if (currentIndex_ < commands_.size() - 1) {
-        ++currentIndex_;
+    if (cursorPosition_ < static_cast<int>(commandEntries_.size()) - 1) {
+        MoveCursorDown();
+        commandEntries_[cursorPosition_].state = CommandState::Executed;
+        std::cout << "Redoing command: " << commandEntries_[cursorPosition_].node->GetName() << std::endl;
         return true;
     }
     return false;
 }
 
-// Factory function to create an instance of CommandHistoryOperation
+void CommandHistoryOperation::MoveCursorToEnd() {
+    cursorPosition_ = static_cast<int>(commandEntries_.size()) - 1;
+}
+
+void CommandHistoryOperation::MoveCursorUp() {
+    if (cursorPosition_ > 0) {
+        cursorPosition_--;
+        std::cout << "cursorPosition is decremented and currentDepth is " << currentDepth_;
+    }
+    else {
+        std::cerr << "Warning: Attempted to move cursor up but cursorPosition_ is already at the beginning." << std::endl;
+    }
+}
+
+void CommandHistoryOperation::MoveCursorDown() {
+    if (cursorPosition_ < static_cast<int>(commandEntries_.size()) - 1) {
+        cursorPosition_++;
+        std::cout << "cursorPosition is incremented and currentDepth is " << currentDepth_;
+    }
+}
+
+bool CommandHistoryOperation::IsAtLeafNode() const {
+    return (cursorPosition_ == static_cast<int>(commandEntries_.size()) - 1);
+}
+
+void CommandHistoryOperation::CleanUpOldHistory() {
+    if (currentDepth_ > maxDepth_) {
+        // Limit the depth of CommandHistory by cleaning up old histories
+        commandEntries_.erase(commandEntries_.begin());
+        currentDepth_--;
+        std::cout << "currentDepth is decreemented: " << currentDepth_;
+    }
+}
+
+std::shared_ptr<CommandHistoryOperation> CommandHistoryOperation::CreateNewHistoryIfNeeded() {
+    if (currentDepth_ > maxDepth_) {
+        auto newSiblingHistory = std::make_shared<CommandHistoryOperation>(maxDepth_);
+        newSiblingHistory->SetAttribute("NewHistory", "True");
+        newSiblingHistory->SetAttribute("Justification", "MaxDepthReached");
+        return newSiblingHistory;  // Return the new instance
+    }
+    return nullptr;
+}
+
+int CommandHistoryOperation::GetCurrentDepth() const {
+    return currentDepth_;
+}
+
+void CommandHistoryOperation::SetAttribute(const std::string& key, const std::string& value) {
+    attributes_[key] = value;
+}
+
+const std::map<std::string, std::string>& CommandHistoryOperation::GetAttributes() const {
+    return attributes_;
+}
+
+const std::vector<CommandEntry>& CommandHistoryOperation::GetCommandEntries() const {
+    return commandEntries_;
+}
+
+void CommandHistoryOperation::TraverseCommands(std::function<void(const std::shared_ptr<OpNode>&)> visitor) const {
+    for (const auto& entry : commandEntries_) {
+        visitor(entry.node);
+        if (entry.childCommandHistory) {
+            entry.childCommandHistory->TraverseCommands(visitor);
+        }
+    }
+}
+
+int CommandHistoryOperation::CalculateDepth(const CommandHistoryOperation& history) const {
+    // Base depth is 1 for the current level
+    int maxDepth = 1;
+
+    const auto& entries = history.GetCommandEntries();
+    for (const auto& entry : entries) {
+        if (entry.childCommandHistory) {
+            // Recursively calculate the depth of each child history
+            int childDepth = 1 + CalculateDepth(*entry.childCommandHistory);
+            if (childDepth > maxDepth) {
+                maxDepth = childDepth;
+            }
+        }
+    }
+            
+    return maxDepth;
+}
+
+void CommandHistoryOperation::MarkCommandAsDeleted(const std::shared_ptr<OpNode>& commandNode) {
+    if (!commandNode) {
+        std::cerr << "Error: Invalid command node." << std::endl;
+        return;
+    }
+
+    // Set an attribute on the command node to mark it as deleted
+    commandNode->SetAttribute("ulu:deleted", "true");
+    std::cout << "Command '" << commandNode->GetName() << "' marked as deleted." << std::endl;
+}
+
+
 extern "C" COMMANDHISTORYOPERATION_API IOperate* CreateInstance() {
     return new CommandHistoryOperation();
 }

@@ -19,6 +19,7 @@ OpNode::~OpNode() {}
 // Add a child node
 void OpNode::AddChild(const std::shared_ptr<OpNode>& child) {
     children_.push_back(child);
+    child->parent_ = shared_from_this();  // Set the parent when adding a child
 }
 
 // Remove a child node
@@ -26,14 +27,57 @@ void OpNode::RemoveChild(const std::shared_ptr<OpNode>& child) {
     children_.remove(child);
 }
 
+const std::list<std::shared_ptr<OpNode>>& OpNode::GetChildren() const {
+    return children_;
+}
+
+std::shared_ptr<OpNode> OpNode::GetParent() const {
+    return parent_;
+}
+
+size_t OpNode::GetChildIndex(const std::shared_ptr<OpNode>& child) const {
+    size_t index = 0;
+    for (const auto& c : children_) {
+        if (c == child) {
+            return index;
+        }
+        ++index;
+    }
+    return -1;  // Return -1 if the child is not found
+}
+
+void OpNode::InsertChildAt(size_t index, const std::shared_ptr<OpNode>& child) {
+    auto it = children_.begin();
+    std::advance(it, index);
+    children_.insert(it, child);
+    child->parent_ = shared_from_this();  // Set the parent of the inserted child
+}
+
+
 // Add an operation to the node
 void OpNode::AddOperation(const std::shared_ptr<IOperate>& operation) {
     operations_.push_back(operation);
 }
 
+void OpNode::AddAttribute(const std::string& key, const std::string& value) {
+    attributes_[key] = value; // Correct map usage
+}
+
 // Remove an operation from the node
 void OpNode::RemoveOperation(const std::shared_ptr<IOperate>& operation) {
     operations_.remove_if([&](const std::shared_ptr<IOperate>& op) { return op == operation; });
+}
+
+void OpNode::SetAttribute(const std::string& key, const std::string& value) {
+    attributes_[key] = value;
+}
+
+std::string OpNode::GetAttribute(const std::string& key) const {
+    auto it = attributes_.find(key);
+    if (it != attributes_.end()) {
+        return it->second;
+    }
+    return "";  // Return empty string if the attribute is not found
 }
 
 // Getters and setters for properties
@@ -61,11 +105,6 @@ void OpNode::SetTag(const std::any& tag) {
     tag_ = tag;
 }
 
-// Additional methods
-void OpNode::AddAttribute(const std::string& key, const std::string& value) {
-    attributes_[key] = value; // Correct map usage
-}
-
 std::string OpNode::GetValue(const std::string& key) const {
     auto it = attributes_.find(key);
     if (it != attributes_.end()) {
@@ -74,8 +113,8 @@ std::string OpNode::GetValue(const std::string& key) const {
     return "";
 }
 
-const std::list<std::shared_ptr<OpNode>>& OpNode::GetChildren() const {
-    return children_;
+const std::map<std::string, std::string>& OpNode::GetAttributes() const {
+	return attributes_;
 }
 
 const std::shared_ptr<NameSpace>& OpNode::GetNamespace() const {

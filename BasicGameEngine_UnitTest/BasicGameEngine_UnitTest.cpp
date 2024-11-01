@@ -135,8 +135,21 @@ namespace BasicGameEngine_UnitTests
             // Assert: Verify that the attribute was deleted
             Assert::AreEqual(std::string(""), node->GetValue("key"), L"The attribute value should be empty after deletion.");
         }
+         
 
+		TEST_METHOD(TestMarkOpNodeAsDeleted)
+        {
+            // Arrange: Create a node and add an attribute
+            auto node = std::make_shared<OpNode>("Node");
+            node->AddAttribute("deleted", "true");
+			node->SetNamespace(std::make_shared<NameSpace>("ulu", "deleted", "http://userlevelup.com/ulu", "http://userlevelup.com/deleted"));
 
+            // Act: Delete the attribute
+            node->DeleteAttribute("key");
+
+            // Assert: Verify that the attribute was deleted
+            Assert::AreEqual(std::string(""), node->GetValue("key"), L"The attribute value should be empty after deletion.");
+        }
     };
 
 
