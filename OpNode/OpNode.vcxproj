@@ -147,6 +147,7 @@
     <ClInclude Include="OpNode.h" />
     <ClInclude Include="OpNodeMgr.h" />
     <ClInclude Include="pch.h" />
+    <ClInclude Include="TestHelpers.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />

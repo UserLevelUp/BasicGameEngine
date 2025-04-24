@@ -12,35 +12,36 @@ using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
 namespace DirectXOperationTests {
 
-    // Simple window procedure for a dummy window.
     LRESULT CALLBACK DummyWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
 
-    // Helper function to create a hidden window.
-    HWND CreateDummyWindow() {
-        const wchar_t CLASS_NAME[]  = L"DummyWindowClass";
+    inline HWND CreateDummyWindow(bool showWindow = false) {
+        const wchar_t CLASS_NAME[] = L"DummyWindowClass";
 
         WNDCLASS wc = {};
-        wc.lpfnWndProc   = DummyWndProc;
-        wc.hInstance     = GetModuleHandle(nullptr);
+        wc.lpfnWndProc = DummyWndProc;
+        wc.hInstance = GetModuleHandle(nullptr);
         wc.lpszClassName = CLASS_NAME;
         RegisterClass(&wc);
 
         HWND hWnd = CreateWindowEx(
-            0,                              // Optional window styles.
-            CLASS_NAME,                     // Window class
-            L"Dummy Window",                // Window text
-            WS_OVERLAPPEDWINDOW,            // Window style
+            0,
+            CLASS_NAME,
+            L"Dummy Window",
+            WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT, CW_USEDEFAULT, 800, 600,
-            nullptr,       // Parent window    
-            nullptr,       // Menu
-            GetModuleHandle(nullptr),       // Instance handle
-            nullptr        // Additional application data
+            nullptr,
+            nullptr,
+            GetModuleHandle(nullptr),
+            nullptr
         );
 
-        // Hide the window (for unit testing, no need to show it).
-        ShowWindow(hWnd, SW_HIDE);
+        if (showWindow)
+            ShowWindow(hWnd, SW_SHOW);
+        else
+            ShowWindow(hWnd, SW_HIDE);
+
         return hWnd;
     }
 
@@ -48,13 +49,17 @@ namespace DirectXOperationTests {
     {
     public:
         TEST_METHOD(TestDirectXInitialization) {
-            HWND hWnd = CreateDummyWindow();
+            HWND hWnd = CreateDummyWindow(true);
             DirectXOperation dxOp;
             bool result = dxOp.Initialize(hWnd, 800, 600);
             Assert::IsTrue(result, L"DirectXOperation should initialize successfully.");
 
             // Optionally call Render to see if the device works.
             dxOp.Render();
+
+            // Delay to allow visual inspection for a few seconds.
+            Sleep(1000); // Wait for 3 seconds
+
             dxOp.Cleanup();
             DestroyWindow(hWnd);  // Clean up dummy window.
         }

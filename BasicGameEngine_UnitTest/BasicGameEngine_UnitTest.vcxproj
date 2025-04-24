@@ -167,7 +167,7 @@
   <ItemGroup>
     <ClCompile Include="BasicGameEngine_UnitTest.cpp" />
     <ClCompile Include="CommandHistoryOperation_UnitTest.cpp" />
-    <ClCompile Include="DirextXOperation_UnitTest.cpp" />
+    <ClCompile Include="DirectXOperation_UnitTest.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
@@ -179,6 +179,7 @@
   <ItemGroup>
     <ClInclude Include="Main.h" />
     <ClInclude Include="pch.h" />
+    <ClInclude Include="TestHelpers.h" />
     <ClInclude Include="VideoCard_UnitTest.h" />
   </ItemGroup>
   <ItemGroup>

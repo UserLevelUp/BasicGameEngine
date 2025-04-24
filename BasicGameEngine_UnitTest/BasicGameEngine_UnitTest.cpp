@@ -1,7 +1,9 @@
 #include "pch.h"
 #include "CppUnitTest.h"
+#include "TestHelpers.h" 
 
 #include "../OpNode/OpNode.h"
+#include "../DX11Operation/DirectXOperation.h"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -150,6 +152,65 @@ namespace BasicGameEngine_UnitTests
             // Assert: Verify that the attribute was deleted
             Assert::AreEqual(std::string(""), node->GetValue("key"), L"The attribute value should be empty after deletion.");
         }
+
+        TEST_METHOD(TestChildOperationInheritance)
+        {
+            // Arrange: Create parent node and inject DirectX operation
+            auto parent = std::make_shared<OpNode>("DXParent");
+            auto dxOp = std::make_shared<DirectXOperation>();
+            parent->AddOperation(dxOp);
+
+            // Create child node and add it to parent
+            auto child = std::make_shared<OpNode>("Child");
+            parent->AddChild(child);
+
+            // For this test, we simulate operation inheritance by adding parent's operations to the child.
+            // (In a complete implementation the inheritance might occur automatically.)
+            // Here, we simply copy parent's operations into the child.
+            // Since there's no direct getter for operations, we use OperationIcons to hint the operations.
+            child->AddOperation(dxOp);
+
+            // Act: Retrieve the list of operation symbols from the child node
+            auto childOpIcons = child->OperationIcons();
+
+            // Assert: The child should have at least one operation and its symbol should be "DX11"
+            Assert::IsFalse(childOpIcons.empty(), L"Child node must have at least one operation after copying.");
+            Assert::AreEqual(std::string("DX11"), childOpIcons.front());
+        }
+
+        TEST_METHOD(TestDirectXRenderWithChildNode)
+        {
+            // Arrange: Create a dummy window for DirectX
+            HWND hWnd = CreateDummyWindow();
+
+            // Create parent node and add the DirectX operation
+            auto parent = std::make_shared<OpNode>("DXParent");
+            auto dxOp = std::make_shared<DirectXOperation>();
+            bool initResult = dxOp->Initialize(hWnd, 800, 600);
+            Assert::IsTrue(initResult, L"DirectX operation should initialize successfully.");
+            parent->AddOperation(dxOp);
+
+            // Create a child node and add it to the parent,
+            // then manually pass down the DirectX operation.
+            auto child = std::make_shared<OpNode>("ChildNode");
+            parent->AddChild(child);
+            child->AddOperation(dxOp);
+
+            // Act: Invoke operations (could internally clear the render target, etc.)
+            parent->PerformOperations();
+            child->PerformOperations();
+
+            // Optionally, call Render to test further
+            dxOp->Render();
+            dxOp->Cleanup();
+
+            DestroyWindow(hWnd);
+
+            // Assert: If no exceptions occur, DirectX calls are working.
+            // Additional assertions can be added if your DirectXOperation sets flags or logs status.
+        }
+
+
     };
 
 

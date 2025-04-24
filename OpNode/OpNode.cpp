@@ -131,3 +131,22 @@ void OpNode::DeleteAttribute(const std::string& key) {
         attributes_.erase(it);
     }
 }
+
+std::list<std::string> OpNode::OperationIcons() const {
+    std::list<std::string> icons;
+    for (const auto& op : operations_) {
+        if (op) {
+            icons.push_back(op->Symbol());
+        }
+    }
+    return icons;
+}
+
+void OpNode::PerformOperations() {
+    // Iterate through each operation and perform it using this node as context
+    for (const auto& op : operations_) {
+        if (op) {
+            op->Operate(shared_from_this());
+        }
+    }
+}

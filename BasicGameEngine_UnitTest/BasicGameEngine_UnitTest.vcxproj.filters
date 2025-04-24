@@ -24,7 +24,7 @@
     <ClCompile Include="CommandHistoryOperation_UnitTest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DirextXOperation_UnitTest.cpp">
+    <ClCompile Include="DirectXOperation_UnitTest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="VideoCard_UnitTest.cpp">
@@ -39,6 +39,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="VideoCard_UnitTest.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TestHelpers.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
