@@ -10,7 +10,8 @@ constexpr int kBallSegments = 48;
 constexpr int kBackgroundVertexCapacity = 48 * 27 * 6;
 constexpr int kArrowVertexCapacity = 9;
 constexpr int kBallVertexCount = kBallSegments * 3 * BGE_OBJECT_SLOT_COUNT;
-constexpr int kMaxVertexCount = kBackgroundVertexCapacity + kBallVertexCount + kArrowVertexCapacity;
+constexpr int kRingVertexCount = kBallSegments * 6 * ((BGE_OBJECT_SLOT_COUNT * 2) + 1);
+constexpr int kMaxVertexCount = kBackgroundVertexCapacity + (kBallVertexCount * 2) + kRingVertexCount + kArrowVertexCapacity;
 constexpr float kRenderTopInset = 140.0f;
 constexpr float kPi = 3.14159265358979323846f;
 
@@ -131,7 +132,7 @@ void DirectX11BouncingBallRenderer::Tick(double deltaMilliseconds)
     float seconds = static_cast<float>(deltaMilliseconds / 1000.0);
 
     for (auto& slot : slots_) {
-        if (!slot.visible) {
+        if (!slot.visible || slot.isDeleted) {
             continue;
         }
 
@@ -161,6 +162,8 @@ void DirectX11BouncingBallRenderer::Tick(double deltaMilliseconds)
             slot.velocityY = -std::abs(slot.velocityY);
         }
     }
+
+    BgeUpdateCollisionFlags(slots_);
 }
 
 void DirectX11BouncingBallRenderer::Render()
@@ -237,12 +240,25 @@ void DirectX11BouncingBallRenderer::SelectObjectSlot(int slotIndex)
     selectedSlot_ = (std::max)(0, (std::min)(BGE_OBJECT_SLOT_COUNT - 1, slotIndex));
 }
 
+void DirectX11BouncingBallRenderer::SetObjectSelectionActive(bool active)
+{
+    objectSelectionActive_ = active;
+}
+
 void DirectX11BouncingBallRenderer::SetObjectSlotState(int slotIndex, const BgeObjectSlotState& slot)
 {
     if (slotIndex < 0 || slotIndex >= BGE_OBJECT_SLOT_COUNT) {
         return;
     }
     slots_[slotIndex] = slot;
+}
+
+void DirectX11BouncingBallRenderer::SetGhostObjectSlotState(int slotIndex, const BgeObjectSlotState& slot)
+{
+    if (slotIndex < 0 || slotIndex >= BGE_OBJECT_SLOT_COUNT) {
+        return;
+    }
+    ghostSlots_[slotIndex] = slot;
 }
 
 bool DirectX11BouncingBallRenderer::LoadBackgroundImage(const std::wstring& path)
@@ -439,17 +455,25 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
     };
 
     vertexCount = 0;
-    for (const auto& slot : slots_) {
-        if (!slot.visible) {
-            continue;
+    auto appendSlot = [&](const BgeObjectSlotState& slot, bool ghost) {
+        if (!slot.visible || slot.isDeleted) {
+            return;
         }
+
+        float radius = ghost ? slot.radius * 1.08f : slot.radius;
+        float centerRed = ghost ? 0.16f + slot.colorR * 0.18f : (std::min)(1.0f, slot.colorR + 0.15f);
+        float centerGreen = ghost ? 0.16f + slot.colorG * 0.18f : (std::min)(1.0f, slot.colorG + 0.15f);
+        float centerBlue = ghost ? 0.18f + slot.colorB * 0.22f : (std::min)(1.0f, slot.colorB + 0.15f);
+        float edgeRed = ghost ? 0.10f + slot.colorR * 0.16f : slot.colorR;
+        float edgeGreen = ghost ? 0.10f + slot.colorG * 0.16f : slot.colorG;
+        float edgeBlue = ghost ? 0.12f + slot.colorB * 0.20f : slot.colorB;
 
         BgeColorVertex center{
             toNdcX(slot.x),
             toNdcY(slot.y),
-            (std::min)(1.0f, slot.colorR + 0.15f),
-            (std::min)(1.0f, slot.colorG + 0.15f),
-            (std::min)(1.0f, slot.colorB + 0.15f),
+            centerRed,
+            centerGreen,
+            centerBlue,
             1.0f,
         };
 
@@ -458,19 +482,19 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
             float angle1 = (static_cast<float>(segment + 1) / kBallSegments) * 2.0f * kPi;
 
             BgeColorVertex edge0{
-                toNdcX(slot.x + std::cos(angle0) * slot.radius),
-                toNdcY(slot.y + std::sin(angle0) * slot.radius),
-                slot.colorR,
-                slot.colorG,
-                slot.colorB,
+                toNdcX(slot.x + std::cos(angle0) * radius),
+                toNdcY(slot.y + std::sin(angle0) * radius),
+                edgeRed,
+                edgeGreen,
+                edgeBlue,
                 1.0f,
             };
             BgeColorVertex edge1{
-                toNdcX(slot.x + std::cos(angle1) * slot.radius),
-                toNdcY(slot.y + std::sin(angle1) * slot.radius),
-                slot.colorR,
-                slot.colorG,
-                slot.colorB,
+                toNdcX(slot.x + std::cos(angle1) * radius),
+                toNdcY(slot.y + std::sin(angle1) * radius),
+                edgeRed,
+                edgeGreen,
+                edgeBlue,
                 1.0f,
             };
 
@@ -478,9 +502,53 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
             vertices[vertexCount++] = edge0;
             vertices[vertexCount++] = edge1;
         }
+    };
+
+    auto appendRing = [&](const BgeObjectSlotState& slot, float innerRadius, float outerRadius, float red, float green, float blue) {
+        if (!slot.visible || slot.isDeleted) {
+            return;
+        }
+
+        for (int segment = 0; segment < kBallSegments; ++segment) {
+            float angle0 = (static_cast<float>(segment) / kBallSegments) * 2.0f * kPi;
+            float angle1 = (static_cast<float>(segment + 1) / kBallSegments) * 2.0f * kPi;
+
+            BgeColorVertex inner0{ toNdcX(slot.x + std::cos(angle0) * innerRadius), toNdcY(slot.y + std::sin(angle0) * innerRadius), red, green, blue, 1.0f };
+            BgeColorVertex outer0{ toNdcX(slot.x + std::cos(angle0) * outerRadius), toNdcY(slot.y + std::sin(angle0) * outerRadius), red, green, blue, 1.0f };
+            BgeColorVertex inner1{ toNdcX(slot.x + std::cos(angle1) * innerRadius), toNdcY(slot.y + std::sin(angle1) * innerRadius), red, green, blue, 1.0f };
+            BgeColorVertex outer1{ toNdcX(slot.x + std::cos(angle1) * outerRadius), toNdcY(slot.y + std::sin(angle1) * outerRadius), red, green, blue, 1.0f };
+
+            vertices[vertexCount++] = inner0;
+            vertices[vertexCount++] = outer0;
+            vertices[vertexCount++] = outer1;
+            vertices[vertexCount++] = inner0;
+            vertices[vertexCount++] = outer1;
+            vertices[vertexCount++] = inner1;
+        }
+    };
+
+    for (const auto& slot : ghostSlots_) {
+        appendSlot(slot, true);
+    }
+    for (const auto& slot : slots_) {
+        appendSlot(slot, false);
     }
 
-    if (slots_[selectedSlot_].visible) {
+    for (const auto& slot : slots_) {
+        if (slot.deleteMarked) {
+            appendRing(slot, slot.radius + 3.0f, slot.radius + 6.0f, 1.0f, 0.08f, 0.08f);
+        }
+        if (slot.collisionDetected) {
+            appendRing(slot, slot.radius + 6.0f, slot.radius + 9.0f, 1.0f, 0.86f, 0.12f);
+        }
+    }
+
+    if (objectSelectionActive_ && selectedSlot_ >= 0 && selectedSlot_ < BGE_OBJECT_SLOT_COUNT) {
+        const BgeObjectSlotState& selectedSlot = slots_[selectedSlot_];
+        appendRing(selectedSlot, selectedSlot.radius + 8.0f, selectedSlot.radius + 11.0f, 0.25f, 1.0f, 0.45f);
+    }
+
+    if (objectSelectionActive_ && slots_[selectedSlot_].visible && !slots_[selectedSlot_].isDeleted) {
         AddVectorArrow(vertices, vertexCount, slots_[selectedSlot_]);
     }
 }

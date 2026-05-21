@@ -24,11 +24,14 @@ public:
     void SetInitialVelocity(float velocityX, float velocityY);
     void SetBallColor(float red, float green, float blue);
     void SelectObjectSlot(int slotIndex);
+    void SetObjectSelectionActive(bool active);
     void SetObjectSlotState(int slotIndex, const BgeObjectSlotState& slot);
+    void SetGhostObjectSlotState(int slotIndex, const BgeObjectSlotState& slot);
     bool LoadBackgroundImage(const std::wstring& path);
 
     bool IsInitialized() const { return initialized_; }
     bool HasBall() const;
+    std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> ObjectSlotStates() const { return slots_; }
     const std::wstring& LastError() const { return lastError_; }
 
 private:
@@ -75,6 +78,8 @@ private:
     D3D12_RECT scissorRect_{};
 
     std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> slots_{};
+    std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> ghostSlots_{};
     std::vector<BgeColorVertex> backgroundVertices_;
     int selectedSlot_ = 0;
+    bool objectSelectionActive_ = true;
 };

@@ -104,15 +104,24 @@ constexpr int IDC_BGE_CONTROLLER_RUNTIME_STATUS = 42901;
 constexpr int IDC_BGE_CONTROLLER_HISTORY = 42902;
 constexpr int IDC_BGE_CONTROLLER_HISTORY_DETAIL = 42903;
 constexpr int IDC_BGE_OPEN_HISTORY = 42904;
+constexpr int IDC_BGE_OBJECT_GROUP_COMBO = 42910;
+constexpr int IDC_BGE_ADD_OBJECT_GROUP = 42911;
+constexpr int IDC_BGE_GHOST_GROUP_COMBO = 42912;
+constexpr int IDC_BGE_TOGGLE_GHOST = 42913;
+constexpr int IDC_BGE_SET_PLAYER = 42914;
+constexpr int IDC_BGE_PLAYER_STATUS = 42915;
 constexpr ULONG_PTR BGE_COPYDATA_WORKER_COMMAND = 0xB6E00001;
 constexpr int BGE_CONTROLLER_ARTIFACT_COUNT = 6;
 constexpr size_t BGE_CONTROLLER_HISTORY_LIMIT = 128;
+constexpr size_t BGE_DELETE_HISTORY_LIMIT = 64;
 constexpr float BGE_RENDER_TOP_INSET = 140.0f;
 constexpr float BGE_TRANSLATE_STEP = 12.0f;
 constexpr float BGE_RESIZE_STEP = 4.0f;
 constexpr float BGE_ROTATE_STEP_DEGREES = 5.0f;
+constexpr float BGE_VECTOR_MAGNITUDE_STEP = 20.0f;
 constexpr float BGE_MIN_OBJECT_RADIUS = 8.0f;
 constexpr float BGE_MAX_OBJECT_RADIUS = 160.0f;
+constexpr double BGE_ANIMATION_STEP_MILLISECONDS = 1000.0 / 60.0;
 constexpr int BGE_EDIT_RATE_DEFAULT_INDEX = 2;
 constexpr std::array<float, 5> BGE_EDIT_RATE_MULTIPLIERS = { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f };
 constexpr std::array<const wchar_t*, 5> BGE_EDIT_RATE_LABELS = { L"0.25x", L"0.5x", L"1x", L"2x", L"4x" };
@@ -123,6 +132,43 @@ enum class BgeEditMode {
     Translate,
     Resize,
     Rotate,
+};
+
+enum class BgeKeyboardFocus {
+    None,
+    Object,
+    Group,
+    Animation,
+};
+
+struct BgeObjectGroupState {
+    std::wstring label;
+    std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> slots{};
+    int selectedObjectSlot = 0;
+    bool objectSelectionActive = true;
+    bool deleteMarked = false;
+    bool isDeleted = false;
+};
+
+struct BgeObjectDeleteSnapshot {
+    int groupIndex = -1;
+    int slotIndex = -1;
+    BgeObjectSlotState slot;
+};
+
+struct BgeGroupDeleteSnapshot {
+    int groupIndex = -1;
+    bool deleteMarked = false;
+    bool isDeleted = false;
+};
+
+struct BgeDeleteHistoryEntry {
+    std::wstring label;
+    int activeGroupIndex = 0;
+    int selectedObjectSlot = 0;
+    bool objectSelectionActive = false;
+    std::vector<BgeObjectDeleteSnapshot> objectSnapshots;
+    std::vector<BgeGroupDeleteSnapshot> groupSnapshots;
 };
 
 struct BgeControllerArtifactSpec {
@@ -175,14 +221,29 @@ float g_ballColorR = 0.96f;
 float g_ballColorG = 0.34f;
 float g_ballColorB = 0.22f;
 int g_selectedObjectSlot = 0;
+bool g_objectSelectionActive = true;
 int g_activeSoundSlot = 0;
 DWORD64 g_lastSoundSlotTick = 0;
 std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> g_objectSlots;
+std::vector<BgeObjectGroupState> g_objectGroups;
+int g_activeObjectGroupIndex = 0;
+int g_ghostObjectGroupIndex = -1;
+bool g_ghostOverlayEnabled = false;
+BgeKeyboardFocus g_keyboardFocus = BgeKeyboardFocus::None;
+int g_mainPlayerGroupIndex = -1;
+int g_mainPlayerSlot = -1;
+std::vector<BgeDeleteHistoryEntry> g_deleteHistory;
 std::wstring g_backgroundImagePath;
 HWND g_addBallButton = nullptr;
 HWND g_startAnimationButton = nullptr;
 HWND g_stopAnimationButton = nullptr;
 HWND g_rendererCombo = nullptr;
+HWND g_objectGroupCombo = nullptr;
+HWND g_addObjectGroupButton = nullptr;
+HWND g_ghostGroupCombo = nullptr;
+HWND g_toggleGhostButton = nullptr;
+HWND g_setPlayerButton = nullptr;
+HWND g_playerStatus = nullptr;
 HWND g_loadBackgroundButton = nullptr;
 HWND g_openMappingButton = nullptr;
 HWND g_editModeStatus = nullptr;
@@ -243,6 +304,7 @@ void GameLoop();               // Game loop function
 void LoadConfig();             // Pass A: read bge.toml from the exe directory
 void ParseRuntimeArgs();
 void InitializeObjectSlots();
+void InitializeObjectGroups();
 bool RegisterCurrentProcess(SharedMemoryData* sharedData);
 void UnregisterCurrentProcess();
 void UpdateCurrentHeartbeat();
@@ -252,6 +314,7 @@ bool IsProcessAlive(DWORD pid);
 bool ConfirmControllerClose(HWND hWnd);
 bool CloseWindowFromEscape(HWND sourceWindow);
 bool HandleEscapeKey(HWND sourceWindow);
+bool IsEditControl(HWND sourceWindow);
 std::wstring LowerArg(std::wstring value);
 bool TryParseFloatArg(const std::wstring& text, float& value);
 bool CurrentProcessOwnsGameLoop();
@@ -265,6 +328,19 @@ int ResolveObjectAddTargetLocked(int requestedSlotIndex);
 void AddObjectSlotStateLocked(int requestedSlotIndex);
 void ApplyObjectVectorStateLocked(float velocityX, float velocityY);
 void ApplyObjectColorStateLocked(float colorR, float colorG, float colorB);
+void RefreshObjectGroupGlobalsLocked();
+void PersistActiveObjectGroupLocked();
+bool SelectObjectGroupStateLocked(int groupIndex);
+int AddObjectGroupStateLocked(const std::wstring& requestedLabel);
+std::wstring ObjectGroupLabel(int groupIndex);
+int ResolveObjectGroupIndex(const std::wstring& selector);
+void PushDeleteHistoryLocked(const BgeDeleteHistoryEntry& entry);
+bool ClearObjectSelectionLocked();
+bool ClearObjectSelectionFromRendererClick(int x, int y);
+bool ToggleSelectedObjectDeleteMark(std::wstring& statusText);
+bool CommitMarkedObjectDeletes(std::wstring& statusText);
+bool UndoLastDeleteAction(std::wstring& statusText);
+bool HandleEditorShortcutKey(HWND sourceWindow, WPARAM key);
 void InitializeSelectedRenderer(HWND hWnd);
 void ShutdownActiveRenderer();
 void ResizeActiveRenderer();
@@ -283,6 +359,11 @@ void ApplyColorFromControls();
 void SwitchRendererFromControls();
 void LoadBackgroundFromDialog();
 void SelectObjectSlotFromControls(int slotIndex);
+void SelectObjectGroupFromControls();
+void AddObjectGroupFromControls();
+void SelectGhostGroupFromControls();
+void ToggleGhostGroupFromControls();
+void SetMainPlayerFromControls();
 void SelectSoundSlotFromControls(int slotIndex);
 void AdvanceSoundSlotLoop();
 void ExecuteCommandBarInput();
@@ -319,6 +400,14 @@ bool TryStartVectorDrag(int x, int y);
 bool TrySelectObjectAtPoint(int x, int y);
 void UpdateVectorDrag(int x, int y);
 void EndVectorDrag();
+int ObjectSlotIndexFromNumberKey(WPARAM key);
+bool SelectObjectSlotFromKeyboard(int slotIndex);
+bool FocusObjectGroupsFromKeyboard();
+bool CycleObjectGroupFromKeyboard(int direction);
+bool FocusAnimationFromKeyboard();
+bool StartAnimationState(std::wstring& statusText);
+bool StopAnimationState(std::wstring& statusText);
+bool StepAnimationOneTick(std::wstring& statusText);
 bool HandleRendererKeyDown(WPARAM key);
 void CycleEditMode(int direction);
 bool SetEditModeFromText(const std::wstring& modeText);
@@ -327,14 +416,18 @@ float CurrentEditRateMultiplier();
 std::wstring EditRateLabel();
 void AdjustEditRate(int direction);
 bool SetEditRateFromText(const std::wstring& rateText);
+std::wstring TrimText(const std::wstring& value);
 void UpdateEditModeStatus();
 bool TranslateSelectedObject(float deltaX, float deltaY, std::wstring& statusText);
 bool ResizeSelectedObject(float deltaRadius, std::wstring& statusText);
 bool RotateSelectedObject(float deltaDegrees, std::wstring& statusText);
+bool AdjustSelectedObjectVectorMagnitude(float deltaMagnitude, std::wstring& statusText);
+bool ApplySelectedObjectVectorIntent(float deltaDegrees, float deltaMagnitude, const std::wstring& actionName, std::wstring& statusText);
 void CreateBallControls(HWND hWnd);
 void CreateControllerControls(HWND hWnd);
 void LayoutBallControls(HWND hWnd);
 void SyncBallControls();
+void SyncObjectGroupControls();
 void SyncControllerControls();
 void SelectControllerArtifact(int artifactIndex, bool recordHistory = true);
 void LaunchControllerArtifact(int artifactIndex);
@@ -361,6 +454,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     InitializeObjectSlots();
     LoadConfig();  // Pass A: read bge.toml (toggles diagnostics; defaults preserved if absent)
     ParseRuntimeArgs();
+    InitializeObjectGroups();
 
     // Try to create a new instance mutex
     std::wstring mutexName = windowMutexMgr.CreateInstanceMutex();
@@ -443,6 +537,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && HandleEscapeKey(msg.hwnd)) {
             continue;
         }
+        if (msg.message == WM_KEYDOWN && HandleEditorShortcutKey(msg.hwnd, msg.wParam)) {
+            continue;
+        }
+        if (msg.message == WM_KEYDOWN && !IsEditControl(msg.hwnd) && HandleRendererKeyDown(msg.wParam)) {
+            continue;
+        }
         if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
         {
             TranslateMessage(&msg);
@@ -520,7 +620,7 @@ void LoadConfig()
     }
 }
 
-void InitializeObjectSlots()
+void ResetObjectSlotArray(std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT>& slots, int groupIndex)
 {
     const float colors[BGE_OBJECT_SLOT_COUNT][3] = {
         { 0.96f, 0.34f, 0.22f },
@@ -536,10 +636,12 @@ void InitializeObjectSlots()
     };
 
     for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
-        BgeObjectSlotState& slot = g_objectSlots[index];
+        BgeObjectSlotState& slot = slots[index];
         slot.visible = false;
-        slot.x = 180.0f + static_cast<float>(index) * 24.0f;
-        slot.y = 180.0f + static_cast<float>(index) * 10.0f;
+        slot.deleteMarked = false;
+        slot.isDeleted = false;
+        slot.x = 180.0f + static_cast<float>(index) * 24.0f + static_cast<float>(groupIndex) * 16.0f;
+        slot.y = 180.0f + static_cast<float>(index) * 10.0f + static_cast<float>(groupIndex % 4) * 18.0f;
         slot.velocityX = 150.0f + static_cast<float>(index) * 20.0f;
         slot.velocityY = (index % 2 == 0 ? 110.0f : -130.0f) + static_cast<float>(index) * 8.0f;
         slot.radius = 28.0f + static_cast<float>(index % 3) * 3.0f;
@@ -547,8 +649,14 @@ void InitializeObjectSlots()
         slot.colorG = colors[index][1];
         slot.colorB = colors[index][2];
     }
+}
+
+void InitializeObjectSlots()
+{
+    ResetObjectSlotArray(g_objectSlots, 0);
 
     g_selectedObjectSlot = 0;
+    g_objectSelectionActive = true;
     g_ballVelocityX = g_objectSlots[0].velocityX;
     g_ballVelocityY = g_objectSlots[0].velocityY;
     g_ballColorR = g_objectSlots[0].colorR;
@@ -556,10 +664,354 @@ void InitializeObjectSlots()
     g_ballColorB = g_objectSlots[0].colorB;
 }
 
+void InitializeObjectGroups()
+{
+    BgeObjectGroupState firstGroup;
+    firstGroup.label = L"Group 1";
+    firstGroup.slots = g_objectSlots;
+    firstGroup.selectedObjectSlot = g_selectedObjectSlot;
+    firstGroup.objectSelectionActive = g_objectSelectionActive;
+    g_objectGroups.clear();
+    g_objectGroups.push_back(firstGroup);
+    g_activeObjectGroupIndex = 0;
+    g_ghostObjectGroupIndex = -1;
+    g_ghostOverlayEnabled = false;
+    g_mainPlayerGroupIndex = -1;
+    g_mainPlayerSlot = -1;
+    g_deleteHistory.clear();
+}
+
+std::wstring ObjectGroupLabel(int groupIndex)
+{
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(g_objectGroups.size())) {
+        return L"";
+    }
+    return g_objectGroups[static_cast<size_t>(groupIndex)].label;
+}
+
+void RefreshObjectGroupGlobalsLocked()
+{
+    if (g_objectGroups.empty()) {
+        return;
+    }
+
+    g_activeObjectGroupIndex = (std::max)(0, (std::min)(g_activeObjectGroupIndex, static_cast<int>(g_objectGroups.size()) - 1));
+    BgeObjectGroupState& activeGroup = g_objectGroups[static_cast<size_t>(g_activeObjectGroupIndex)];
+    activeGroup.selectedObjectSlot = (std::max)(0, (std::min)(activeGroup.selectedObjectSlot, BGE_OBJECT_SLOT_COUNT - 1));
+    g_objectSlots = activeGroup.slots;
+    g_selectedObjectSlot = activeGroup.selectedObjectSlot;
+    g_objectSelectionActive = activeGroup.objectSelectionActive;
+    RefreshSelectedObjectGlobalsLocked();
+    g_rendererStateDirty = true;
+}
+
+void PersistActiveObjectGroupLocked()
+{
+    if (g_objectGroups.empty() || g_activeObjectGroupIndex < 0 || g_activeObjectGroupIndex >= static_cast<int>(g_objectGroups.size())) {
+        return;
+    }
+
+    BgeObjectGroupState& activeGroup = g_objectGroups[static_cast<size_t>(g_activeObjectGroupIndex)];
+    activeGroup.slots = g_objectSlots;
+    activeGroup.selectedObjectSlot = g_selectedObjectSlot;
+    activeGroup.objectSelectionActive = g_objectSelectionActive;
+}
+
+bool SelectObjectGroupStateLocked(int groupIndex)
+{
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(g_objectGroups.size())) {
+        return false;
+    }
+
+    PersistActiveObjectGroupLocked();
+    g_activeObjectGroupIndex = groupIndex;
+    RefreshObjectGroupGlobalsLocked();
+    g_keyboardFocus = BgeKeyboardFocus::Group;
+    return true;
+}
+
+int AddObjectGroupStateLocked(const std::wstring& requestedLabel)
+{
+    PersistActiveObjectGroupLocked();
+
+    int groupIndex = static_cast<int>(g_objectGroups.size());
+    std::wstring label = TrimText(requestedLabel);
+    if (label.empty()) {
+        label = L"Group " + std::to_wstring(groupIndex + 1);
+    }
+
+    std::wstring baseLabel = label;
+    int suffix = 2;
+    bool labelExists = true;
+    while (labelExists) {
+        labelExists = false;
+        for (const auto& group : g_objectGroups) {
+            if (LowerArg(group.label) == LowerArg(label)) {
+                labelExists = true;
+                label = baseLabel + L" " + std::to_wstring(suffix++);
+                break;
+            }
+        }
+    }
+
+    BgeObjectGroupState newGroup;
+    newGroup.label = label;
+    ResetObjectSlotArray(newGroup.slots, groupIndex);
+    newGroup.selectedObjectSlot = 0;
+    newGroup.objectSelectionActive = true;
+    g_objectGroups.push_back(newGroup);
+    g_activeObjectGroupIndex = groupIndex;
+    RefreshObjectGroupGlobalsLocked();
+    g_keyboardFocus = BgeKeyboardFocus::Group;
+    return groupIndex;
+}
+
+int ResolveObjectGroupIndex(const std::wstring& selector)
+{
+    std::wstring cleanSelector = TrimText(selector);
+    if (cleanSelector.empty()) {
+        return g_activeObjectGroupIndex;
+    }
+
+    float numericValue = 0.0f;
+    if (TryParseFloatArg(cleanSelector, numericValue)) {
+        int oneBasedGroup = static_cast<int>(numericValue);
+        if (oneBasedGroup >= 1 && oneBasedGroup <= static_cast<int>(g_objectGroups.size())) {
+            return oneBasedGroup - 1;
+        }
+    }
+
+    std::wstring selectorLower = LowerArg(cleanSelector);
+    for (int groupIndex = 0; groupIndex < static_cast<int>(g_objectGroups.size()); ++groupIndex) {
+        if (LowerArg(g_objectGroups[static_cast<size_t>(groupIndex)].label) == selectorLower) {
+            return groupIndex;
+        }
+    }
+    return -1;
+}
+
+void PushDeleteHistoryLocked(const BgeDeleteHistoryEntry& entry)
+{
+    if (entry.objectSnapshots.empty() && entry.groupSnapshots.empty()) {
+        return;
+    }
+
+    g_deleteHistory.push_back(entry);
+    if (g_deleteHistory.size() > BGE_DELETE_HISTORY_LIMIT) {
+        g_deleteHistory.erase(g_deleteHistory.begin());
+    }
+}
+
+BgeDeleteHistoryEntry MakeDeleteHistoryEntryLocked(const std::wstring& label)
+{
+    BgeDeleteHistoryEntry entry;
+    entry.label = label;
+    entry.activeGroupIndex = g_activeObjectGroupIndex;
+    entry.selectedObjectSlot = g_selectedObjectSlot;
+    entry.objectSelectionActive = g_objectSelectionActive;
+    return entry;
+}
+
+void AddObjectDeleteSnapshotLocked(BgeDeleteHistoryEntry& entry, int groupIndex, int slotIndex)
+{
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(g_objectGroups.size()) || slotIndex < 0 || slotIndex >= BGE_OBJECT_SLOT_COUNT) {
+        return;
+    }
+
+    PersistActiveObjectGroupLocked();
+    BgeObjectDeleteSnapshot snapshot;
+    snapshot.groupIndex = groupIndex;
+    snapshot.slotIndex = slotIndex;
+    snapshot.slot = g_objectGroups[static_cast<size_t>(groupIndex)].slots[slotIndex];
+    entry.objectSnapshots.push_back(snapshot);
+}
+
+bool ClearObjectSelectionLocked()
+{
+    if (!g_objectSelectionActive) {
+        return false;
+    }
+
+    g_objectSelectionActive = false;
+    g_keyboardFocus = BgeKeyboardFocus::None;
+    PersistActiveObjectGroupLocked();
+    g_rendererStateDirty = true;
+    return true;
+}
+
+bool ClearObjectSelectionFromRendererClick(int x, int y)
+{
+    UNREFERENCED_PARAMETER(x);
+    if (!CurrentProcessOwnsGameLoop() || y < static_cast<int>(BGE_RENDER_TOP_INSET)) {
+        return false;
+    }
+
+    bool cleared = false;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_ballAnimationRunning) {
+            return false;
+        }
+        cleared = ClearObjectSelectionLocked();
+    }
+
+    if (cleared) {
+        SyncBallControls();
+        SetCommandStatus(L"Object selection cleared; Delete commits marked objects");
+    }
+    return cleared;
+}
+
+bool ToggleSelectedObjectDeleteMark(std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"Delete commands run in bge.game-loop";
+        return false;
+    }
+
+    int selectedSlot = 0;
+    bool marked = false;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_ballAnimationRunning) {
+            statusText = L"Stop animation before marking deletes";
+            return false;
+        }
+        if (!g_objectSelectionActive) {
+            statusText = L"No object selected; Delete commits marked objects";
+            return false;
+        }
+
+        BgeObjectSlotState& slot = g_objectSlots[g_selectedObjectSlot];
+        if (!slot.visible || slot.isDeleted) {
+            statusText = L"Select a visible object";
+            return false;
+        }
+
+        BgeDeleteHistoryEntry entry = MakeDeleteHistoryEntryLocked(slot.deleteMarked ? L"unmark object delete" : L"mark object delete");
+        AddObjectDeleteSnapshotLocked(entry, g_activeObjectGroupIndex, g_selectedObjectSlot);
+        PushDeleteHistoryLocked(entry);
+
+        slot.deleteMarked = !slot.deleteMarked;
+        selectedSlot = g_selectedObjectSlot;
+        marked = slot.deleteMarked;
+        g_rendererStateDirty = true;
+        PersistActiveObjectGroupLocked();
+    }
+
+    SyncBallControls();
+    statusText = std::wstring(marked ? L"Marked object " : L"Unmarked object ") + std::to_wstring(selectedSlot + 1) + L" for delete";
+    return true;
+}
+
+bool CommitMarkedObjectDeletes(std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"Delete commands run in bge.game-loop";
+        return false;
+    }
+
+    int deletedCount = 0;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_ballAnimationRunning) {
+            statusText = L"Stop animation before deleting objects";
+            return false;
+        }
+
+        BgeDeleteHistoryEntry entry = MakeDeleteHistoryEntryLocked(L"commit object deletes");
+        for (int slotIndex = 0; slotIndex < BGE_OBJECT_SLOT_COUNT; ++slotIndex) {
+            const BgeObjectSlotState& slot = g_objectSlots[slotIndex];
+            if (slot.visible && !slot.isDeleted && slot.deleteMarked) {
+                AddObjectDeleteSnapshotLocked(entry, g_activeObjectGroupIndex, slotIndex);
+            }
+        }
+
+        if (entry.objectSnapshots.empty()) {
+            statusText = L"No delete-marked objects";
+            return false;
+        }
+
+        PushDeleteHistoryLocked(entry);
+        for (const auto& snapshot : entry.objectSnapshots) {
+            BgeObjectSlotState& slot = g_objectSlots[snapshot.slotIndex];
+            slot.deleteMarked = false;
+            slot.isDeleted = true;
+            slot.visible = false;
+            ++deletedCount;
+            if (g_mainPlayerGroupIndex == g_activeObjectGroupIndex && g_mainPlayerSlot == snapshot.slotIndex) {
+                g_mainPlayerGroupIndex = -1;
+                g_mainPlayerSlot = -1;
+            }
+        }
+
+        ClearObjectSelectionLocked();
+        RefreshSelectedObjectGlobalsLocked();
+        g_rendererStateDirty = true;
+        PersistActiveObjectGroupLocked();
+    }
+
+    SyncBallControls();
+    statusText = L"Deleted " + std::to_wstring(deletedCount) + L" marked object" + (deletedCount == 1 ? L"" : L"s");
+    return true;
+}
+
+bool UndoLastDeleteAction(std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"Undo commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring actionLabel;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_deleteHistory.empty()) {
+            statusText = L"Nothing to undo";
+            return false;
+        }
+
+        PersistActiveObjectGroupLocked();
+        BgeDeleteHistoryEntry entry = g_deleteHistory.back();
+        g_deleteHistory.pop_back();
+        actionLabel = entry.label;
+
+        for (const auto& snapshot : entry.objectSnapshots) {
+            if (snapshot.groupIndex < 0 || snapshot.groupIndex >= static_cast<int>(g_objectGroups.size()) || snapshot.slotIndex < 0 || snapshot.slotIndex >= BGE_OBJECT_SLOT_COUNT) {
+                continue;
+            }
+            g_objectGroups[static_cast<size_t>(snapshot.groupIndex)].slots[snapshot.slotIndex] = snapshot.slot;
+        }
+
+        for (const auto& snapshot : entry.groupSnapshots) {
+            if (snapshot.groupIndex < 0 || snapshot.groupIndex >= static_cast<int>(g_objectGroups.size())) {
+                continue;
+            }
+            BgeObjectGroupState& group = g_objectGroups[static_cast<size_t>(snapshot.groupIndex)];
+            group.deleteMarked = snapshot.deleteMarked;
+            group.isDeleted = snapshot.isDeleted;
+        }
+
+        if (entry.activeGroupIndex >= 0 && entry.activeGroupIndex < static_cast<int>(g_objectGroups.size())) {
+            g_activeObjectGroupIndex = entry.activeGroupIndex;
+        }
+        RefreshObjectGroupGlobalsLocked();
+        g_selectedObjectSlot = (std::max)(0, (std::min)(entry.selectedObjectSlot, BGE_OBJECT_SLOT_COUNT - 1));
+        g_objectSelectionActive = entry.objectSelectionActive;
+        RefreshSelectedObjectGlobalsLocked();
+        PersistActiveObjectGroupLocked();
+        g_rendererStateDirty = true;
+    }
+
+    SyncBallControls();
+    statusText = L"Undo: " + actionLabel;
+    return true;
+}
+
 bool AnyObjectSlotVisibleLocked()
 {
     for (const auto& slot : g_objectSlots) {
-        if (slot.visible) {
+        if (slot.visible && !slot.isDeleted) {
             return true;
         }
     }
@@ -569,7 +1021,7 @@ bool AnyObjectSlotVisibleLocked()
 int FirstHiddenObjectSlotLocked()
 {
     for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
-        if (!g_objectSlots[index].visible) {
+        if (!g_objectSlots[index].visible || g_objectSlots[index].isDeleted) {
             return index;
         }
     }
@@ -590,8 +1042,11 @@ void RefreshSelectedObjectGlobalsLocked()
 void SelectObjectSlotStateLocked(int slotIndex)
 {
     g_selectedObjectSlot = (std::max)(0, (std::min)(BGE_OBJECT_SLOT_COUNT - 1, slotIndex));
+    g_objectSelectionActive = true;
+    g_keyboardFocus = BgeKeyboardFocus::Object;
     RefreshSelectedObjectGlobalsLocked();
     g_rendererStateDirty = true;
+    PersistActiveObjectGroupLocked();
 }
 
 int ResolveObjectAddTargetLocked(int requestedSlotIndex)
@@ -613,8 +1068,12 @@ void AddObjectSlotStateLocked(int requestedSlotIndex)
     int targetSlot = ResolveObjectAddTargetLocked(requestedSlotIndex);
     g_selectedObjectSlot = targetSlot;
     g_objectSlots[targetSlot].visible = true;
+    g_objectSlots[targetSlot].deleteMarked = false;
+    g_objectSlots[targetSlot].isDeleted = false;
+    g_objectSelectionActive = true;
     RefreshSelectedObjectGlobalsLocked();
     g_rendererStateDirty = true;
+    PersistActiveObjectGroupLocked();
 }
 
 void ApplyObjectVectorStateLocked(float velocityX, float velocityY)
@@ -624,6 +1083,7 @@ void ApplyObjectVectorStateLocked(float velocityX, float velocityY)
     g_objectSlots[g_selectedObjectSlot].velocityX = velocityX;
     g_objectSlots[g_selectedObjectSlot].velocityY = velocityY;
     g_rendererStateDirty = true;
+    PersistActiveObjectGroupLocked();
 }
 
 void ApplyObjectColorStateLocked(float colorR, float colorG, float colorB)
@@ -635,6 +1095,7 @@ void ApplyObjectColorStateLocked(float colorR, float colorG, float colorB)
     g_objectSlots[g_selectedObjectSlot].colorG = g_ballColorG;
     g_objectSlots[g_selectedObjectSlot].colorB = g_ballColorB;
     g_rendererStateDirty = true;
+    PersistActiveObjectGroupLocked();
 }
 
 float ClampFloat(float value, float minimumValue, float maximumValue)
@@ -772,7 +1233,7 @@ bool TranslateSelectedObject(float deltaX, float deltaY, std::wstring& statusTex
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
         BgeObjectSlotState& slot = g_objectSlots[g_selectedObjectSlot];
-        if (!slot.visible) {
+        if (!g_objectSelectionActive || !slot.visible || slot.isDeleted) {
             statusText = L"Select a visible object";
             return false;
         }
@@ -783,6 +1244,7 @@ bool TranslateSelectedObject(float deltaX, float deltaY, std::wstring& statusTex
         x = slot.x;
         y = slot.y;
         g_rendererStateDirty = true;
+        PersistActiveObjectGroupLocked();
     }
     SyncBallControls();
     InvalidateRect(g_hWnd, nullptr, FALSE);
@@ -800,7 +1262,7 @@ bool ResizeSelectedObject(float deltaRadius, std::wstring& statusText)
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
         BgeObjectSlotState& slot = g_objectSlots[g_selectedObjectSlot];
-        if (!slot.visible) {
+        if (!g_objectSelectionActive || !slot.visible || slot.isDeleted) {
             statusText = L"Select a visible object";
             return false;
         }
@@ -809,6 +1271,7 @@ bool ResizeSelectedObject(float deltaRadius, std::wstring& statusText)
         selectedSlot = g_selectedObjectSlot;
         radius = slot.radius;
         g_rendererStateDirty = true;
+        PersistActiveObjectGroupLocked();
     }
     SyncBallControls();
     InvalidateRect(g_hWnd, nullptr, FALSE);
@@ -819,40 +1282,64 @@ bool ResizeSelectedObject(float deltaRadius, std::wstring& statusText)
     return true;
 }
 
-bool RotateSelectedObject(float deltaDegrees, std::wstring& statusText)
+bool ApplySelectedObjectVectorIntent(float deltaDegrees, float deltaMagnitude, const std::wstring& actionName, std::wstring& statusText)
 {
     int selectedSlot = 0;
+    float magnitude = 0.0f;
     float velocityX = 0.0f;
     float velocityY = 0.0f;
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
         BgeObjectSlotState& slot = g_objectSlots[g_selectedObjectSlot];
-        if (!slot.visible) {
+        if (!g_objectSelectionActive || !slot.visible || slot.isDeleted) {
             statusText = L"Select a visible object";
             return false;
         }
 
-        float speed = std::sqrt(slot.velocityX * slot.velocityX + slot.velocityY * slot.velocityY);
-        if (speed < 1.0f) {
-            speed = 180.0f;
+        float currentMagnitude = std::sqrt(slot.velocityX * slot.velocityX + slot.velocityY * slot.velocityY);
+        if (currentMagnitude < 1.0f) {
+            currentMagnitude = 180.0f;
+            slot.velocityX = currentMagnitude;
+            slot.velocityY = 0.0f;
         }
+
         float radians = std::atan2(slot.velocityY, slot.velocityX) + deltaDegrees * 3.14159265358979323846f / 180.0f;
-        slot.velocityX = std::cos(radians) * speed;
-        slot.velocityY = std::sin(radians) * speed;
+        magnitude = (std::max)(0.0f, currentMagnitude + deltaMagnitude);
+        slot.velocityX = std::cos(radians) * magnitude;
+        slot.velocityY = std::sin(radians) * magnitude;
         g_ballVelocityX = slot.velocityX;
         g_ballVelocityY = slot.velocityY;
         selectedSlot = g_selectedObjectSlot;
         velocityX = slot.velocityX;
         velocityY = slot.velocityY;
         g_rendererStateDirty = true;
+        PersistActiveObjectGroupLocked();
     }
     SyncBallControls();
     InvalidateRect(g_hWnd, nullptr, FALSE);
+    const char* logAction = deltaMagnitude != 0.0f ? "magnitude" : "rotate";
     std::ostringstream message;
-    message << "[BouncingBallEdit] rotate slot=" << (selectedSlot + 1) << " vx=" << velocityX << " vy=" << velocityY;
+    message << "[BouncingBallEdit] vector-intent slot=" << (selectedSlot + 1) << " action=" << logAction
+        << " degrees=" << deltaDegrees << " delta-magnitude=" << deltaMagnitude << " magnitude=" << magnitude
+        << " vx=" << velocityX << " vy=" << velocityY;
     LogRendererMessage(message.str());
-    statusText = L"Object " + std::to_wstring(selectedSlot + 1) + L" rotated";
+    if (deltaMagnitude != 0.0f && deltaDegrees == 0.0f) {
+        statusText = L"Object " + std::to_wstring(selectedSlot + 1) + L" magnitude " + std::to_wstring(static_cast<int>(magnitude));
+    }
+    else {
+        statusText = L"Object " + std::to_wstring(selectedSlot + 1) + L" " + actionName;
+    }
     return true;
+}
+
+bool RotateSelectedObject(float deltaDegrees, std::wstring& statusText)
+{
+    return ApplySelectedObjectVectorIntent(deltaDegrees, 0.0f, L"rotated", statusText);
+}
+
+bool AdjustSelectedObjectVectorMagnitude(float deltaMagnitude, std::wstring& statusText)
+{
+    return ApplySelectedObjectVectorIntent(0.0f, deltaMagnitude, L"magnitude", statusText);
 }
 
 std::wstring LowerArg(std::wstring value)
@@ -1895,6 +2382,7 @@ void LogRuntimeSceneState()
             selectedSlot = g_selectedObjectSlot;
             animationRunning = g_ballAnimationRunning;
         }
+        BgeUpdateCollisionFlags(objectSlots);
 
         std::ostringstream header;
         header << "[BouncingBallCli] renderer=" << RendererApiName() << " selected-object=" << (selectedSlot + 1) << " animation=" << (animationRunning ? "running" : "stopped");
@@ -1907,7 +2395,7 @@ void LogRuntimeSceneState()
             }
             std::ostringstream message;
             message << "[BouncingBallCli] object slot=" << (index + 1) << " x=" << slot.x << " y=" << slot.y << " vx=" << slot.velocityX << " vy=" << slot.velocityY
-                << " color=" << slot.colorR << "," << slot.colorG << "," << slot.colorB;
+                << " collision=" << (slot.collisionDetected ? "yes" : "no") << " color=" << slot.colorR << "," << slot.colorG << "," << slot.colorB;
             LogRendererMessage(message.str());
         }
     }
@@ -1923,27 +2411,39 @@ void ApplyBallStateToRenderer()
 {
     bool animationRunning = false;
     int selectedSlot = 0;
+    bool objectSelectionActive = false;
     std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> objectSlots;
+    std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> ghostSlots{};
 
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
+        PersistActiveObjectGroupLocked();
         animationRunning = g_ballAnimationRunning;
         selectedSlot = g_selectedObjectSlot;
+        objectSelectionActive = g_objectSelectionActive;
         objectSlots = g_objectSlots;
+        BgeUpdateCollisionFlags(objectSlots);
+        if (g_ghostOverlayEnabled && g_ghostObjectGroupIndex >= 0 && g_ghostObjectGroupIndex < static_cast<int>(g_objectGroups.size()) && g_ghostObjectGroupIndex != g_activeObjectGroupIndex) {
+            ghostSlots = g_objectGroups[static_cast<size_t>(g_ghostObjectGroupIndex)].slots;
+        }
     }
 
     if (g_directX11Renderer) {
         for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
             g_directX11Renderer->SetObjectSlotState(index, objectSlots[index]);
+            g_directX11Renderer->SetGhostObjectSlotState(index, ghostSlots[index]);
         }
         g_directX11Renderer->SelectObjectSlot(selectedSlot);
+        g_directX11Renderer->SetObjectSelectionActive(objectSelectionActive);
         g_directX11Renderer->SetAnimationRunning(animationRunning);
     }
     if (g_directX12Renderer) {
         for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
             g_directX12Renderer->SetObjectSlotState(index, objectSlots[index]);
+            g_directX12Renderer->SetGhostObjectSlotState(index, ghostSlots[index]);
         }
         g_directX12Renderer->SelectObjectSlot(selectedSlot);
+        g_directX12Renderer->SetObjectSelectionActive(objectSelectionActive);
         g_directX12Renderer->SetAnimationRunning(animationRunning);
     }
 }
@@ -2023,13 +2523,31 @@ void ResizeActiveRenderer()
     if (g_directX12Renderer) g_directX12Renderer->Resize();
 }
 
+void SyncObjectSlotsFromRenderer(const std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT>& objectSlots)
+{
+    std::lock_guard<std::mutex> lock(ballConfigMutex);
+    if (!g_ballAnimationRunning) {
+        return;
+    }
+
+    g_objectSlots = objectSlots;
+    RefreshSelectedObjectGlobalsLocked();
+    PersistActiveObjectGroupLocked();
+}
+
 void TickActiveRenderer(double deltaMilliseconds)
 {
     if (g_rendererApi.load() == BgeRendererApi::DirectX12) {
-        if (g_directX12Renderer) g_directX12Renderer->Tick(deltaMilliseconds);
+        if (g_directX12Renderer) {
+            g_directX12Renderer->Tick(deltaMilliseconds);
+            SyncObjectSlotsFromRenderer(g_directX12Renderer->ObjectSlotStates());
+        }
         return;
     }
-    if (g_directX11Renderer) g_directX11Renderer->Tick(deltaMilliseconds);
+    if (g_directX11Renderer) {
+        g_directX11Renderer->Tick(deltaMilliseconds);
+        SyncObjectSlotsFromRenderer(g_directX11Renderer->ObjectSlotStates());
+    }
 }
 
 void RenderActiveRenderer()
@@ -2096,29 +2614,15 @@ void AddBallFromControls()
 
 void StartAnimationFromControls()
 {
-    if (!CurrentProcessOwnsGameLoop()) {
-        return;
-    }
-    bool needsBall = false;
-    {
-        std::lock_guard<std::mutex> lock(ballConfigMutex);
-        needsBall = !AnyObjectSlotVisibleLocked();
-    }
-    if (needsBall) {
-        AddBallFromControls();
-    }
-    {
-        std::lock_guard<std::mutex> lock(ballConfigMutex);
-        g_ballAnimationRunning = true;
-        g_rendererStateDirty = true;
-    }
-    LogRendererMessage(std::string("[BouncingBallControls] start-animation renderer=") + RendererApiName());
+    std::wstring statusText;
+    StartAnimationState(statusText);
+    SetCommandStatus(statusText);
 }
 
 void StopAnimationFromControls()
 {
     std::wstring statusText;
-    ExecuteCommandText(L"stop", statusText);
+    StopAnimationState(statusText);
     SetCommandStatus(statusText);
 }
 
@@ -2208,6 +2712,10 @@ void SelectObjectSlotFromControls(int slotIndex)
 
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_objectSlots[slotIndex].isDeleted) {
+            SetCommandStatus(L"Object is deleted; use Ctrl+Z to restore it");
+            return;
+        }
         SelectObjectSlotStateLocked(slotIndex);
     }
 
@@ -2416,7 +2924,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
     };
 
     if (command == L"help" || command == L"?") {
-        statusText = L"add/select | start/stop | mode/rate | translate | resize | rotate | mapping | renderer";
+        statusText = L"group/ghost/player | delete/undo | add/select | start/stop | mode/rate | mapping";
         logCommand("help");
         return true;
     }
@@ -2535,6 +3043,249 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
         return ok;
     }
 
+    if (command == L"undo" || command == L"ctrl-z") {
+        bool ok = UndoLastDeleteAction(statusText);
+        logCommand(ok ? "undo-delete" : "undo-delete failed");
+        return ok;
+    }
+
+    if (command == L"delete" || command == L"del") {
+        std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"auto";
+        bool ok = false;
+        if (subcommand == L"commit" || subcommand == L"final") {
+            ok = CommitMarkedObjectDeletes(statusText);
+        }
+        else if (subcommand == L"mark" || subcommand == L"unmark" || subcommand == L"toggle" || subcommand == L"auto") {
+            bool selectionActive = false;
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                selectionActive = g_objectSelectionActive;
+            }
+            ok = selectionActive ? ToggleSelectedObjectDeleteMark(statusText) : CommitMarkedObjectDeletes(statusText);
+        }
+        else {
+            statusText = L"Use: delete [mark|commit]";
+            return false;
+        }
+        logCommand(ok ? "delete" : "delete failed");
+        return ok;
+    }
+
+    if (command == L"group" || command == L"object-group") {
+        if (!CurrentProcessOwnsGameLoop()) {
+            statusText = L"Group commands run in bge.game-loop";
+            return false;
+        }
+
+        std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"current";
+        if (subcommand == L"list") {
+            std::wstring listText;
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                PersistActiveObjectGroupLocked();
+                for (int groupIndex = 0; groupIndex < static_cast<int>(g_objectGroups.size()); ++groupIndex) {
+                    if (!listText.empty()) {
+                        listText += L", ";
+                    }
+                    listText += std::to_wstring(groupIndex + 1) + L":" + g_objectGroups[static_cast<size_t>(groupIndex)].label;
+                    if (groupIndex == g_activeObjectGroupIndex) {
+                        listText += L"*";
+                    }
+                }
+            }
+            statusText = listText.empty() ? L"No groups" : listText;
+            logCommand("group-list");
+            return true;
+        }
+
+        if (subcommand == L"add" || subcommand == L"new" || subcommand == L"+") {
+            int groupIndex = -1;
+            std::wstring groupLabel;
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                if (g_ballAnimationRunning) {
+                    statusText = L"Stop animation before adding a group";
+                    return false;
+                }
+                groupIndex = AddObjectGroupStateLocked(tokens.size() >= 3 ? JoinCommandTokens(tokens, 2) : L"");
+                groupLabel = ObjectGroupLabel(groupIndex);
+            }
+            SyncBallControls();
+            std::ostringstream message;
+            message << "group-add index=" << (groupIndex + 1) << " label=" << Narrow(groupLabel);
+            logCommand(message.str());
+            statusText = L"Added group: " + groupLabel;
+            return true;
+        }
+
+        if (subcommand == L"select" || subcommand == L"use" || subcommand == L"switch") {
+            if (tokens.size() < 3) {
+                statusText = L"Use: group select <name|number>";
+                return false;
+            }
+            std::wstring selector = JoinCommandTokens(tokens, 2);
+            int groupIndex = ResolveObjectGroupIndex(selector);
+            if (groupIndex < 0) {
+                statusText = L"Group not found";
+                return false;
+            }
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                if (g_ballAnimationRunning) {
+                    statusText = L"Stop animation before switching groups";
+                    return false;
+                }
+                SelectObjectGroupStateLocked(groupIndex);
+            }
+            SyncBallControls();
+            logCommand("group-select");
+            statusText = L"Group: " + ObjectGroupLabel(groupIndex);
+            return true;
+        }
+
+        statusText = L"Group: " + ObjectGroupLabel(g_activeObjectGroupIndex);
+        logCommand("group-current");
+        return true;
+    }
+
+    if (command == L"ghost") {
+        if (!CurrentProcessOwnsGameLoop()) {
+            statusText = L"Ghost commands run in bge.game-loop";
+            return false;
+        }
+
+        std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+        if (subcommand == L"off" || subcommand == L"clear" || subcommand == L"none") {
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                g_ghostOverlayEnabled = false;
+                g_ghostObjectGroupIndex = -1;
+                g_rendererStateDirty = true;
+            }
+            SyncBallControls();
+            logCommand("ghost-off");
+            statusText = L"Ghost off";
+            return true;
+        }
+
+        if (subcommand == L"on") {
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                if (g_ghostObjectGroupIndex < 0 || g_ghostObjectGroupIndex == g_activeObjectGroupIndex) {
+                    g_ghostObjectGroupIndex = -1;
+                    for (int groupIndex = 0; groupIndex < static_cast<int>(g_objectGroups.size()); ++groupIndex) {
+                        if (groupIndex != g_activeObjectGroupIndex) {
+                            g_ghostObjectGroupIndex = groupIndex;
+                            break;
+                        }
+                    }
+                }
+                if (g_ghostObjectGroupIndex < 0) {
+                    statusText = L"Add another group before ghosting";
+                    return false;
+                }
+                g_ghostOverlayEnabled = true;
+                g_rendererStateDirty = true;
+                statusText = L"Ghosting: " + ObjectGroupLabel(g_ghostObjectGroupIndex);
+            }
+            SyncBallControls();
+            logCommand("ghost-on");
+            return true;
+        }
+
+        if (subcommand == L"group" || subcommand == L"select" || subcommand == L"use") {
+            if (tokens.size() < 3) {
+                statusText = L"Use: ghost group <name|number>";
+                return false;
+            }
+            int groupIndex = ResolveObjectGroupIndex(JoinCommandTokens(tokens, 2));
+            if (groupIndex < 0) {
+                statusText = L"Ghost group not found";
+                return false;
+            }
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                g_ghostObjectGroupIndex = groupIndex;
+                g_ghostOverlayEnabled = groupIndex != g_activeObjectGroupIndex;
+                g_rendererStateDirty = true;
+                statusText = g_ghostOverlayEnabled ? L"Ghosting: " + ObjectGroupLabel(groupIndex) : L"Ghost group matches active group";
+            }
+            SyncBallControls();
+            logCommand("ghost-group");
+            return true;
+        }
+
+        statusText = g_ghostOverlayEnabled && g_ghostObjectGroupIndex >= 0 ? L"Ghosting: " + ObjectGroupLabel(g_ghostObjectGroupIndex) : L"Ghost off";
+        logCommand("ghost-status");
+        return true;
+    }
+
+    if (command == L"player" || command == L"main-player") {
+        if (!CurrentProcessOwnsGameLoop()) {
+            statusText = L"Player commands run in bge.game-loop";
+            return false;
+        }
+
+        std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+        if (subcommand == L"clear" || subcommand == L"none") {
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                g_mainPlayerGroupIndex = -1;
+                g_mainPlayerSlot = -1;
+            }
+            SyncBallControls();
+            logCommand("player-clear");
+            statusText = L"Player cleared";
+            return true;
+        }
+
+        if (subcommand == L"set" || subcommand == L"select") {
+            int groupIndex = g_activeObjectGroupIndex;
+            int slotIndex = g_selectedObjectSlot;
+            if (tokens.size() >= 3) {
+                int parsedSlot = -1;
+                if (TryParseSlotArg(tokens.back(), parsedSlot)) {
+                    slotIndex = parsedSlot;
+                    if (tokens.size() > 3) {
+                        groupIndex = ResolveObjectGroupIndex(JoinCommandTokens(std::vector<std::wstring>(tokens.begin(), tokens.end() - 1), 2));
+                    }
+                }
+                else {
+                    statusText = L"Use: player set [group] <1-10>";
+                    return false;
+                }
+            }
+
+            if (groupIndex < 0) {
+                statusText = L"Player group not found";
+                return false;
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                PersistActiveObjectGroupLocked();
+                if (groupIndex >= static_cast<int>(g_objectGroups.size()) ||
+                    !g_objectGroups[static_cast<size_t>(groupIndex)].slots[slotIndex].visible ||
+                    g_objectGroups[static_cast<size_t>(groupIndex)].slots[slotIndex].isDeleted) {
+                    statusText = L"Player object must be visible";
+                    return false;
+                }
+                g_mainPlayerGroupIndex = groupIndex;
+                g_mainPlayerSlot = slotIndex;
+            }
+            SyncBallControls();
+            logCommand("player-set");
+            statusText = L"Main player: " + ObjectGroupLabel(groupIndex) + L" / object " + std::to_wstring(slotIndex + 1);
+            return true;
+        }
+
+        statusText = g_mainPlayerGroupIndex >= 0 && g_mainPlayerSlot >= 0
+            ? L"Main player: " + ObjectGroupLabel(g_mainPlayerGroupIndex) + L" / object " + std::to_wstring(g_mainPlayerSlot + 1)
+            : L"Player: none";
+        logCommand("player-status");
+        return true;
+    }
+
     if (command == L"add" || command == L"object" || command == L"ball") {
         if (!CurrentProcessOwnsGameLoop()) {
             statusText = L"Object commands run in bge.game-loop";
@@ -2577,8 +3328,28 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
         size_t slotTokenIndex = 1;
         if (slotTokenIndex < tokens.size()) {
             std::wstring noun = LowerArg(tokens[slotTokenIndex]);
+            if (noun == L"animation" || noun == L"anim") {
+                FocusAnimationFromKeyboard();
+                logCommand("select-animation");
+                statusText = L"Animation selected";
+                return true;
+            }
             if (noun == L"object" || noun == L"vector") {
                 ++slotTokenIndex;
+            }
+        }
+
+        if (slotTokenIndex < tokens.size()) {
+            std::wstring selectionArg = LowerArg(tokens[slotTokenIndex]);
+            if (selectionArg == L"none" || selectionArg == L"clear") {
+                {
+                    std::lock_guard<std::mutex> lock(ballConfigMutex);
+                    ClearObjectSelectionLocked();
+                }
+                SyncBallControls();
+                logCommand("select-none");
+                statusText = L"Object selection cleared; Delete commits marked objects";
+                return true;
             }
         }
 
@@ -2590,6 +3361,10 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
 
         {
             std::lock_guard<std::mutex> lock(ballConfigMutex);
+            if (g_objectSlots[slotIndex].isDeleted) {
+                statusText = L"Object is deleted; use undo to restore it";
+                return false;
+            }
             SelectObjectSlotStateLocked(slotIndex);
         }
         SyncBallControls();
@@ -2682,39 +3457,48 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
     }
 
     if (command == L"start" || command == L"run") {
-        if (!CurrentProcessOwnsGameLoop()) {
-            statusText = L"Start commands run in bge.game-loop";
-            return false;
-        }
-        bool addedObject = false;
-        {
-            std::lock_guard<std::mutex> lock(ballConfigMutex);
-            if (!AnyObjectSlotVisibleLocked()) {
-                AddObjectSlotStateLocked(g_selectedObjectSlot);
-                addedObject = true;
-            }
-            g_ballAnimationRunning = true;
-            g_rendererStateDirty = true;
-        }
-        SyncBallControls();
-        logCommand(addedObject ? "start-animation added-object" : "start-animation");
-        statusText = L"Animation started";
-        return true;
+        bool ok = StartAnimationState(statusText);
+        logCommand(ok ? "start-animation" : "start-animation failed");
+        return ok;
     }
 
     if (command == L"stop" || command == L"pause") {
+        bool ok = StopAnimationState(statusText);
+        logCommand(ok ? "stop-animation" : "stop-animation failed");
+        return ok;
+    }
+
+    if (command == L"animation" || command == L"anim") {
         if (!CurrentProcessOwnsGameLoop()) {
-            statusText = L"Stop commands run in bge.game-loop";
+            statusText = L"Animation commands run in bge.game-loop";
             return false;
         }
-        {
-            std::lock_guard<std::mutex> lock(ballConfigMutex);
-            g_ballAnimationRunning = false;
-            g_rendererStateDirty = true;
+
+        std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"select";
+        if (subcommand == L"select" || subcommand == L"focus") {
+            FocusAnimationFromKeyboard();
+            logCommand("animation-focus");
+            statusText = L"Animation selected";
+            return true;
         }
-        logCommand("stop-animation");
-        statusText = L"Animation stopped";
-        return true;
+        if (subcommand == L"run" || subcommand == L"start" || subcommand == L"play") {
+            bool ok = StartAnimationState(statusText);
+            logCommand(ok ? "animation-run" : "animation-run failed");
+            return ok;
+        }
+        if (subcommand == L"stop" || subcommand == L"pause") {
+            bool ok = StopAnimationState(statusText);
+            logCommand(ok ? "animation-stop" : "animation-stop failed");
+            return ok;
+        }
+        if (subcommand == L"step" || subcommand == L"tick") {
+            bool ok = StepAnimationOneTick(statusText);
+            logCommand(ok ? "animation-step" : "animation-step failed");
+            return ok;
+        }
+
+        statusText = L"Use: animation select|run|stop|step";
+        return false;
     }
 
     if (command == L"renderer" || command == L"render") {
@@ -2839,7 +3623,7 @@ bool TryStartVectorDrag(int x, int y)
 
     std::lock_guard<std::mutex> lock(ballConfigMutex);
     const BgeObjectSlotState& slot = g_objectSlots[g_selectedObjectSlot];
-    if (!slot.visible || y < 140) {
+    if (!g_objectSelectionActive || !slot.visible || slot.isDeleted || y < 140) {
         return false;
     }
 
@@ -2864,13 +3648,13 @@ bool TrySelectObjectAtPoint(int x, int y)
     int selectedSlot = -1;
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
-        if (g_ballAnimationRunning || y < static_cast<int>(BGE_RENDER_TOP_INSET)) {
+        if (y < static_cast<int>(BGE_RENDER_TOP_INSET)) {
             return false;
         }
 
         for (int index = BGE_OBJECT_SLOT_COUNT - 1; index >= 0; --index) {
             const BgeObjectSlotState& slot = g_objectSlots[index];
-            if (!slot.visible) {
+            if (!slot.visible || slot.isDeleted) {
                 continue;
             }
             float deltaX = static_cast<float>(x) - slot.x;
@@ -2913,6 +3697,7 @@ void UpdateVectorDrag(int x, int y)
         g_ballVelocityX = velocityX;
         g_ballVelocityY = velocityY;
         g_rendererStateDirty = true;
+        PersistActiveObjectGroupLocked();
     }
 
     wchar_t value[32]{};
@@ -2932,6 +3717,226 @@ void EndVectorDrag()
     std::ostringstream message;
     message << "[BouncingBallControls] drag-vector slot=" << (g_selectedObjectSlot + 1) << " vx=" << g_ballVelocityX << " vy=" << g_ballVelocityY;
     LogRendererMessage(message.str());
+}
+
+int ObjectSlotIndexFromNumberKey(WPARAM key)
+{
+    if (key >= L'1' && key <= L'9') {
+        return static_cast<int>(key - L'1');
+    }
+    if (key == L'0') {
+        return 9;
+    }
+    if (key >= VK_NUMPAD1 && key <= VK_NUMPAD9) {
+        return static_cast<int>(key - VK_NUMPAD1);
+    }
+    if (key == VK_NUMPAD0) {
+        return 9;
+    }
+    return -1;
+}
+
+bool SelectObjectSlotFromKeyboard(int slotIndex)
+{
+    if (!CurrentProcessOwnsGameLoop() || slotIndex < 0 || slotIndex >= BGE_OBJECT_SLOT_COUNT) {
+        return false;
+    }
+
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_objectSlots[slotIndex].isDeleted) {
+            statusText = L"Object is deleted; use Ctrl+Z to restore it";
+        }
+        else {
+            SelectObjectSlotStateLocked(slotIndex);
+            statusText = L"Selected object " + std::to_wstring(slotIndex + 1);
+        }
+    }
+
+    SyncBallControls();
+    SetCommandStatus(statusText);
+    std::ostringstream message;
+    message << "[BouncingBallEdit] keyboard-select slot=" << (slotIndex + 1);
+    LogRendererMessage(message.str());
+    return true;
+}
+
+bool FocusObjectGroupsFromKeyboard()
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        PersistActiveObjectGroupLocked();
+        g_keyboardFocus = BgeKeyboardFocus::Group;
+        statusText = L"Group focus: " + ObjectGroupLabel(g_activeObjectGroupIndex);
+    }
+
+    SyncBallControls();
+    if (g_objectGroupCombo) {
+        SetFocus(g_objectGroupCombo);
+    }
+    SetCommandStatus(statusText);
+    LogRendererMessage("[BgeObjectGroup] keyboard-focus");
+    return true;
+}
+
+bool CycleObjectGroupFromKeyboard(int direction)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    int groupIndex = 0;
+    std::wstring groupLabel;
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_ballAnimationRunning) {
+            statusText = L"Stop animation before switching groups";
+        }
+        else if (g_objectGroups.empty()) {
+            statusText = L"No groups";
+        }
+        else {
+            PersistActiveObjectGroupLocked();
+            int groupCount = static_cast<int>(g_objectGroups.size());
+            groupIndex = (g_activeObjectGroupIndex + direction + groupCount) % groupCount;
+            SelectObjectGroupStateLocked(groupIndex);
+            g_keyboardFocus = BgeKeyboardFocus::Group;
+            groupLabel = ObjectGroupLabel(groupIndex);
+            statusText = L"Group: " + groupLabel;
+        }
+    }
+
+    SyncBallControls();
+    if (g_objectGroupCombo) {
+        SetFocus(g_objectGroupCombo);
+    }
+    SetCommandStatus(statusText);
+    if (!groupLabel.empty()) {
+        std::ostringstream message;
+        message << "[BgeObjectGroup] keyboard-select group=" << Narrow(groupLabel) << " index=" << (groupIndex + 1);
+        LogRendererMessage(message.str());
+    }
+    return true;
+}
+
+bool StartAnimationState(std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"Start commands run in bge.game-loop";
+        return false;
+    }
+
+    bool addedObject = false;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (!AnyObjectSlotVisibleLocked()) {
+            AddObjectSlotStateLocked(g_selectedObjectSlot);
+            addedObject = true;
+        }
+        g_keyboardFocus = BgeKeyboardFocus::Animation;
+        g_ballAnimationRunning = true;
+        g_rendererStateDirty = true;
+    }
+
+    SyncBallControls();
+    LogRendererMessage(addedObject ? "[BouncingBallControls] start-animation added-object" : "[BouncingBallControls] start-animation");
+    statusText = L"Animation started";
+    return true;
+}
+
+bool StopAnimationState(std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"Stop commands run in bge.game-loop";
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        g_keyboardFocus = BgeKeyboardFocus::Animation;
+        g_ballAnimationRunning = false;
+        g_rendererStateDirty = true;
+    }
+
+    SyncBallControls();
+    LogRendererMessage("[BouncingBallControls] stop-animation");
+    statusText = L"Animation stopped";
+    return true;
+}
+
+bool StepAnimationOneTick(std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"Animation step runs in bge.game-loop";
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_ballAnimationRunning) {
+            g_keyboardFocus = BgeKeyboardFocus::Animation;
+            statusText = L"Animation already running";
+            return false;
+        }
+        if (!AnyObjectSlotVisibleLocked()) {
+            g_keyboardFocus = BgeKeyboardFocus::Animation;
+            statusText = L"Add an object before stepping animation";
+            return false;
+        }
+
+        g_keyboardFocus = BgeKeyboardFocus::Animation;
+        g_ballAnimationRunning = true;
+        g_rendererStateDirty = true;
+    }
+
+    {
+        std::lock_guard<std::mutex> renderLock(gameLoopMutex);
+        ProcessPendingRendererCommands();
+        TickActiveRenderer(BGE_ANIMATION_STEP_MILLISECONDS);
+        RenderActiveRenderer();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        g_ballAnimationRunning = false;
+        g_rendererStateDirty = true;
+    }
+
+    {
+        std::lock_guard<std::mutex> renderLock(gameLoopMutex);
+        ProcessPendingRendererCommands();
+        RenderActiveRenderer();
+    }
+
+    SyncBallControls();
+    LogRendererMessage("[BouncingBallControls] step-animation ticks=1");
+    statusText = L"Animation stepped one tick";
+    return true;
+}
+
+bool FocusAnimationFromKeyboard()
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        g_keyboardFocus = BgeKeyboardFocus::Animation;
+        statusText = g_ballAnimationRunning ? L"Animation focus: running" : L"Animation focus: stopped";
+    }
+
+    SetCommandStatus(statusText);
+    LogRendererMessage("[BouncingBallControls] keyboard-focus animation");
+    return true;
 }
 
 bool ConfirmControllerClose(HWND hWnd)
@@ -3013,6 +4018,46 @@ bool HandleEscapeKey(HWND sourceWindow)
     return CloseWindowFromEscape(sourceWindow);
 }
 
+bool IsEditControl(HWND sourceWindow)
+{
+    if (!sourceWindow) {
+        return false;
+    }
+
+    wchar_t className[32]{};
+    GetClassNameW(sourceWindow, className, static_cast<int>(std::size(className)));
+    return _wcsicmp(className, L"Edit") == 0;
+}
+
+bool HandleEditorShortcutKey(HWND sourceWindow, WPARAM key)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 && (key == L'Z' || key == L'z')) {
+        std::wstring statusText;
+        UndoLastDeleteAction(statusText);
+        SetCommandStatus(statusText);
+        return true;
+    }
+
+    if (key != VK_DELETE || IsEditControl(sourceWindow)) {
+        return false;
+    }
+
+    std::wstring statusText;
+    bool selectionActive = false;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        selectionActive = g_objectSelectionActive;
+    }
+
+    bool handled = selectionActive ? ToggleSelectedObjectDeleteMark(statusText) : CommitMarkedObjectDeletes(statusText);
+    SetCommandStatus(statusText);
+    return handled || !statusText.empty();
+}
+
 bool HandleRendererKeyDown(WPARAM key)
 {
     if (!CurrentProcessOwnsGameLoop()) {
@@ -3022,6 +4067,51 @@ bool HandleRendererKeyDown(WPARAM key)
     if (key == VK_ESCAPE) {
         HandleEscapeKey(g_hWnd);
         return true;
+    }
+
+    int keyboardSlot = ObjectSlotIndexFromNumberKey(key);
+    if (keyboardSlot >= 0) {
+        return SelectObjectSlotFromKeyboard(keyboardSlot);
+    }
+
+    if (key == VK_OEM_3) {
+        return FocusObjectGroupsFromKeyboard();
+    }
+
+    bool arrowKey = key == VK_UP || key == VK_DOWN || key == VK_LEFT || key == VK_RIGHT;
+    bool animationRunning = false;
+    BgeKeyboardFocus keyboardFocus = BgeKeyboardFocus::None;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        animationRunning = g_ballAnimationRunning;
+        keyboardFocus = g_keyboardFocus;
+    }
+
+    if (keyboardFocus == BgeKeyboardFocus::Animation) {
+        std::wstring statusText;
+        bool handled = false;
+        if (key == L'W') {
+            handled = StartAnimationState(statusText);
+        }
+        else if (key == L'S') {
+            handled = StopAnimationState(statusText);
+        }
+        else if (key == L'D' || key == VK_RIGHT) {
+            handled = StepAnimationOneTick(statusText);
+        }
+        else if (key == L'A' || arrowKey) {
+            statusText = L"Animation focus: W run, S stop, D or Right step";
+        }
+
+        if (handled || !statusText.empty()) {
+            SetCommandStatus(statusText);
+            return true;
+        }
+    }
+
+    if (arrowKey && keyboardFocus == BgeKeyboardFocus::Group) {
+        int direction = key == VK_LEFT || key == VK_UP ? -1 : 1;
+        return CycleObjectGroupFromKeyboard(direction);
     }
 
     if (key == VK_UP) {
@@ -3041,11 +4131,6 @@ bool HandleRendererKeyDown(WPARAM key)
         return true;
     }
 
-    bool animationRunning = false;
-    {
-        std::lock_guard<std::mutex> lock(ballConfigMutex);
-        animationRunning = g_ballAnimationRunning;
-    }
     if (animationRunning) {
         SetCommandStatus(L"Stop animation before object editing");
         return true;
@@ -3057,10 +4142,11 @@ bool HandleRendererKeyDown(WPARAM key)
     float translateStep = BGE_TRANSLATE_STEP * rate;
     float resizeStep = BGE_RESIZE_STEP * rate;
     float rotateStep = BGE_ROTATE_STEP_DEGREES * rate;
+    float magnitudeStep = BGE_VECTOR_MAGNITUDE_STEP * rate;
     switch (key) {
     case L'W':
         handled = g_editMode == BgeEditMode::Translate ? TranslateSelectedObject(0.0f, -translateStep, statusText)
-            : (g_editMode == BgeEditMode::Resize ? ResizeSelectedObject(resizeStep, statusText) : RotateSelectedObject(rotateStep, statusText));
+            : (g_editMode == BgeEditMode::Resize ? ResizeSelectedObject(resizeStep, statusText) : AdjustSelectedObjectVectorMagnitude(magnitudeStep, statusText));
         break;
     case L'A':
         handled = g_editMode == BgeEditMode::Translate ? TranslateSelectedObject(-translateStep, 0.0f, statusText)
@@ -3068,7 +4154,7 @@ bool HandleRendererKeyDown(WPARAM key)
         break;
     case L'S':
         handled = g_editMode == BgeEditMode::Translate ? TranslateSelectedObject(0.0f, translateStep, statusText)
-            : (g_editMode == BgeEditMode::Resize ? ResizeSelectedObject(-resizeStep, statusText) : RotateSelectedObject(-rotateStep, statusText));
+            : (g_editMode == BgeEditMode::Resize ? ResizeSelectedObject(-resizeStep, statusText) : AdjustSelectedObjectVectorMagnitude(-magnitudeStep, statusText));
         break;
     case L'D':
         handled = g_editMode == BgeEditMode::Translate ? TranslateSelectedObject(translateStep, 0.0f, statusText)
@@ -3254,26 +4340,63 @@ std::wstring MappingWindowText()
     text << L"Current rate: " << EditRateLabel() << L"\r\n\r\n";
     text << L"Stop / pause\r\n";
     text << L"  Key: Escape while animation is running\r\n";
+    text << L"  Animation focus key: S\r\n";
     text << L"  Button: Stop\r\n";
-    text << L"  Worker command: stop\r\n";
-    text << L"  Controller command: game-loop: stop\r\n\r\n";
+    text << L"  Worker command: stop | animation stop\r\n";
+    text << L"  Controller command: game-loop: stop | game-loop: animation stop\r\n\r\n";
     text << L"Window close\r\n";
     text << L"  Keys: Escape when already stopped, or Alt+F4\r\n";
     text << L"  Worker windows: close automatically\r\n";
     text << L"  Closed renderer returns focus to the controller\r\n";
     text << L"  Controller: asks Close controller? [Y]es or [N]o\r\n\r\n";
-    text << L"Select object while stopped\r\n";
+    text << L"Select object\r\n";
     text << L"  Mouse: click a visible object\r\n";
+    text << L"  Keys: 1-9 select objects 1-9; 0 selects object 10\r\n";
     text << L"  Buttons: object slots 1-10\r\n";
     text << L"  Worker command: select <1-10>\r\n";
-    text << L"  Controller command: game-loop: select <1-10>\r\n\r\n";
+    text << L"  Controller command: game-loop: select <1-10>\r\n";
+    text << L"  Object focus: Up / Down choose edit mode; Left / Right choose rate\r\n";
+    text << L"  ASDW edits the selected object according to that mode and rate\r\n\r\n";
+    text << L"Delete marking and undo\r\n";
+    text << L"  Key: Delete on selected object marks or unmarks it with a red ring\r\n";
+    text << L"  Mouse: click empty renderer space to clear object selection\r\n";
+    text << L"  Key: Delete with no object selected commits all red-marked objects\r\n";
+    text << L"  Key: Ctrl+Z restores the last delete mark, unmark, or commit\r\n";
+    text << L"  Worker command: delete [mark|commit] | undo\r\n";
+    text << L"  Controller command: game-loop: delete | game-loop: undo\r\n\r\n";
+    text << L"Visual state colors\r\n";
+    text << L"  Green ring: selected object\r\n";
+    text << L"  Red ring: delete-marked object\r\n";
+    text << L"  Yellow ring: object collision detected\r\n";
+    text << L"  Collision state is logged with scene state for history/replay workflows\r\n\r\n";
+    text << L"Object groups\r\n";
+    text << L"  Dropdown: choose the active 10-object group\r\n";
+    text << L"  + button: add a new named group and switch to its next 10 slots\r\n";
+    text << L"  Key: ~ focuses groups; arrows select previous or next group\r\n";
+    text << L"  Selecting an object by mouse, key, button, or command returns to object focus\r\n";
+    text << L"  Worker command: group add [name] | group select <name|number> | group list\r\n";
+    text << L"  Controller command: game-loop: group <subcommand>\r\n\r\n";
+    text << L"Ghost group overlay\r\n";
+    text << L"  Dropdown: choose a non-active group as read-only ghost context\r\n";
+    text << L"  Button: Ghost On / Ghost Off\r\n";
+    text << L"  Worker command: ghost group <name|number> | ghost on | ghost off\r\n";
+    text << L"  Controller command: game-loop: ghost <subcommand>\r\n\r\n";
+    text << L"Main player\r\n";
+    text << L"  Button: Set Player marks the selected visible object in the active group\r\n";
+    text << L"  Worker command: player set [group] <1-10> | player clear | player status\r\n";
+    text << L"  Controller command: game-loop: player <subcommand>\r\n\r\n";
+    text << L"Animation focus\r\n";
+    text << L"  Buttons: Start or Stop select animation focus\r\n";
+    text << L"  Worker command: select animation | animation select|run|stop|step\r\n";
+    text << L"  Controller command: game-loop: animation <subcommand>\r\n";
+    text << L"  Keys while focused: W run, S stop, D or Right advances one fixed tick while stopped\r\n";
+    text << L"  Keyframes can reuse object vector direction and magnitude edits when added\r\n\r\n";
     text << L"Mode selection\r\n";
-    text << L"  Keys: Up / Down cycle Translate, Resize, Rotate\r\n";
+    text << L"  Keys: Up / Down cycle Translate, Resize, Rotate for object focus or no focus\r\n";
     text << L"  Worker command: mode translate | mode resize | mode rotate\r\n";
     text << L"  Controller command: game-loop: mode <mode>\r\n\r\n";
     text << L"Rate selection\r\n";
-    text << L"  Keys: Left slower, Right faster\r\n";
-    text << L"  Arrow keys change rate only; they do not move, resize, or rotate objects\r\n";
+    text << L"  Keys: Left slower, Right faster for object focus or no focus\r\n";
     text << L"  Worker command: rate 0.25x | 0.5x | 1x | 2x | 4x | up | down\r\n";
     text << L"  Controller command: game-loop: rate <rate>\r\n\r\n";
     text << L"Translate mode\r\n";
@@ -3288,9 +4411,9 @@ std::wstring MappingWindowText()
     text << L"  Worker command: resize <delta-radius>\r\n";
     text << L"  Controller command: game-loop: resize <delta-radius>\r\n\r\n";
     text << L"Rotate mode\r\n";
-    text << L"  Positive: D or W\r\n";
-    text << L"  Negative: A or S\r\n";
-    text << L"  Rate scales the degrees delta\r\n";
+    text << L"  Direction: A left, D right\r\n";
+    text << L"  Magnitude: W stronger, S weaker\r\n";
+    text << L"  Rate scales both the degrees delta and magnitude delta\r\n";
     text << L"  Worker command: rotate <degrees>\r\n";
     text << L"  Controller command: game-loop: rotate <degrees>\r\n\r\n";
     text << L"Mapping window\r\n";
@@ -3475,24 +4598,33 @@ void CreateBallControls(HWND hWnd)
     g_openMappingButton = CreateControl(hWnd, L"BUTTON", L"Mapping", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_OPEN_MAPPING, 784, 5, 80, 24);
     g_editModeStatus = CreateControl(hWnd, L"STATIC", L"Translate 1x", 0, IDC_BGE_EDIT_MODE_STATUS, 872, 9, 100, 20);
 
-    CreateControl(hWnd, L"STATIC", L"Color RGB", 0, 0, 8, 42, 64, 20);
-    g_colorREdit = CreateControl(hWnd, L"EDIT", L"245", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_COLOR_R, 76, 38, 44, 24);
-    g_colorGEdit = CreateControl(hWnd, L"EDIT", L"87", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_COLOR_G, 126, 38, 44, 24);
-    g_colorBEdit = CreateControl(hWnd, L"EDIT", L"56", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_COLOR_B, 176, 38, 44, 24);
-    g_applyColorButton = CreateControl(hWnd, L"BUTTON", L"Set Color", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_APPLY_COLOR, 228, 38, 82, 24);
+    CreateControl(hWnd, L"STATIC", L"Group", 0, 0, 8, 42, 44, 20);
+    g_objectGroupCombo = CreateControl(hWnd, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, IDC_BGE_OBJECT_GROUP_COMBO, 58, 38, 132, 180);
+    g_addObjectGroupButton = CreateControl(hWnd, L"BUTTON", L"+", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ADD_OBJECT_GROUP, 198, 38, 30, 24);
+    CreateControl(hWnd, L"STATIC", L"Ghost", 0, 0, 238, 42, 42, 20);
+    g_ghostGroupCombo = CreateControl(hWnd, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, IDC_BGE_GHOST_GROUP_COMBO, 286, 38, 132, 180);
+    g_toggleGhostButton = CreateControl(hWnd, L"BUTTON", L"Ghost", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_TOGGLE_GHOST, 426, 38, 62, 24);
+    g_setPlayerButton = CreateControl(hWnd, L"BUTTON", L"Set Player", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_SET_PLAYER, 496, 38, 86, 24);
+    g_playerStatus = CreateControl(hWnd, L"STATIC", L"Player: none", 0, IDC_BGE_PLAYER_STATUS, 592, 42, 360, 20);
 
-    CreateControl(hWnd, L"STATIC", L"Objects", 0, 0, 320, 42, 54, 20);
+    CreateControl(hWnd, L"STATIC", L"Color RGB", 0, 0, 8, 74, 64, 20);
+    g_colorREdit = CreateControl(hWnd, L"EDIT", L"245", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_COLOR_R, 76, 70, 44, 24);
+    g_colorGEdit = CreateControl(hWnd, L"EDIT", L"87", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_COLOR_G, 126, 70, 44, 24);
+    g_colorBEdit = CreateControl(hWnd, L"EDIT", L"56", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_COLOR_B, 176, 70, 44, 24);
+    g_applyColorButton = CreateControl(hWnd, L"BUTTON", L"Set Color", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_APPLY_COLOR, 228, 70, 82, 24);
+
+    CreateControl(hWnd, L"STATIC", L"Objects", 0, 0, 320, 74, 54, 20);
     for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
         wchar_t label[8]{};
         swprintf_s(label, L"%d", index + 1);
-        g_objectSlotButtons[index] = CreateControl(hWnd, L"BUTTON", label, BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_OBJECT_SLOT_BASE + index, 378 + index * 34, 38, 30, 24);
+        g_objectSlotButtons[index] = CreateControl(hWnd, L"BUTTON", label, BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_OBJECT_SLOT_BASE + index, 378 + index * 34, 70, 30, 24);
     }
 
-    CreateControl(hWnd, L"STATIC", L"Sound", 0, 0, 320, 74, 54, 20);
+    CreateControl(hWnd, L"STATIC", L"Sound", 0, 0, 720, 74, 42, 20);
     for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
         wchar_t label[8]{};
         swprintf_s(label, L"%d", index + 1);
-        g_soundSlotButtons[index] = CreateControl(hWnd, L"BUTTON", label, BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_SOUND_SLOT_BASE + index, 378 + index * 34, 70, 30, 24);
+        g_soundSlotButtons[index] = CreateControl(hWnd, L"BUTTON", label, BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_SOUND_SLOT_BASE + index, 766 + index * 20, 70, 18, 24);
     }
 
     CreateControl(hWnd, L"STATIC", L"Cmd", 0, 0, 8, 104, 30, 20);
@@ -3707,6 +4839,231 @@ void ProcessControllerUiAutomation()
     }
 }
 
+void SyncObjectGroupControls()
+{
+    if (g_isController) {
+        return;
+    }
+
+    std::vector<std::wstring> labels;
+    int activeGroupIndex = 0;
+    int ghostGroupIndex = -1;
+    bool ghostEnabled = false;
+    int playerGroupIndex = -1;
+    int playerSlot = -1;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        PersistActiveObjectGroupLocked();
+        activeGroupIndex = g_activeObjectGroupIndex;
+        ghostGroupIndex = g_ghostObjectGroupIndex;
+        ghostEnabled = g_ghostOverlayEnabled;
+        playerGroupIndex = g_mainPlayerGroupIndex;
+        playerSlot = g_mainPlayerSlot;
+        for (const auto& group : g_objectGroups) {
+            std::wstring label = group.label;
+            if (group.isDeleted) {
+                label = L"x " + label;
+            }
+            else if (group.deleteMarked) {
+                label = L"D " + label;
+            }
+            labels.push_back(label);
+        }
+    }
+
+    if (g_objectGroupCombo) {
+        SendMessageW(g_objectGroupCombo, CB_RESETCONTENT, 0, 0);
+        for (const auto& label : labels) {
+            SendMessageW(g_objectGroupCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
+        SendMessageW(g_objectGroupCombo, CB_SETCURSEL, static_cast<WPARAM>((std::max)(0, activeGroupIndex)), 0);
+    }
+
+    if (g_ghostGroupCombo) {
+        SendMessageW(g_ghostGroupCombo, CB_RESETCONTENT, 0, 0);
+        SendMessageW(g_ghostGroupCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"<none>"));
+        for (const auto& label : labels) {
+            SendMessageW(g_ghostGroupCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
+        int ghostSelection = ghostGroupIndex >= 0 ? ghostGroupIndex + 1 : 0;
+        SendMessageW(g_ghostGroupCombo, CB_SETCURSEL, static_cast<WPARAM>(ghostSelection), 0);
+    }
+
+    if (g_toggleGhostButton) {
+        SetWindowTextW(g_toggleGhostButton, ghostEnabled ? L"Ghost On" : L"Ghost Off");
+    }
+
+    if (g_playerStatus) {
+        std::wstring status = L"Player: none";
+        if (playerGroupIndex >= 0 && playerGroupIndex < static_cast<int>(labels.size()) && playerSlot >= 0 && playerSlot < BGE_OBJECT_SLOT_COUNT) {
+            status = L"Player: " + labels[static_cast<size_t>(playerGroupIndex)] + L" / object " + std::to_wstring(playerSlot + 1);
+        }
+        SetWindowTextW(g_playerStatus, status.c_str());
+    }
+}
+
+void SelectObjectGroupFromControls()
+{
+    if (!CurrentProcessOwnsGameLoop() || !g_objectGroupCombo) {
+        return;
+    }
+
+    LRESULT selection = SendMessageW(g_objectGroupCombo, CB_GETCURSEL, 0, 0);
+    if (selection == CB_ERR) {
+        return;
+    }
+
+    std::wstring statusText;
+    bool switched = false;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_ballAnimationRunning) {
+            statusText = L"Stop animation before switching groups";
+        }
+        else {
+            switched = SelectObjectGroupStateLocked(static_cast<int>(selection));
+            statusText = switched ? L"Group: " + ObjectGroupLabel(g_activeObjectGroupIndex) : L"Group not found";
+        }
+    }
+
+    SyncBallControls();
+    if (g_objectGroupCombo) {
+        SetFocus(g_objectGroupCombo);
+    }
+    SetCommandStatus(statusText);
+    if (switched) {
+        std::ostringstream message;
+        message << "[BgeObjectGroup] active group=" << Narrow(ObjectGroupLabel(static_cast<int>(selection))) << " index=" << (static_cast<int>(selection) + 1);
+        LogRendererMessage(message.str());
+    }
+}
+
+void AddObjectGroupFromControls()
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return;
+    }
+
+    int groupIndex = -1;
+    std::wstring groupLabel;
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_ballAnimationRunning) {
+            statusText = L"Stop animation before adding a group";
+        }
+        else {
+            groupIndex = AddObjectGroupStateLocked(L"");
+            groupLabel = ObjectGroupLabel(groupIndex);
+            statusText = L"Added group: " + groupLabel;
+        }
+    }
+
+    SyncBallControls();
+    if (g_objectGroupCombo) {
+        SetFocus(g_objectGroupCombo);
+    }
+    SetCommandStatus(statusText);
+    if (groupIndex >= 0) {
+        std::ostringstream message;
+        message << "[BgeObjectGroup] add group=" << Narrow(groupLabel) << " index=" << (groupIndex + 1);
+        LogRendererMessage(message.str());
+    }
+}
+
+void SelectGhostGroupFromControls()
+{
+    if (!CurrentProcessOwnsGameLoop() || !g_ghostGroupCombo) {
+        return;
+    }
+
+    LRESULT selection = SendMessageW(g_ghostGroupCombo, CB_GETCURSEL, 0, 0);
+    if (selection == CB_ERR) {
+        return;
+    }
+
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (selection == 0) {
+            g_ghostObjectGroupIndex = -1;
+            g_ghostOverlayEnabled = false;
+            statusText = L"Ghost group cleared";
+        }
+        else {
+            g_ghostObjectGroupIndex = static_cast<int>(selection) - 1;
+            g_ghostOverlayEnabled = g_ghostObjectGroupIndex != g_activeObjectGroupIndex;
+            statusText = g_ghostOverlayEnabled ? L"Ghosting: " + ObjectGroupLabel(g_ghostObjectGroupIndex) : L"Ghost group matches active group";
+        }
+        g_rendererStateDirty = true;
+    }
+
+    SyncBallControls();
+    SetCommandStatus(statusText);
+}
+
+void ToggleGhostGroupFromControls()
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return;
+    }
+
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_ghostOverlayEnabled) {
+            g_ghostOverlayEnabled = false;
+            statusText = L"Ghost off";
+        }
+        else {
+            if (g_ghostObjectGroupIndex < 0 || g_ghostObjectGroupIndex == g_activeObjectGroupIndex) {
+                g_ghostObjectGroupIndex = -1;
+                for (int groupIndex = 0; groupIndex < static_cast<int>(g_objectGroups.size()); ++groupIndex) {
+                    if (groupIndex != g_activeObjectGroupIndex) {
+                        g_ghostObjectGroupIndex = groupIndex;
+                        break;
+                    }
+                }
+            }
+            if (g_ghostObjectGroupIndex < 0) {
+                statusText = L"Add another group before ghosting";
+            }
+            else {
+                g_ghostOverlayEnabled = true;
+                statusText = L"Ghosting: " + ObjectGroupLabel(g_ghostObjectGroupIndex);
+            }
+        }
+        g_rendererStateDirty = true;
+    }
+
+    SyncBallControls();
+    SetCommandStatus(statusText);
+}
+
+void SetMainPlayerFromControls()
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return;
+    }
+
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (!g_objectSelectionActive || !g_objectSlots[g_selectedObjectSlot].visible || g_objectSlots[g_selectedObjectSlot].isDeleted) {
+            statusText = L"Add or select a visible object first";
+        }
+        else {
+            g_mainPlayerGroupIndex = g_activeObjectGroupIndex;
+            g_mainPlayerSlot = g_selectedObjectSlot;
+            PersistActiveObjectGroupLocked();
+            statusText = L"Main player: " + ObjectGroupLabel(g_mainPlayerGroupIndex) + L" / object " + std::to_wstring(g_mainPlayerSlot + 1);
+        }
+    }
+
+    SyncBallControls();
+    SetCommandStatus(statusText);
+}
+
 void SyncBallControls()
 {
     if (g_isController) {
@@ -3719,13 +5076,25 @@ void SyncBallControls()
     bool commandEnabled = enabled || soundEnabled;
     BgeObjectSlotState selectedSlot;
     int selectedSlotIndex = 0;
+    int activeGroupIndex = 0;
+    int mainPlayerGroupIndex = -1;
+    int mainPlayerSlot = -1;
+    bool objectSelectionActive = false;
     std::array<bool, BGE_OBJECT_SLOT_COUNT> visibleSlots{};
+    std::array<bool, BGE_OBJECT_SLOT_COUNT> markedSlots{};
+    std::array<bool, BGE_OBJECT_SLOT_COUNT> deletedSlots{};
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
+        activeGroupIndex = g_activeObjectGroupIndex;
+        mainPlayerGroupIndex = g_mainPlayerGroupIndex;
+        mainPlayerSlot = g_mainPlayerSlot;
+        objectSelectionActive = g_objectSelectionActive;
         selectedSlotIndex = g_selectedObjectSlot;
         selectedSlot = g_objectSlots[selectedSlotIndex];
         for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
-            visibleSlots[index] = g_objectSlots[index].visible;
+            visibleSlots[index] = g_objectSlots[index].visible && !g_objectSlots[index].isDeleted;
+            markedSlots[index] = g_objectSlots[index].deleteMarked;
+            deletedSlots[index] = g_objectSlots[index].isDeleted;
         }
     }
 
@@ -3743,8 +5112,25 @@ void SyncBallControls()
 
     for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
         wchar_t label[16]{};
-        if (index == selectedSlotIndex) {
+        bool isMainPlayer = mainPlayerGroupIndex == activeGroupIndex && mainPlayerSlot == index;
+        bool isSelected = objectSelectionActive && index == selectedSlotIndex;
+        if (deletedSlots[index]) {
+            swprintf_s(label, L"x%d", index + 1);
+        }
+        else if (isSelected && markedSlots[index]) {
+            swprintf_s(label, L"[D]");
+        }
+        else if (markedSlots[index]) {
+            swprintf_s(label, L"D%d", index + 1);
+        }
+        else if (isSelected && isMainPlayer) {
+            swprintf_s(label, L"[P]");
+        }
+        else if (isSelected) {
             swprintf_s(label, L"[%d]", index + 1);
+        }
+        else if (isMainPlayer) {
+            swprintf_s(label, L"P%d", index + 1);
         }
         else if (visibleSlots[index]) {
             swprintf_s(label, L"%d*", index + 1);
@@ -3785,6 +5171,12 @@ void SyncBallControls()
         g_colorGEdit,
         g_colorBEdit,
         g_applyColorButton,
+        g_objectGroupCombo,
+        g_addObjectGroupButton,
+        g_ghostGroupCombo,
+        g_toggleGhostButton,
+        g_setPlayerButton,
+        g_playerStatus,
         g_commandEdit,
         g_runCommandButton,
     };
@@ -3800,6 +5192,7 @@ void SyncBallControls()
     for (HWND control : g_soundSlotButtons) {
         if (control) EnableWindow(control, soundEnabled);
     }
+    SyncObjectGroupControls();
 }
 
 bool EnsureCoordMutex()
@@ -4215,6 +5608,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             SetCapture(hWnd);
             break;
         }
+        if (ClearObjectSelectionFromRendererClick(x, y)) {
+            break;
+        }
 
         // Update instance count when the window is clicked
         if (isFocused)
@@ -4372,6 +5768,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             HideControllerArtifact(wmId - IDC_BGE_CONTROLLER_HIDE_BASE);
             break;
         }
+        if (wmId == IDC_BGE_OBJECT_GROUP_COMBO && HIWORD(wParam) == CBN_SELCHANGE) {
+            SelectObjectGroupFromControls();
+            break;
+        }
+        if (wmId == IDC_BGE_GHOST_GROUP_COMBO && HIWORD(wParam) == CBN_SELCHANGE) {
+            SelectGhostGroupFromControls();
+            break;
+        }
         if (wmId >= IDC_BGE_OBJECT_SLOT_BASE && wmId < IDC_BGE_OBJECT_SLOT_BASE + BGE_OBJECT_SLOT_COUNT) {
             SelectObjectSlotFromControls(wmId - IDC_BGE_OBJECT_SLOT_BASE);
             break;
@@ -4393,6 +5797,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         case IDC_BGE_STOP_ANIMATION:
             StopAnimationFromControls();
+            break;
+
+        case IDC_BGE_ADD_OBJECT_GROUP:
+            AddObjectGroupFromControls();
+            break;
+
+        case IDC_BGE_TOGGLE_GHOST:
+            ToggleGhostGroupFromControls();
+            break;
+
+        case IDC_BGE_SET_PLAYER:
+            SetMainPlayerFromControls();
             break;
 
         case IDC_BGE_OPEN_MAPPING:
