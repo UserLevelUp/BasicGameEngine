@@ -1,4 +1,5 @@
 #include "../include/WindowMutex.h"
+#include <utility>
 
 // Default constructor
 WindowMutex::WindowMutex() : handle(nullptr) {}
@@ -6,17 +7,32 @@ WindowMutex::WindowMutex() : handle(nullptr) {}
 // Constructor with a name parameter
 WindowMutex::WindowMutex(const std::wstring& name) : name(name), handle(nullptr) {}
 
-WindowMutex::~WindowMutex() {
-    if (handle) {
+WindowMutex::WindowMutex(WindowMutex&& other) noexcept
+    : name(std::move(other.name)), handle(other.handle) {
+    other.handle = nullptr;
+}
+
+WindowMutex& WindowMutex::operator=(WindowMutex&& other) noexcept {
+    if (this != &other) {
         Release();
-        CloseHandle(handle); // Ensure the handle is closed
+        name = std::move(other.name);
+        handle = other.handle;
+        other.handle = nullptr;
     }
+
+    return *this;
+}
+
+WindowMutex::~WindowMutex() {
+    Release();
 }
 
 bool WindowMutex::Create() {
     if (name.empty()) {
         return false; // If the name is not set, fail to create the mutex
     }
+
+    Release();
 
     // Attempt to create or open the mutex
     handle = ::CreateMutex(NULL, FALSE, name.c_str());
@@ -25,7 +41,8 @@ bool WindowMutex::Create() {
 
 void WindowMutex::Release() {
     if (handle) {
-        ::ReleaseMutex(handle);
+        CloseHandle(handle);
+        handle = nullptr;
     }
 }
 

@@ -20,5 +20,5 @@ private:
     ~InterprocessCommMgr();
 
     std::map<std::wstring, InterprocessComm*> interprocessComms;
-    int instanceCount;
+    int channelCount;
 };

@@ -8,7 +8,7 @@ InterprocessCommMgr& InterprocessCommMgr::GetInstance()
 }
 
 // Constructor
-InterprocessCommMgr::InterprocessCommMgr() : instanceCount(0) {}
+InterprocessCommMgr::InterprocessCommMgr() : channelCount(0) {}
 
 // Destructor
 InterprocessCommMgr::~InterprocessCommMgr()
@@ -30,10 +30,10 @@ InterprocessComm* InterprocessCommMgr::CreateInterprocessComm(const std::wstring
 
     // Create a new InterprocessComm instance
     InterprocessComm* comm = new InterprocessComm(name, size);
-    if (comm->CreateSharedMemory())
+    if (comm->IsValid())
     {
         interprocessComms[name] = comm;
-        instanceCount++;
+        channelCount++;
     }
     else
     {
@@ -51,11 +51,12 @@ void InterprocessCommMgr::ReleaseInterprocessComm(const std::wstring& name) {
         // Clean up the InterprocessComm instance
         delete it->second;
         interprocessComms.erase(it);
+        channelCount--;
     }
 }
 
 
 int InterprocessCommMgr::GetInstanceCount() const
 {
-    return instanceCount;
+    return channelCount;
 }

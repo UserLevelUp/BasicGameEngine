@@ -23,7 +23,7 @@
     <ProjectGuid>{F8A3E592-77B2-4CA3-A566-D644A73FD623}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>BasicGameEngineUnitTest</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.18362.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <ProjectSubType>NativeUnitTestProject</ProjectSubType>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />

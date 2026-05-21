@@ -9,7 +9,7 @@
 std::wstring WindowMutexMgr::CreateInstanceMutex() {
     // Get the shared memory pointer from InterprocessCommMgr
     InterprocessCommMgr& commMgr = InterprocessCommMgr::GetInstance();
-    InterprocessComm* comm = commMgr.CreateInterprocessComm(L"Global\\BasicGameEngineSharedMemory", sizeof(SharedMemoryData));
+    InterprocessComm* comm = commMgr.CreateInterprocessComm(L"Local\\BasicGameEngineSharedMemory", sizeof(SharedMemoryData));
     if (!comm) {
         return L""; // Failed to create or access shared memory
     }
@@ -29,7 +29,7 @@ std::wstring WindowMutexMgr::CreateInstanceMutex() {
 
     // Convert GUID to a wide string
     wchar_t guidString[85]; // Make sure the buffer is large enough
-    swprintf_s(guidString, 85, L"Global\\BasicGameEngineInstanceMutex_%08lX-%04X-%04X-%04X-%04X%08lX",
+    swprintf_s(guidString, 85, L"Local\\BasicGameEngineInstanceMutex_%08lX-%04X-%04X-%04X-%04X%08lX",
         guid.Data1, guid.Data2, guid.Data3,
         (guid.Data4[0] << 8) | guid.Data4[1],  // Combine two bytes for a 4-digit part
         (guid.Data4[2] << 8) | guid.Data4[3],  // Combine another two bytes for the next 4-digit part
@@ -56,7 +56,7 @@ std::wstring WindowMutexMgr::CreateInstanceMutex() {
 
     //// Generate a unique name for the new instance mutex using a random number or GUID
     //std::wstringstream mutexNameStream;
-    //mutexNameStream << L"Global\\BasicGameEngineInstanceMutex_" << GetCurrentProcessId();
+    //mutexNameStream << L"Local\\BasicGameEngineInstanceMutex_" << GetCurrentProcessId();
 
     //std::wstring mutexName = mutexNameStream.str();
 
@@ -75,18 +75,6 @@ std::wstring WindowMutexMgr::CreateInstanceMutex() {
 }
 
 void WindowMutexMgr::ReleaseInstanceMutex(const std::wstring& name) {
-    // Get the shared memory pointer from InterprocessCommMgr
-    InterprocessCommMgr& commMgr = InterprocessCommMgr::GetInstance();
-    InterprocessComm* comm = commMgr.CreateInterprocessComm(L"Global\\BasicGameEngineSharedMemory", sizeof(SharedMemoryData));
-    if (!comm) {
-        return; // Failed to create or access shared memory
-    }
-
-    SharedMemoryData* sharedData = comm->GetSharedMemoryPointer();
-    if (!sharedData) {
-        return; // Failed to get the shared memory pointer
-    }
-
     auto it = instanceMutexes.find(name);
     if (it != instanceMutexes.end()) {
         it->second.Release(); // Release the mutex using the WindowMutex method
@@ -96,7 +84,7 @@ void WindowMutexMgr::ReleaseInstanceMutex(const std::wstring& name) {
 int WindowMutexMgr::GetInstanceCount() const {
     // Get the shared memory pointer from InterprocessCommMgr
     InterprocessCommMgr& commMgr = InterprocessCommMgr::GetInstance();
-    InterprocessComm* comm = commMgr.CreateInterprocessComm(L"Global\\BasicGameEngineSharedMemory", sizeof(SharedMemoryData));
+    InterprocessComm* comm = commMgr.CreateInterprocessComm(L"Local\\BasicGameEngineSharedMemory", sizeof(SharedMemoryData));
     if (!comm) {
         return 0; // Failed to create or access shared memory
     }

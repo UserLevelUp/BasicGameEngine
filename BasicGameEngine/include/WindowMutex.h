@@ -11,6 +11,11 @@ public:
     // Constructor to initialize a mutex with a name
     WindowMutex(const std::wstring& name);
 
+    WindowMutex(const WindowMutex&) = delete;
+    WindowMutex& operator=(const WindowMutex&) = delete;
+    WindowMutex(WindowMutex&& other) noexcept;
+    WindowMutex& operator=(WindowMutex&& other) noexcept;
+
     // Destructor to release and close the mutex
     ~WindowMutex();
 

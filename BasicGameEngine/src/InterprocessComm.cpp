@@ -1,37 +1,72 @@
 #include "../include/InterprocessComm.h"
 #include <iostream>
+#include <utility>
 
 InterprocessComm::InterprocessComm(const std::wstring& name, size_t size)
-    : name(name), size(size), hMapFile(NULL), pSharedMemory(NULL) {
+    : name(name), size(size), hMapFile(NULL), pSharedMemory(NULL), attached(false) {
     if (CreateSharedMemory()) {
         // Increment the instance count only when the shared memory is successfully created
         SharedMemoryData* sharedData = GetSharedMemoryPointer();
         if (sharedData) {
             InterlockedIncrement(&sharedData->instanceCount);
+            attached = true;
         }
     }
+}
+
+InterprocessComm::InterprocessComm(InterprocessComm&& other) noexcept
+    : name(std::move(other.name)),
+      size(other.size),
+      hMapFile(other.hMapFile),
+      pSharedMemory(other.pSharedMemory),
+      attached(other.attached) {
+    other.size = 0;
+    other.hMapFile = NULL;
+    other.pSharedMemory = NULL;
+    other.attached = false;
+}
+
+InterprocessComm& InterprocessComm::operator=(InterprocessComm&& other) noexcept {
+    if (this != &other) {
+        SharedMemoryData* sharedData = GetSharedMemoryPointer();
+        if (attached && sharedData) {
+            InterlockedDecrement(&sharedData->instanceCount);
+        }
+        ReleaseSharedMemory();
+
+        name = std::move(other.name);
+        size = other.size;
+        hMapFile = other.hMapFile;
+        pSharedMemory = other.pSharedMemory;
+        attached = other.attached;
+
+        other.size = 0;
+        other.hMapFile = NULL;
+        other.pSharedMemory = NULL;
+        other.attached = false;
+    }
+
+    return *this;
 }
 
 InterprocessComm::~InterprocessComm() {
     // Decrement the instance count only when the instance is destroyed
     SharedMemoryData* sharedData = GetSharedMemoryPointer();
-    if (sharedData) {
+    if (attached && sharedData) {
         LONG newCount = InterlockedDecrement(&sharedData->instanceCount);
         // Debug output
         std::wcout << L"Decremented instance count to: " << newCount << std::endl;
+    }
 
-        // Only release shared memory if it's the last instance
-        if (newCount == 0) {
-            ReleaseSharedMemory();
-        }
-    }
-    else {
-        // If sharedData is null, just release the memory
-        ReleaseSharedMemory();
-    }
+    attached = false;
+    ReleaseSharedMemory();
 }
 
 bool InterprocessComm::CreateSharedMemory() {
+    if (pSharedMemory != NULL) {
+        return true;
+    }
+
     hMapFile = CreateFileMappingW(
         INVALID_HANDLE_VALUE,    // Use paging file
         NULL,                    // Default security
@@ -77,6 +112,10 @@ void InterprocessComm::ReleaseSharedMemory() {
         CloseHandle(hMapFile);
         hMapFile = NULL;
     }
+}
+
+bool InterprocessComm::IsValid() const {
+    return pSharedMemory != NULL;
 }
 
 SharedMemoryData* InterprocessComm::GetSharedMemoryPointer() const {
