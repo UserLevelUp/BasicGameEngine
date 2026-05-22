@@ -59,6 +59,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11VertexShader> vertexShader_;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> pixelShader_;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> inputLayout_;
+    Microsoft::WRL::ComPtr<ID3D11BlendState> alphaBlendState_;
     Microsoft::WRL::ComPtr<ID3D11Buffer> vertexBuffer_;
     D3D11_VIEWPORT viewport_{};
 

@@ -104,12 +104,21 @@ constexpr int IDC_BGE_CONTROLLER_RUNTIME_STATUS = 42901;
 constexpr int IDC_BGE_CONTROLLER_HISTORY = 42902;
 constexpr int IDC_BGE_CONTROLLER_HISTORY_DETAIL = 42903;
 constexpr int IDC_BGE_OPEN_HISTORY = 42904;
+constexpr int IDC_BGE_LOAD_ASTEROID_GAME = 42905;
 constexpr int IDC_BGE_OBJECT_GROUP_COMBO = 42910;
 constexpr int IDC_BGE_ADD_OBJECT_GROUP = 42911;
 constexpr int IDC_BGE_GHOST_GROUP_COMBO = 42912;
 constexpr int IDC_BGE_TOGGLE_GHOST = 42913;
 constexpr int IDC_BGE_SET_PLAYER = 42914;
 constexpr int IDC_BGE_PLAYER_STATUS = 42915;
+constexpr int IDC_BGE_ASTEROID_R = 42920;
+constexpr int IDC_BGE_ASTEROID_G = 42921;
+constexpr int IDC_BGE_ASTEROID_B = 42922;
+constexpr int IDC_BGE_ASTEROID_A = 42923;
+constexpr int IDC_BGE_ASTEROID_APPLY_RGBA = 42924;
+constexpr int IDC_BGE_ASTEROID_APPLY_SHAPE = 42925;
+constexpr int IDC_BGE_ASTEROID_STATUS = 42926;
+constexpr int IDC_BGE_ASTEROID_GAME_PRESET = 42927;
 constexpr ULONG_PTR BGE_COPYDATA_WORKER_COMMAND = 0xB6E00001;
 constexpr int BGE_CONTROLLER_ARTIFACT_COUNT = 6;
 constexpr size_t BGE_CONTROLLER_HISTORY_LIMIT = 128;
@@ -122,11 +131,21 @@ constexpr float BGE_VECTOR_MAGNITUDE_STEP = 20.0f;
 constexpr float BGE_MIN_OBJECT_RADIUS = 8.0f;
 constexpr float BGE_MAX_OBJECT_RADIUS = 160.0f;
 constexpr double BGE_ANIMATION_STEP_MILLISECONDS = 1000.0 / 60.0;
+constexpr float BGE_ASTEROID_GAME_TURN_DEGREES = 10.0f;
+constexpr float BGE_ASTEROID_GAME_THRUST_STEP = 36.0f;
+constexpr float BGE_ASTEROID_GAME_REVERSE_THRUST_STEP = 24.0f;
+constexpr float BGE_ASTEROID_GAME_MAX_PLAYER_SPEED = 420.0f;
+constexpr float BGE_ASTEROID_GAME_BULLET_SPEED = 520.0f;
+constexpr float BGE_ASTEROID_GAME_BULLET_LIFETIME_SECONDS = 1.35f;
+constexpr float BGE_ASTEROID_GAME_SPLIT_MIN_RADIUS = 28.0f;
+constexpr float BGE_ASTEROID_GAME_SPLIT_SCALE = 0.58f;
+constexpr int BGE_ASTEROID_GAME_RESERVED_BULLET_SLOTS = 2;
 constexpr int BGE_EDIT_RATE_DEFAULT_INDEX = 2;
 constexpr std::array<float, 5> BGE_EDIT_RATE_MULTIPLIERS = { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f };
 constexpr std::array<const wchar_t*, 5> BGE_EDIT_RATE_LABELS = { L"0.25x", L"0.5x", L"1x", L"2x", L"4x" };
 const wchar_t kBgeHistoryWindowClass[] = L"BasicGameEngineHistoryWindow";
 const wchar_t kBgeMappingWindowClass[] = L"BasicGameEngineMappingWindow";
+const wchar_t kBgeAsteroidAlphaWindowClass[] = L"BasicGameEngineAsteroidAlphaWindow";
 
 enum class BgeEditMode {
     Translate,
@@ -215,11 +234,15 @@ bool g_rendererSwitchRequested = false;
 bool g_rendererResizeRequested = false;
 bool g_backgroundImageDirty = false;
 bool g_draggingVectorTip = false;
+bool g_asteroidGameMode = false;
+int g_asteroidGameScore = 0;
+std::array<float, BGE_OBJECT_SLOT_COUNT> g_asteroidGameBulletLifeSeconds{};
 float g_ballVelocityX = 180.0f;
 float g_ballVelocityY = 135.0f;
 float g_ballColorR = 0.96f;
 float g_ballColorG = 0.34f;
 float g_ballColorB = 0.22f;
+float g_ballColorA = 1.0f;
 int g_selectedObjectSlot = 0;
 bool g_objectSelectionActive = true;
 int g_activeSoundSlot = 0;
@@ -266,10 +289,19 @@ HWND g_controllerHistoryList = nullptr;
 HWND g_controllerHistoryDetail = nullptr;
 HWND g_controllerHistoryWindow = nullptr;
 HWND g_openHistoryButton = nullptr;
+HWND g_loadAsteroidGameButton = nullptr;
 HWND g_controllerHistoryListLabel = nullptr;
 HWND g_controllerHistoryDetailLabel = nullptr;
 HWND g_mappingWindow = nullptr;
 HWND g_mappingText = nullptr;
+HWND g_asteroidAlphaWindow = nullptr;
+HWND g_asteroidREdit = nullptr;
+HWND g_asteroidGEdit = nullptr;
+HWND g_asteroidBEdit = nullptr;
+HWND g_asteroidAEdit = nullptr;
+HWND g_asteroidApplyRgbaButton = nullptr;
+HWND g_asteroidApplyShapeButton = nullptr;
+HWND g_asteroidStatus = nullptr;
 std::array<HWND, BGE_CONTROLLER_ARTIFACT_COUNT> g_controllerTargetButtons{};
 std::array<HWND, BGE_CONTROLLER_ARTIFACT_COUNT> g_controllerStatusLabels{};
 std::array<HWND, BGE_CONTROLLER_ARTIFACT_COUNT> g_controllerLaunchButtons{};
@@ -299,6 +331,7 @@ BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    HistoryWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    MappingWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    AsteroidAlphaWndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 void GameLoop();               // Game loop function
 void LoadConfig();             // Pass A: read bge.toml from the exe directory
@@ -328,6 +361,9 @@ int ResolveObjectAddTargetLocked(int requestedSlotIndex);
 void AddObjectSlotStateLocked(int requestedSlotIndex);
 void ApplyObjectVectorStateLocked(float velocityX, float velocityY);
 void ApplyObjectColorStateLocked(float colorR, float colorG, float colorB);
+void ApplyObjectAlphaStateLocked(float alpha);
+void ApplyObjectShapeStateLocked(BgeObjectShape shape);
+void ApplyObjectAsteroidStateLocked(float colorR, float colorG, float colorB, float alpha, bool ensureVisible);
 void RefreshObjectGroupGlobalsLocked();
 void PersistActiveObjectGroupLocked();
 bool SelectObjectGroupStateLocked(int groupIndex);
@@ -351,6 +387,11 @@ void LogRendererMessage(const std::string& message);
 void LogRuntimeSceneState();
 void LoadBackgroundOnActiveRenderer(const std::wstring& path);
 void ProcessPendingRendererCommands();
+void ShowAsteroidAlphaWindow();
+void RefreshAsteroidAlphaWindow();
+bool StartAsteroidGameMode(std::wstring& statusText);
+bool HandleAsteroidGameKeyDown(WPARAM key);
+bool TickAsteroidGameMode(double deltaMilliseconds);
 void AddBallFromControls();
 void StartAnimationFromControls();
 void StopAnimationFromControls();
@@ -433,6 +474,7 @@ void SelectControllerArtifact(int artifactIndex, bool recordHistory = true);
 void LaunchControllerArtifact(int artifactIndex);
 void InspectControllerArtifact(int artifactIndex);
 void HideControllerArtifact(int artifactIndex);
+void LoadAsteroidGameFromController();
 void ProcessControllerUiAutomation();
 void AddControllerMenu(HWND hWnd);
 void UpdateRoleWindowTitle(HWND hWnd);
@@ -1036,6 +1078,7 @@ void RefreshSelectedObjectGlobalsLocked()
     g_ballColorR = slot.colorR;
     g_ballColorG = slot.colorG;
     g_ballColorB = slot.colorB;
+    g_ballColorA = slot.colorA;
     g_ballAdded = AnyObjectSlotVisibleLocked();
 }
 
@@ -1076,6 +1119,13 @@ void AddObjectSlotStateLocked(int requestedSlotIndex)
     PersistActiveObjectGroupLocked();
 }
 
+void ApplyObjectShapeStateLocked(BgeObjectShape shape)
+{
+    g_objectSlots[g_selectedObjectSlot].shape = shape;
+    g_rendererStateDirty = true;
+    PersistActiveObjectGroupLocked();
+}
+
 void ApplyObjectVectorStateLocked(float velocityX, float velocityY)
 {
     g_ballVelocityX = velocityX;
@@ -1098,6 +1148,26 @@ void ApplyObjectColorStateLocked(float colorR, float colorG, float colorB)
     PersistActiveObjectGroupLocked();
 }
 
+void ApplyObjectAlphaStateLocked(float alpha)
+{
+    g_ballColorA = (std::max)(0.0f, (std::min)(1.0f, alpha));
+    g_objectSlots[g_selectedObjectSlot].colorA = g_ballColorA;
+    g_rendererStateDirty = true;
+    PersistActiveObjectGroupLocked();
+}
+
+void ApplyObjectAsteroidStateLocked(float colorR, float colorG, float colorB, float alpha, bool ensureVisible)
+{
+    if (ensureVisible && (!g_objectSlots[g_selectedObjectSlot].visible || g_objectSlots[g_selectedObjectSlot].isDeleted)) {
+        AddObjectSlotStateLocked(g_selectedObjectSlot);
+    }
+    ApplyObjectColorStateLocked(colorR, colorG, colorB);
+    ApplyObjectAlphaStateLocked(alpha);
+    ApplyObjectShapeStateLocked(BgeObjectShape::Asteroid);
+    g_objectSlots[g_selectedObjectSlot].kind = BgeObjectKind::Asteroid;
+    PersistActiveObjectGroupLocked();
+}
+
 float ClampFloat(float value, float minimumValue, float maximumValue)
 {
     return (std::max)(minimumValue, (std::min)(maximumValue, value));
@@ -1111,6 +1181,481 @@ void ClampObjectToClientLocked(BgeObjectSlotState& slot)
     float height = static_cast<float>((std::max)(client.bottom - client.top, 1L));
     slot.x = ClampFloat(slot.x, slot.radius, (std::max)(slot.radius, width - slot.radius));
     slot.y = ClampFloat(slot.y, BGE_RENDER_TOP_INSET + slot.radius, (std::max)(BGE_RENDER_TOP_INSET + slot.radius, height - slot.radius));
+}
+
+float VectorLength(float x, float y)
+{
+    return std::sqrt(x * x + y * y);
+}
+
+void NormalizeVectorOrDefault(float x, float y, float& outX, float& outY)
+{
+    float length = VectorLength(x, y);
+    if (length < 1.0f) {
+        outX = 1.0f;
+        outY = 0.0f;
+        return;
+    }
+
+    outX = x / length;
+    outY = y / length;
+}
+
+void ClampVelocity(float& velocityX, float& velocityY, float maxSpeed)
+{
+    float speed = VectorLength(velocityX, velocityY);
+    if (speed > maxSpeed && speed > 0.0f) {
+        float scale = maxSpeed / speed;
+        velocityX *= scale;
+        velocityY *= scale;
+    }
+}
+
+void HideAsteroidGameSlotLocked(int slotIndex)
+{
+    if (slotIndex < 0 || slotIndex >= BGE_OBJECT_SLOT_COUNT) {
+        return;
+    }
+
+    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
+    slot.visible = false;
+    slot.deleteMarked = false;
+    slot.isDeleted = false;
+    slot.collisionDetected = false;
+    slot.kind = BgeObjectKind::Generic;
+    g_asteroidGameBulletLifeSeconds[slotIndex] = 0.0f;
+}
+
+bool IsAsteroidGameBulletReserveSlotLocked(int slotIndex)
+{
+    return slotIndex >= (BGE_OBJECT_SLOT_COUNT - BGE_ASTEROID_GAME_RESERVED_BULLET_SLOTS)
+        && slotIndex < BGE_OBJECT_SLOT_COUNT
+        && !(slotIndex == g_mainPlayerSlot && g_mainPlayerGroupIndex == g_activeObjectGroupIndex);
+}
+
+int FindReusableAsteroidGameBulletSlotLocked()
+{
+    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+        if (!IsAsteroidGameBulletReserveSlotLocked(index)) {
+            continue;
+        }
+        if (!g_objectSlots[index].visible || g_objectSlots[index].isDeleted) {
+            return index;
+        }
+    }
+
+    int oldestBulletSlot = -1;
+    float shortestLife = 1000000.0f;
+    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+        if (IsAsteroidGameBulletReserveSlotLocked(index)
+            && g_objectSlots[index].kind == BgeObjectKind::Bullet
+            && g_asteroidGameBulletLifeSeconds[index] < shortestLife) {
+            shortestLife = g_asteroidGameBulletLifeSeconds[index];
+            oldestBulletSlot = index;
+        }
+    }
+    if (oldestBulletSlot >= 0) {
+        return oldestBulletSlot;
+    }
+
+    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+        if (index == g_mainPlayerSlot && g_mainPlayerGroupIndex == g_activeObjectGroupIndex) {
+            continue;
+        }
+        if (!g_objectSlots[index].visible || g_objectSlots[index].isDeleted) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
+int FindReusableAsteroidGameAsteroidSlotLocked()
+{
+    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+        if (index == g_mainPlayerSlot && g_mainPlayerGroupIndex == g_activeObjectGroupIndex) {
+            continue;
+        }
+        if (IsAsteroidGameBulletReserveSlotLocked(index)) {
+            continue;
+        }
+        if (!g_objectSlots[index].visible || g_objectSlots[index].isDeleted) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
+void ConfigureAsteroidGameAsteroidLocked(int slotIndex, float x, float y, float radius, float velocityX, float velocityY)
+{
+    if (slotIndex < 0 || slotIndex >= BGE_OBJECT_SLOT_COUNT) {
+        return;
+    }
+
+    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
+    slot = BgeObjectSlotState{};
+    slot.visible = true;
+    slot.x = x;
+    slot.y = y;
+    slot.radius = radius;
+    slot.velocityX = velocityX;
+    slot.velocityY = velocityY;
+    slot.colorR = 0.66f;
+    slot.colorG = 0.58f;
+    slot.colorB = 0.48f;
+    slot.colorA = 0.88f;
+    slot.shape = BgeObjectShape::Asteroid;
+    slot.kind = BgeObjectKind::Asteroid;
+    g_asteroidGameBulletLifeSeconds[slotIndex] = 0.0f;
+}
+
+void ConfigureAsteroidGamePlayerLocked(int slotIndex, float x, float y)
+{
+    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
+    slot = BgeObjectSlotState{};
+    slot.visible = true;
+    slot.x = x;
+    slot.y = y;
+    slot.radius = 18.0f;
+    slot.velocityX = 120.0f;
+    slot.velocityY = 0.0f;
+    slot.colorR = 0.10f;
+    slot.colorG = 0.82f;
+    slot.colorB = 0.95f;
+    slot.colorA = 1.0f;
+    slot.shape = BgeObjectShape::Ball;
+    slot.kind = BgeObjectKind::Player;
+    g_asteroidGameBulletLifeSeconds[slotIndex] = 0.0f;
+}
+
+bool StartAsteroidGameMode(std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"Asteroid Game runs in bge.game-loop";
+        return false;
+    }
+
+    RECT client{};
+    GetClientRect(g_hWnd, &client);
+    float width = static_cast<float>((std::max)(client.right - client.left, 640L));
+    float height = static_cast<float>((std::max)(client.bottom - client.top, 480L));
+    float playTop = BGE_RENDER_TOP_INSET;
+    float playHeight = (std::max)(240.0f, height - playTop);
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+            g_objectSlots[index] = BgeObjectSlotState{};
+            g_asteroidGameBulletLifeSeconds[index] = 0.0f;
+        }
+
+        g_asteroidGameMode = true;
+        g_asteroidGameScore = 0;
+        g_mainPlayerGroupIndex = g_activeObjectGroupIndex;
+        g_mainPlayerSlot = 0;
+        g_selectedObjectSlot = 0;
+        g_objectSelectionActive = true;
+        g_keyboardFocus = BgeKeyboardFocus::Object;
+
+        ConfigureAsteroidGamePlayerLocked(0, width * 0.50f, playTop + playHeight * 0.50f);
+        ConfigureAsteroidGameAsteroidLocked(1, width * 0.22f, playTop + playHeight * 0.26f, 64.0f, 78.0f, 52.0f);
+        ConfigureAsteroidGameAsteroidLocked(2, width * 0.76f, playTop + playHeight * 0.30f, 58.0f, -72.0f, 64.0f);
+        ConfigureAsteroidGameAsteroidLocked(3, width * 0.54f, playTop + playHeight * 0.76f, 52.0f, 54.0f, -86.0f);
+
+        BgeSetCurrentEdgePolicy(BgeEdgePolicy::Wrap);
+        g_ballAnimationRunning = true;
+        RefreshSelectedObjectGlobalsLocked();
+        BgeUpdateCollisionFlags(g_objectSlots);
+        PersistActiveObjectGroupLocked();
+        g_rendererStateDirty = true;
+    }
+
+    SyncBallControls();
+    InvalidateRect(g_hWnd, nullptr, FALSE);
+    statusText = L"Asteroid Game: player selected; W/Up thrust, S/Down reverse, A/D rotate, Space fire";
+    LogRendererMessage("[AsteroidGame] start mode=asteroid-game asteroids=3 player-slot=1 edge=wrap");
+    return true;
+}
+
+bool SelectedAsteroidGamePlayerLocked()
+{
+    return g_asteroidGameMode
+        && g_mainPlayerGroupIndex == g_activeObjectGroupIndex
+        && g_mainPlayerSlot >= 0
+        && g_mainPlayerSlot < BGE_OBJECT_SLOT_COUNT
+        && g_selectedObjectSlot == g_mainPlayerSlot
+        && g_objectSlots[g_mainPlayerSlot].visible
+        && !g_objectSlots[g_mainPlayerSlot].isDeleted
+        && g_objectSlots[g_mainPlayerSlot].kind == BgeObjectKind::Player;
+}
+
+bool RotateAsteroidGamePlayerLocked(float deltaDegrees)
+{
+    if (!SelectedAsteroidGamePlayerLocked()) {
+        return false;
+    }
+
+    BgeObjectSlotState& player = g_objectSlots[g_mainPlayerSlot];
+    float currentSpeed = VectorLength(player.velocityX, player.velocityY);
+    if (currentSpeed < 1.0f) {
+        currentSpeed = 1.0f;
+        player.velocityX = currentSpeed;
+        player.velocityY = 0.0f;
+    }
+
+    float radians = std::atan2(player.velocityY, player.velocityX) + deltaDegrees * 3.14159265358979323846f / 180.0f;
+    player.velocityX = std::cos(radians) * currentSpeed;
+    player.velocityY = std::sin(radians) * currentSpeed;
+    return true;
+}
+
+bool ThrustAsteroidGamePlayerLocked(float thrustStep)
+{
+    if (!SelectedAsteroidGamePlayerLocked()) {
+        return false;
+    }
+
+    BgeObjectSlotState& player = g_objectSlots[g_mainPlayerSlot];
+    float directionX = 1.0f;
+    float directionY = 0.0f;
+    NormalizeVectorOrDefault(player.velocityX, player.velocityY, directionX, directionY);
+    player.velocityX += directionX * thrustStep;
+    player.velocityY += directionY * thrustStep;
+    ClampVelocity(player.velocityX, player.velocityY, BGE_ASTEROID_GAME_MAX_PLAYER_SPEED);
+    return true;
+}
+
+bool FireAsteroidGameProjectileLocked(int& bulletSlot)
+{
+    bulletSlot = -1;
+    if (!SelectedAsteroidGamePlayerLocked()) {
+        return false;
+    }
+
+    int targetSlot = FindReusableAsteroidGameBulletSlotLocked();
+    if (targetSlot < 0) {
+        return false;
+    }
+
+    const BgeObjectSlotState& player = g_objectSlots[g_mainPlayerSlot];
+    float directionX = 1.0f;
+    float directionY = 0.0f;
+    NormalizeVectorOrDefault(player.velocityX, player.velocityY, directionX, directionY);
+
+    BgeObjectSlotState& bullet = g_objectSlots[targetSlot];
+    bullet = BgeObjectSlotState{};
+    bullet.visible = true;
+    bullet.x = player.x + directionX * (player.radius + 10.0f);
+    bullet.y = player.y + directionY * (player.radius + 10.0f);
+    bullet.radius = 5.0f;
+    bullet.velocityX = player.velocityX + directionX * BGE_ASTEROID_GAME_BULLET_SPEED;
+    bullet.velocityY = player.velocityY + directionY * BGE_ASTEROID_GAME_BULLET_SPEED;
+    bullet.colorR = 1.0f;
+    bullet.colorG = 0.92f;
+    bullet.colorB = 0.18f;
+    bullet.colorA = 1.0f;
+    bullet.shape = BgeObjectShape::Ball;
+    bullet.kind = BgeObjectKind::Bullet;
+    g_asteroidGameBulletLifeSeconds[targetSlot] = BGE_ASTEROID_GAME_BULLET_LIFETIME_SECONDS;
+    bulletSlot = targetSlot;
+    return true;
+}
+
+int SpawnSplitAsteroidLocked(const BgeObjectSlotState& source, float radius, float angleOffsetRadians)
+{
+    int slotIndex = FindReusableAsteroidGameAsteroidSlotLocked();
+    if (slotIndex < 0) {
+        return -1;
+    }
+
+    float sourceSpeed = VectorLength(source.velocityX, source.velocityY);
+    if (sourceSpeed < 70.0f) {
+        sourceSpeed = 105.0f;
+    }
+    float baseAngle = std::atan2(source.velocityY, source.velocityX);
+    if (VectorLength(source.velocityX, source.velocityY) < 1.0f) {
+        baseAngle = angleOffsetRadians;
+    }
+    float splitAngle = baseAngle + angleOffsetRadians;
+
+    BgeObjectSlotState& split = g_objectSlots[slotIndex];
+    split = source;
+    split.visible = true;
+    split.deleteMarked = false;
+    split.isDeleted = false;
+    split.collisionDetected = false;
+    split.radius = radius;
+    split.x = source.x + std::cos(splitAngle) * radius * 0.55f;
+    split.y = source.y + std::sin(splitAngle) * radius * 0.55f;
+    split.velocityX = std::cos(splitAngle) * sourceSpeed * 1.12f;
+    split.velocityY = std::sin(splitAngle) * sourceSpeed * 1.12f;
+    split.colorA = (std::max)(0.58f, source.colorA);
+    split.shape = BgeObjectShape::Asteroid;
+    split.kind = BgeObjectKind::Asteroid;
+    g_asteroidGameBulletLifeSeconds[slotIndex] = 0.0f;
+    return slotIndex;
+}
+
+int SplitAsteroidGameAsteroidLocked(int asteroidSlot)
+{
+    if (asteroidSlot < 0 || asteroidSlot >= BGE_OBJECT_SLOT_COUNT) {
+        return 0;
+    }
+
+    BgeObjectSlotState source = g_objectSlots[asteroidSlot];
+    HideAsteroidGameSlotLocked(asteroidSlot);
+    if (source.radius < BGE_ASTEROID_GAME_SPLIT_MIN_RADIUS) {
+        return 0;
+    }
+
+    int spawned = 0;
+    float childRadius = (std::max)(14.0f, source.radius * BGE_ASTEROID_GAME_SPLIT_SCALE);
+    if (SpawnSplitAsteroidLocked(source, childRadius, -0.72f) >= 0) {
+        ++spawned;
+    }
+    if (SpawnSplitAsteroidLocked(source, childRadius, 0.72f) >= 0) {
+        ++spawned;
+    }
+    return spawned;
+}
+
+bool TickAsteroidGameMode(double deltaMilliseconds)
+{
+    bool dirty = false;
+    int hits = 0;
+    int spawned = 0;
+    int score = 0;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (!g_asteroidGameMode || !g_ballAnimationRunning) {
+            return false;
+        }
+
+        float deltaSeconds = static_cast<float>((std::max)(0.0, deltaMilliseconds) / 1000.0);
+        for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+            BgeObjectSlotState& slot = g_objectSlots[index];
+            if (slot.visible && !slot.isDeleted && slot.kind == BgeObjectKind::Bullet) {
+                g_asteroidGameBulletLifeSeconds[index] -= deltaSeconds;
+                if (g_asteroidGameBulletLifeSeconds[index] <= 0.0f) {
+                    HideAsteroidGameSlotLocked(index);
+                    dirty = true;
+                }
+            }
+        }
+
+        for (int bulletIndex = 0; bulletIndex < BGE_OBJECT_SLOT_COUNT; ++bulletIndex) {
+            BgeObjectSlotState& bullet = g_objectSlots[bulletIndex];
+            if (!bullet.visible || bullet.isDeleted || bullet.kind != BgeObjectKind::Bullet) {
+                continue;
+            }
+
+            for (int asteroidIndex = 0; asteroidIndex < BGE_OBJECT_SLOT_COUNT; ++asteroidIndex) {
+                BgeObjectSlotState& asteroid = g_objectSlots[asteroidIndex];
+                if (!asteroid.visible || asteroid.isDeleted || asteroid.kind != BgeObjectKind::Asteroid) {
+                    continue;
+                }
+                if (!BgeObjectSlotsOverlap(bullet, asteroid)) {
+                    continue;
+                }
+
+                HideAsteroidGameSlotLocked(bulletIndex);
+                spawned += SplitAsteroidGameAsteroidLocked(asteroidIndex);
+                g_asteroidGameScore += 10;
+                score = g_asteroidGameScore;
+                ++hits;
+                dirty = true;
+                break;
+            }
+        }
+
+        if (dirty) {
+            BgeUpdateCollisionFlags(g_objectSlots);
+            RefreshSelectedObjectGlobalsLocked();
+            PersistActiveObjectGroupLocked();
+            g_rendererStateDirty = true;
+        }
+    }
+
+    if (hits > 0) {
+        std::wstring statusText = L"Asteroid hit: score " + std::to_wstring(score) + L", split pieces " + std::to_wstring(spawned);
+        SetCommandStatus(statusText);
+        std::ostringstream message;
+        message << "[AsteroidGame] hit count=" << hits << " spawned=" << spawned << " score=" << score;
+        LogRendererMessage(message.str());
+    }
+    return dirty;
+}
+
+bool HandleAsteroidGameKeyDown(WPARAM key)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    bool isGameKey = key == L'A' || key == L'D' || key == L'W' || key == L'S' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_SPACE;
+    if (!isGameKey) {
+        return false;
+    }
+
+    bool handled = false;
+    bool noPlayerSelected = false;
+    int bulletSlot = -1;
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (!g_asteroidGameMode || !g_ballAnimationRunning) {
+            return false;
+        }
+        if (!SelectedAsteroidGamePlayerLocked()) {
+            noPlayerSelected = true;
+        }
+        else if (key == L'A' || key == VK_LEFT) {
+            handled = RotateAsteroidGamePlayerLocked(-BGE_ASTEROID_GAME_TURN_DEGREES);
+            statusText = L"Asteroid Game: rotate left";
+        }
+        else if (key == L'D' || key == VK_RIGHT) {
+            handled = RotateAsteroidGamePlayerLocked(BGE_ASTEROID_GAME_TURN_DEGREES);
+            statusText = L"Asteroid Game: rotate right";
+        }
+        else if (key == L'W' || key == VK_UP) {
+            handled = ThrustAsteroidGamePlayerLocked(BGE_ASTEROID_GAME_THRUST_STEP);
+            statusText = L"Asteroid Game: thrust";
+        }
+        else if (key == L'S' || key == VK_DOWN) {
+            handled = ThrustAsteroidGamePlayerLocked(-BGE_ASTEROID_GAME_REVERSE_THRUST_STEP);
+            statusText = L"Asteroid Game: reverse thrust";
+        }
+        else if (key == VK_SPACE) {
+            handled = FireAsteroidGameProjectileLocked(bulletSlot);
+            statusText = handled ? L"Asteroid Game: fire bullet " + std::to_wstring(bulletSlot + 1) : L"Asteroid Game: no projectile slot";
+        }
+
+        if (handled) {
+            RefreshSelectedObjectGlobalsLocked();
+            BgeUpdateCollisionFlags(g_objectSlots);
+            PersistActiveObjectGroupLocked();
+            g_rendererStateDirty = true;
+        }
+    }
+
+    if (noPlayerSelected) {
+        SetCommandStatus(L"Asteroid Game: select player object 1 to fly");
+        return true;
+    }
+    if (handled) {
+        SyncBallControls();
+        InvalidateRect(g_hWnd, nullptr, FALSE);
+        SetCommandStatus(statusText);
+        std::ostringstream message;
+        message << "[AsteroidGame] input key=" << static_cast<unsigned int>(key);
+        if (bulletSlot >= 0) {
+            message << " bullet-slot=" << (bulletSlot + 1);
+        }
+        LogRendererMessage(message.str());
+        return true;
+    }
+    return false;
 }
 
 std::wstring EditModeName(BgeEditMode mode)
@@ -2541,12 +3086,18 @@ void TickActiveRenderer(double deltaMilliseconds)
         if (g_directX12Renderer) {
             g_directX12Renderer->Tick(deltaMilliseconds);
             SyncObjectSlotsFromRenderer(g_directX12Renderer->ObjectSlotStates());
+            if (TickAsteroidGameMode(deltaMilliseconds)) {
+                ApplyBallStateToRenderer();
+            }
         }
         return;
     }
     if (g_directX11Renderer) {
         g_directX11Renderer->Tick(deltaMilliseconds);
         SyncObjectSlotsFromRenderer(g_directX11Renderer->ObjectSlotStates());
+        if (TickAsteroidGameMode(deltaMilliseconds)) {
+            ApplyBallStateToRenderer();
+        }
     }
 }
 
@@ -2605,6 +3156,11 @@ void AddBallFromControls()
         std::lock_guard<std::mutex> lock(ballConfigMutex);
         AddObjectSlotStateLocked(g_selectedObjectSlot);
         addedSlot = g_selectedObjectSlot;
+        g_objectSlots[addedSlot].shape = BgeObjectShape::Ball;
+        g_objectSlots[addedSlot].kind = BgeObjectKind::Generic;
+        g_objectSlots[addedSlot].colorA = 1.0f;
+        RefreshSelectedObjectGlobalsLocked();
+        g_rendererStateDirty = true;
     }
     SyncBallControls();
     std::ostringstream message;
@@ -2814,6 +3370,12 @@ bool ExecuteControllerCommandText(const std::wstring& commandText, std::wstring&
         return true;
     }
 
+    if (command == L"asteroid-game" || command == L"asteroids" || command == L"game") {
+        LoadAsteroidGameFromController();
+        statusText = L"Asteroid Game queued";
+        return true;
+    }
+
     if (command == L"target" || command == L"group") {
         if (tokens.size() < 2) {
             statusText = L"Use: target <group|worker>";
@@ -2924,9 +3486,15 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
     };
 
     if (command == L"help" || command == L"?") {
-        statusText = L"group/ghost/player | delete/undo | add/select | start/stop | mode/rate | mapping";
+        statusText = L"asteroid game | group/ghost/player | asteroid/edge | delete/undo | add/select | start/stop | mode/rate | mapping";
         logCommand("help");
         return true;
+    }
+
+    if (command == L"asteroid-game" || command == L"asteroids" || command == L"game") {
+        bool ok = StartAsteroidGameMode(statusText);
+        logCommand(ok ? "asteroid-game" : "asteroid-game failed");
+        return ok;
     }
 
     if (command == L"mapping" || command == L"controls" || command == L"keys") {
@@ -3284,6 +3852,176 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
             : L"Player: none";
         logCommand("player-status");
         return true;
+    }
+
+    if (command == L"edge" || command == L"edge-policy") {
+        if (!CurrentProcessOwnsGameLoop()) {
+            statusText = L"Edge commands run in bge.game-loop";
+            return false;
+        }
+
+        if (tokens.size() < 2 || LowerArg(tokens[1]) == L"status") {
+            BgeEdgePolicy current = BgeCurrentEdgePolicy();
+            statusText = std::wstring(L"Edge policy: ") + BgeEdgePolicyName(current);
+            logCommand(std::string("edge-status=") + Narrow(BgeEdgePolicyName(current)));
+            return true;
+        }
+
+        std::wstring policyArg = LowerArg(tokens[1]);
+        BgeEdgePolicy parsed = BgeEdgePolicy::Bounce;
+        if (!BgeTryParseEdgePolicy(policyArg, parsed)) {
+            statusText = L"Use: edge bounce|wrap|clamp|status";
+            return false;
+        }
+
+        BgeSetCurrentEdgePolicy(parsed);
+        logCommand(std::string("edge=") + Narrow(BgeEdgePolicyName(parsed)));
+        statusText = std::wstring(L"Edge policy: ") + BgeEdgePolicyName(parsed);
+        return true;
+    }
+
+    if (command == L"asteroid" || command == L"rock") {
+        if (!CurrentProcessOwnsGameLoop()) {
+            statusText = L"Asteroid commands run in bge.game-loop";
+            return false;
+        }
+
+        std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+        if (subcommand == L"game" || subcommand == L"play" || subcommand == L"start") {
+            bool ok = StartAsteroidGameMode(statusText);
+            logCommand(ok ? "asteroid-game" : "asteroid-game failed");
+            return ok;
+        }
+
+        if (subcommand == L"window" || subcommand == L"controls" || subcommand == L"alpha-window") {
+            ShowAsteroidAlphaWindow();
+            logCommand("asteroid-window");
+            statusText = L"Asteroid Alpha window open";
+            return true;
+        }
+
+        if (subcommand == L"status") {
+            int selectedSlot = 0;
+            BgeObjectSlotState slot;
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                selectedSlot = g_selectedObjectSlot;
+                slot = g_objectSlots[selectedSlot];
+            }
+            std::wstringstream status;
+            status << L"Object " << (selectedSlot + 1) << L": " << BgeObjectShapeName(slot.shape)
+                     << L" kind " << BgeObjectKindName(slot.kind)
+                     << L" alpha " << static_cast<int>(slot.colorA * 255.0f);
+            statusText = status.str();
+            logCommand("asteroid-status");
+            return true;
+        }
+
+        if (subcommand == L"add" || subcommand == L"set" || subcommand == L"shape") {
+            int slotIndex = -1;
+            if (tokens.size() >= 3) {
+                TryParseSlotArg(tokens[2], slotIndex);
+            }
+            int selectedSlot = 0;
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                if (slotIndex >= 0) {
+                    SelectObjectSlotStateLocked(slotIndex);
+                }
+                ApplyObjectAsteroidStateLocked(g_ballColorR, g_ballColorG, g_ballColorB, g_ballColorA, true);
+                selectedSlot = g_selectedObjectSlot;
+            }
+            SyncBallControls();
+            std::ostringstream message;
+            message << "asteroid-set slot=" << (selectedSlot + 1);
+            logCommand(message.str());
+            statusText = L"Asteroid object " + std::to_wstring(selectedSlot + 1);
+            return true;
+        }
+
+        if (subcommand == L"ball" || subcommand == L"circle") {
+            int selectedSlot = 0;
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                ApplyObjectShapeStateLocked(BgeObjectShape::Ball);
+                g_objectSlots[g_selectedObjectSlot].kind = BgeObjectKind::Generic;
+                PersistActiveObjectGroupLocked();
+                selectedSlot = g_selectedObjectSlot;
+            }
+            SyncBallControls();
+            logCommand("asteroid-shape-ball");
+            statusText = L"Object " + std::to_wstring(selectedSlot + 1) + L" shape: ball";
+            return true;
+        }
+
+        if (subcommand == L"alpha" || subcommand == L"a") {
+            if (tokens.size() < 3) {
+                statusText = L"Use: asteroid alpha 0-255";
+                return false;
+            }
+            float alpha = 0.0f;
+            if (!TryParseFloatArg(tokens[2], alpha)) {
+                statusText = L"Asteroid alpha must be a number";
+                return false;
+            }
+            int selectedSlot = 0;
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                ApplyObjectAlphaStateLocked(NormalizeColorArg(alpha));
+                ApplyObjectShapeStateLocked(BgeObjectShape::Asteroid);
+                g_objectSlots[g_selectedObjectSlot].kind = BgeObjectKind::Asteroid;
+                PersistActiveObjectGroupLocked();
+                selectedSlot = g_selectedObjectSlot;
+            }
+            SyncBallControls();
+            std::ostringstream message;
+            message << "asteroid-alpha slot=" << (selectedSlot + 1);
+            logCommand(message.str());
+            statusText = L"Asteroid alpha set for object " + std::to_wstring(selectedSlot + 1);
+            return true;
+        }
+
+        if (subcommand == L"color" || subcommand == L"rgba") {
+            size_t valueIndex = 2;
+            int slotIndex = -1;
+            if (tokens.size() >= 6 && TryParseSlotArg(tokens[valueIndex], slotIndex)) {
+                ++valueIndex;
+            }
+            if (valueIndex + 2 >= tokens.size()) {
+                statusText = L"Use: asteroid color [slot] r g b [a]";
+                return false;
+            }
+            float colorR = 0.0f;
+            float colorG = 0.0f;
+            float colorB = 0.0f;
+            float alpha = g_ballColorA;
+            if (!TryParseFloatArg(tokens[valueIndex], colorR) || !TryParseFloatArg(tokens[valueIndex + 1], colorG) || !TryParseFloatArg(tokens[valueIndex + 2], colorB)) {
+                statusText = L"Asteroid color values must be numbers";
+                return false;
+            }
+            if (valueIndex + 3 < tokens.size() && !TryParseFloatArg(tokens[valueIndex + 3], alpha)) {
+                statusText = L"Asteroid alpha must be a number";
+                return false;
+            }
+            int selectedSlot = 0;
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                if (slotIndex >= 0) {
+                    SelectObjectSlotStateLocked(slotIndex);
+                }
+                ApplyObjectAsteroidStateLocked(NormalizeColorArg(colorR), NormalizeColorArg(colorG), NormalizeColorArg(colorB), NormalizeColorArg(alpha), false);
+                selectedSlot = g_selectedObjectSlot;
+            }
+            SyncBallControls();
+            std::ostringstream message;
+            message << "asteroid-rgba slot=" << (selectedSlot + 1);
+            logCommand(message.str());
+            statusText = L"Asteroid RGBA set for object " + std::to_wstring(selectedSlot + 1);
+            return true;
+        }
+
+        statusText = L"Use: asteroid game | asteroid add [slot] | asteroid alpha <0-255> | asteroid color [slot] r g b [a] | asteroid window | asteroid status";
+        return false;
     }
 
     if (command == L"add" || command == L"object" || command == L"ball") {
@@ -4078,6 +4816,10 @@ bool HandleRendererKeyDown(WPARAM key)
         return FocusObjectGroupsFromKeyboard();
     }
 
+    if (HandleAsteroidGameKeyDown(key)) {
+        return true;
+    }
+
     bool arrowKey = key == VK_UP || key == VK_DOWN || key == VK_LEFT || key == VK_RIGHT;
     bool animationRunning = false;
     BgeKeyboardFocus keyboardFocus = BgeKeyboardFocus::None;
@@ -4385,6 +5127,23 @@ std::wstring MappingWindowText()
     text << L"  Button: Set Player marks the selected visible object in the active group\r\n";
     text << L"  Worker command: player set [group] <1-10> | player clear | player status\r\n";
     text << L"  Controller command: game-loop: player <subcommand>\r\n\r\n";
+    text << L"Asteroid Game mode\r\n";
+    text << L"  Controller button: Asteroid Game\r\n";
+    text << L"  Worker command: asteroid game | asteroid-game | game\r\n";
+    text << L"  Controller command: asteroid-game | game-loop: asteroid game\r\n";
+    text << L"  When object 1 is selected: A/D or Left/Right rotate, W/Up thrust, S/Down reverse, Space fires\r\n";
+    text << L"  Bullets split large asteroids into smaller asteroids; edge policy switches to wrap\r\n\r\n";
+    text << L"Edge policy\r\n";
+    text << L"  Worker command: edge bounce | edge wrap | edge clamp | edge status\r\n";
+    text << L"  Controller command: game-loop: edge <bounce|wrap|clamp|status>\r\n";
+    text << L"  bounce reflects velocity at the border (default)\r\n";
+    text << L"  wrap teleports the object across to the opposite border\r\n";
+    text << L"  clamp pins the object at the border without reflecting\r\n\r\n";
+    text << L"Asteroid alpha sprite\r\n";
+    text << L"  Worker command: asteroid add [slot] | asteroid color [slot] r g b [a] | asteroid alpha 0-255\r\n";
+    text << L"  Worker command: asteroid window | asteroid status | asteroid ball\r\n";
+    text << L"  Controller command: game-loop: asteroid <subcommand>\r\n";
+    text << L"  Asteroids use an embedded irregular alpha mesh with no rectangular background\r\n\r\n";
     text << L"Animation focus\r\n";
     text << L"  Buttons: Start or Stop select animation focus\r\n";
     text << L"  Worker command: select animation | animation select|run|stop|step\r\n";
@@ -4513,6 +5272,199 @@ LRESULT CALLBACK MappingWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
     return DefWindowProcW(hWnd, message, wParam, lParam);
 }
 
+bool RegisterAsteroidAlphaWindowClass()
+{
+    WNDCLASSEXW existing{};
+    if (GetClassInfoExW(hInst, kBgeAsteroidAlphaWindowClass, &existing)) {
+        return true;
+    }
+
+    WNDCLASSEXW windowClass{};
+    windowClass.cbSize = sizeof(windowClass);
+    windowClass.style = CS_HREDRAW | CS_VREDRAW;
+    windowClass.lpfnWndProc = AsteroidAlphaWndProc;
+    windowClass.hInstance = hInst;
+    windowClass.hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_BASICGAMEENGINE));
+    windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    windowClass.lpszClassName = kBgeAsteroidAlphaWindowClass;
+    windowClass.hIconSm = LoadIcon(hInst, MAKEINTRESOURCE(IDI_SMALL));
+    return RegisterClassExW(&windowClass) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+}
+
+std::wstring AsteroidAlphaStatusText()
+{
+    std::wstringstream text;
+    std::lock_guard<std::mutex> lock(ballConfigMutex);
+    const BgeObjectSlotState& slot = g_objectSlots[g_selectedObjectSlot];
+    text << L"Object " << (g_selectedObjectSlot + 1) << L": " << BgeObjectShapeName(slot.shape)
+         << L" RGBA " << static_cast<int>(slot.colorR * 255.0f)
+         << L" " << static_cast<int>(slot.colorG * 255.0f)
+         << L" " << static_cast<int>(slot.colorB * 255.0f)
+         << L" " << static_cast<int>(slot.colorA * 255.0f);
+    if (!slot.visible || slot.isDeleted) {
+        text << L" (hidden)";
+    }
+    return text.str();
+}
+
+void RefreshAsteroidAlphaWindow()
+{
+    if (!g_asteroidAlphaWindow || !IsWindow(g_asteroidAlphaWindow)) {
+        return;
+    }
+
+    BgeObjectSlotState selectedSlot;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        selectedSlot = g_objectSlots[g_selectedObjectSlot];
+    }
+
+    wchar_t value[32]{};
+    swprintf_s(value, L"%d", static_cast<int>(selectedSlot.colorR * 255.0f));
+    if (g_asteroidREdit) SetWindowTextW(g_asteroidREdit, value);
+    swprintf_s(value, L"%d", static_cast<int>(selectedSlot.colorG * 255.0f));
+    if (g_asteroidGEdit) SetWindowTextW(g_asteroidGEdit, value);
+    swprintf_s(value, L"%d", static_cast<int>(selectedSlot.colorB * 255.0f));
+    if (g_asteroidBEdit) SetWindowTextW(g_asteroidBEdit, value);
+    swprintf_s(value, L"%d", static_cast<int>(selectedSlot.colorA * 255.0f));
+    if (g_asteroidAEdit) SetWindowTextW(g_asteroidAEdit, value);
+    if (g_asteroidStatus) SetWindowTextW(g_asteroidStatus, AsteroidAlphaStatusText().c_str());
+}
+
+void LayoutAsteroidAlphaWindow(HWND hWnd)
+{
+    RECT client{};
+    GetClientRect(hWnd, &client);
+    int width = (std::max)(360, static_cast<int>(client.right - client.left));
+
+    if (g_asteroidStatus) SetWindowPos(g_asteroidStatus, nullptr, 16, 16, width - 32, 22, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_asteroidREdit) SetWindowPos(g_asteroidREdit, nullptr, 52, 58, 54, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_asteroidGEdit) SetWindowPos(g_asteroidGEdit, nullptr, 130, 58, 54, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_asteroidBEdit) SetWindowPos(g_asteroidBEdit, nullptr, 208, 58, 54, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_asteroidAEdit) SetWindowPos(g_asteroidAEdit, nullptr, 286, 58, 54, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_asteroidApplyRgbaButton) SetWindowPos(g_asteroidApplyRgbaButton, nullptr, 52, 102, 104, 28, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_asteroidApplyShapeButton) SetWindowPos(g_asteroidApplyShapeButton, nullptr, 168, 102, 128, 28, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void ApplyAsteroidAlphaWindowValues(bool ensureVisible)
+{
+    float colorR = ReadColorControl(g_asteroidREdit, g_ballColorR);
+    float colorG = ReadColorControl(g_asteroidGEdit, g_ballColorG);
+    float colorB = ReadColorControl(g_asteroidBEdit, g_ballColorB);
+    float alpha = ReadColorControl(g_asteroidAEdit, g_ballColorA);
+    int selectedSlot = 0;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        ApplyObjectAsteroidStateLocked(colorR, colorG, colorB, alpha, ensureVisible);
+        selectedSlot = g_selectedObjectSlot;
+    }
+    SyncBallControls();
+    RefreshAsteroidAlphaWindow();
+    std::wstringstream status;
+    status << L"Asteroid object " << (selectedSlot + 1) << L" RGBA set";
+    SetCommandStatus(status.str());
+    LogRendererMessage(std::string("[BgeAsteroidAlpha] set slot=") + std::to_string(selectedSlot + 1));
+}
+
+void CreateAsteroidAlphaWindowControls(HWND hWnd)
+{
+    g_asteroidStatus = CreateControl(hWnd, L"STATIC", L"Asteroid RGBA", 0, IDC_BGE_ASTEROID_STATUS, 16, 16, 360, 22);
+    CreateControl(hWnd, L"STATIC", L"R", 0, 0, 28, 62, 18, 20);
+    g_asteroidREdit = CreateControl(hWnd, L"EDIT", L"190", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_ASTEROID_R, 52, 58, 54, 24);
+    CreateControl(hWnd, L"STATIC", L"G", 0, 0, 106, 62, 18, 20);
+    g_asteroidGEdit = CreateControl(hWnd, L"EDIT", L"172", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_ASTEROID_G, 130, 58, 54, 24);
+    CreateControl(hWnd, L"STATIC", L"B", 0, 0, 184, 62, 18, 20);
+    g_asteroidBEdit = CreateControl(hWnd, L"EDIT", L"150", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_ASTEROID_B, 208, 58, 54, 24);
+    CreateControl(hWnd, L"STATIC", L"A", 0, 0, 262, 62, 18, 20);
+    g_asteroidAEdit = CreateControl(hWnd, L"EDIT", L"224", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_ASTEROID_A, 286, 58, 54, 24);
+    g_asteroidApplyRgbaButton = CreateControl(hWnd, L"BUTTON", L"Set RGBA", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_APPLY_RGBA, 52, 102, 104, 28);
+    g_asteroidApplyShapeButton = CreateControl(hWnd, L"BUTTON", L"Set Asteroid", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_APPLY_SHAPE, 168, 102, 128, 28);
+    RefreshAsteroidAlphaWindow();
+    LayoutAsteroidAlphaWindow(hWnd);
+}
+
+void ShowAsteroidAlphaWindow()
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return;
+    }
+
+    if (g_asteroidAlphaWindow && IsWindow(g_asteroidAlphaWindow)) {
+        RefreshAsteroidAlphaWindow();
+        ShowWindow(g_asteroidAlphaWindow, SW_SHOWNORMAL);
+        SetForegroundWindow(g_asteroidAlphaWindow);
+        return;
+    }
+
+    if (!RegisterAsteroidAlphaWindowClass()) {
+        SetCommandStatus(L"Asteroid Alpha window unavailable");
+        return;
+    }
+
+    g_asteroidAlphaWindow = CreateWindowW(kBgeAsteroidAlphaWindowClass, L"BasicGameEngine - Asteroid Alpha", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+        CW_USEDEFAULT, 0, 400, 190, g_hWnd, nullptr, hInst, nullptr);
+    if (!g_asteroidAlphaWindow) {
+        SetCommandStatus(L"Asteroid Alpha window unavailable");
+        return;
+    }
+
+    ShowWindow(g_asteroidAlphaWindow, SW_SHOWNORMAL);
+    UpdateWindow(g_asteroidAlphaWindow);
+    SetForegroundWindow(g_asteroidAlphaWindow);
+    SetCommandStatus(L"Asteroid Alpha window open");
+}
+
+LRESULT CALLBACK AsteroidAlphaWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message) {
+    case WM_CREATE:
+        CreateAsteroidAlphaWindowControls(hWnd);
+        return 0;
+
+    case WM_SIZE:
+        LayoutAsteroidAlphaWindow(hWnd);
+        return 0;
+
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDC_BGE_ASTEROID_APPLY_RGBA) {
+            ApplyAsteroidAlphaWindowValues(false);
+            return 0;
+        }
+        if (LOWORD(wParam) == IDC_BGE_ASTEROID_APPLY_SHAPE) {
+            ApplyAsteroidAlphaWindowValues(true);
+            return 0;
+        }
+        break;
+
+    case WM_KEYDOWN:
+        if (wParam == VK_ESCAPE) {
+            SendMessageW(hWnd, WM_CLOSE, 0, 0);
+            return 0;
+        }
+        break;
+
+    case WM_CLOSE:
+        ShowWindow(hWnd, SW_HIDE);
+        return 0;
+
+    case WM_DESTROY:
+        if (hWnd == g_asteroidAlphaWindow) {
+            g_asteroidAlphaWindow = nullptr;
+            g_asteroidREdit = nullptr;
+            g_asteroidGEdit = nullptr;
+            g_asteroidBEdit = nullptr;
+            g_asteroidAEdit = nullptr;
+            g_asteroidApplyRgbaButton = nullptr;
+            g_asteroidApplyShapeButton = nullptr;
+            g_asteroidStatus = nullptr;
+        }
+        return 0;
+    }
+
+    return DefWindowProcW(hWnd, message, wParam, lParam);
+}
+
 LRESULT CALLBACK CommandEditProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     if (message == WM_KEYDOWN && wParam == VK_RETURN) {
@@ -4549,6 +5501,7 @@ void CreateControllerControls(HWND hWnd)
     g_runCommandButton = CreateControl(hWnd, L"BUTTON", L"Run", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_RUN_COMMAND, 620, 68, 52, 24);
     g_commandStatus = CreateControl(hWnd, L"STATIC", L"ready", 0, IDC_BGE_COMMAND_STATUS, 684, 72, 118, 20);
     g_openHistoryButton = CreateControl(hWnd, L"BUTTON", L"History", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_OPEN_HISTORY, 812, 68, 94, 24);
+    g_loadAsteroidGameButton = CreateControl(hWnd, L"BUTTON", L"Asteroid Game", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_GAME_PRESET, 684, 94, 118, 22);
 
     CreateControl(hWnd, L"BUTTON", L"Scene And Render", BS_GROUPBOX, 0, 8, 128, 920, 150);
     CreateControllerArtifactRow(hWnd, 0, 154);
@@ -4704,6 +5657,29 @@ void HideControllerArtifact(int artifactIndex)
     std::wstring statusText;
     HideWorkerWindowByRole(kControllerArtifacts[artifactIndex].role, statusText);
     SetCommandStatus(statusText);
+    SyncControllerControls();
+}
+
+void LoadAsteroidGameFromController()
+{
+    if (!g_isController) {
+        return;
+    }
+
+    int gameLoopIndex = ArtifactIndexForRole(L"bge.game-loop");
+    if (gameLoopIndex >= 0) {
+        SelectControllerArtifact(gameLoopIndex);
+    }
+
+    WorkerSnapshot snapshot = GetWorkerSnapshot(L"bge.game-loop");
+    if (!snapshot.running) {
+        LaunchWorkerRole(L"bge.game-loop");
+    }
+
+    g_pendingControllerCommands.push_back(L"game-loop: asteroid game");
+
+    SetCommandStatus(L"Asteroid Game queued");
+    AddControllerHistory(L"Load preset -> Asteroid Game", ControllerBaseCli() + L" --launch-basic-game --ui-command " + QuoteArg(L"asteroid-game"));
     SyncControllerControls();
 }
 
@@ -5109,6 +6085,7 @@ void SyncBallControls()
     if (g_colorGEdit) SetWindowTextW(g_colorGEdit, value);
     swprintf_s(value, L"%d", static_cast<int>(selectedSlot.colorB * 255.0f));
     if (g_colorBEdit) SetWindowTextW(g_colorBEdit, value);
+    RefreshAsteroidAlphaWindow();
 
     for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
         wchar_t label[16]{};
@@ -5833,6 +6810,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         case IDC_BGE_OPEN_HISTORY:
             ShowControllerHistoryWindow();
+            break;
+
+        case IDC_BGE_ASTEROID_GAME_PRESET:
+            LoadAsteroidGameFromController();
             break;
 
         case IDC_BGE_RENDERER:
