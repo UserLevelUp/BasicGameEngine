@@ -5039,6 +5039,7 @@ std::wstring MappingWindowText()
     text << L"  Worker command: asteroid game | asteroid-game | game\r\n";
     text << L"  Controller command: asteroid-game | game-loop: asteroid game\r\n";
     text << L"  Component commands: asteroid status | asteroid player set/select | asteroid add/remove | asteroid fire | score | lives | restart\r\n";
+    text << L"  Rules: asteroid size controls score; ship collisions cost one life; zero lives or cleared asteroids stops the loop\r\n";
     text << L"  When object 1 is selected: A/D or Left/Right rotate, W/Up thrust, S/Down reverse, Space fires\r\n";
     text << L"  Bullets split large asteroids into smaller asteroids; edge policy switches to wrap\r\n\r\n";
     text << L"Edge policy\r\n";

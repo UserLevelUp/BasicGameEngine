@@ -21,6 +21,11 @@ constexpr float BGE_ASTEROID_GAME_BULLET_LIFETIME_SECONDS = 1.35f;
 constexpr float BGE_ASTEROID_GAME_SPLIT_MIN_RADIUS = 28.0f;
 constexpr float BGE_ASTEROID_GAME_SPLIT_SCALE = 0.58f;
 constexpr int BGE_ASTEROID_GAME_RESERVED_BULLET_SLOTS = 2;
+constexpr int BGE_ASTEROID_GAME_STARTING_LIVES = 3;
+constexpr float BGE_ASTEROID_GAME_RESPAWN_INVULNERABLE_SECONDS = 1.50f;
+constexpr int BGE_ASTEROID_GAME_LARGE_ASTEROID_POINTS = 20;
+constexpr int BGE_ASTEROID_GAME_MEDIUM_ASTEROID_POINTS = 50;
+constexpr int BGE_ASTEROID_GAME_SMALL_ASTEROID_POINTS = 100;
 
 std::wstring LowerModuleArg(std::wstring value)
 {
@@ -99,6 +104,17 @@ bool RuntimeReady(const BgeGameRuntime& runtime)
         && runtime.rendererStateDirty;
 }
 
+int AsteroidGameHitPoints(float radius)
+{
+    if (radius >= 54.0f) {
+        return BGE_ASTEROID_GAME_LARGE_ASTEROID_POINTS;
+    }
+    if (radius >= 32.0f) {
+        return BGE_ASTEROID_GAME_MEDIUM_ASTEROID_POINTS;
+    }
+    return BGE_ASTEROID_GAME_SMALL_ASTEROID_POINTS;
+}
+
 class AsteroidGameModule final : public BgeGameModule {
 public:
     const wchar_t* Name() const override
@@ -128,7 +144,10 @@ public:
 
             gameMode_ = true;
             score_ = 0;
-            lives_ = 3;
+            lives_ = BGE_ASTEROID_GAME_STARTING_LIVES;
+            respawnInvulnerableSeconds_ = 0.0f;
+            gameOver_ = false;
+            victory_ = false;
             *runtime.mainPlayerGroupIndex = *runtime.activeObjectGroupIndex;
             *runtime.mainPlayerSlot = 0;
             *runtime.selectedObjectSlot = 0;
@@ -160,7 +179,7 @@ public:
         if (runtime.invalidateRenderer) {
             runtime.invalidateRenderer();
         }
-        statusText = L"Asteroid Game: player selected; W/Up thrust, S/Down reverse, A/D rotate, Space fire";
+        statusText = L"Asteroid Game: score 0, lives " + std::to_wstring(lives_) + L"; W/Up thrust, S/Down reverse, A/D rotate, Space fire";
         if (runtime.log) {
             runtime.log("[AsteroidGame] start module=AsteroidGameModule mode=asteroid-game asteroids=3 player-slot=1 edge=wrap");
         }
@@ -246,10 +265,14 @@ public:
         std::wstring statusText;
         {
             std::lock_guard<std::mutex> lock(*runtime.objectMutex);
-            if (!gameMode_ || !*runtime.animationRunning) {
+            if (!gameMode_) {
                 return false;
             }
-            if (!SelectedAsteroidGamePlayerLocked(runtime)) {
+            if (gameOver_ || victory_ || !*runtime.animationRunning) {
+                handled = true;
+                statusText = BuildAsteroidGameStatusLocked(runtime);
+            }
+            else if (!SelectedAsteroidGamePlayerLocked(runtime)) {
                 noPlayerSelected = true;
             }
             else if (key == L'A' || key == VK_LEFT) {
@@ -322,9 +345,16 @@ public:
         }
 
         bool dirty = false;
+        bool playerLostLife = false;
+        bool gameOver = false;
+        bool victory = false;
+        bool invulnerabilityEnded = false;
         int hits = 0;
         int spawned = 0;
         int score = 0;
+        int lives = 0;
+        int points = 0;
+        int asteroidsRemaining = 0;
         {
             std::lock_guard<std::mutex> lock(*runtime.objectMutex);
             if (!gameMode_ || !*runtime.animationRunning) {
@@ -333,6 +363,16 @@ public:
 
             auto& slots = *runtime.objectSlots;
             float deltaSeconds = static_cast<float>((std::max)(0.0, deltaMilliseconds) / 1000.0);
+            if (respawnInvulnerableSeconds_ > 0.0f) {
+                float previousInvulnerability = respawnInvulnerableSeconds_;
+                respawnInvulnerableSeconds_ = (std::max)(0.0f, respawnInvulnerableSeconds_ - deltaSeconds);
+                if (previousInvulnerability > 0.0f && respawnInvulnerableSeconds_ <= 0.0f) {
+                    ApplyAsteroidGamePlayerVisualLocked(runtime);
+                    invulnerabilityEnded = true;
+                    dirty = true;
+                }
+            }
+
             for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
                 BgeObjectSlotState& slot = slots[index];
                 if (slot.visible && !slot.isDeleted && slot.kind == BgeObjectKind::Bullet) {
@@ -360,13 +400,55 @@ public:
                     }
 
                     HideAsteroidGameSlotLocked(runtime, bulletIndex);
+                    int hitPoints = AsteroidGameHitPoints(asteroid.radius);
                     spawned += SplitAsteroidGameAsteroidLocked(runtime, asteroidIndex);
-                    score_ += 10;
+                    score_ += hitPoints;
+                    points += hitPoints;
                     score = score_;
                     ++hits;
                     dirty = true;
                     break;
                 }
+            }
+
+            if (!gameOver_ && !victory_ && respawnInvulnerableSeconds_ <= 0.0f) {
+                int playerSlot = *runtime.mainPlayerSlot;
+                if (AsteroidGamePlayerAliveLocked(runtime, playerSlot)) {
+                    for (int asteroidIndex = 0; asteroidIndex < BGE_OBJECT_SLOT_COUNT; ++asteroidIndex) {
+                        BgeObjectSlotState& asteroid = slots[asteroidIndex];
+                        if (!asteroid.visible || asteroid.isDeleted || asteroid.kind != BgeObjectKind::Asteroid) {
+                            continue;
+                        }
+                        if (!BgeObjectSlotsOverlap(slots[playerSlot], asteroid)) {
+                            continue;
+                        }
+
+                        lives_ = (std::max)(0, lives_ - 1);
+                        lives = lives_;
+                        playerLostLife = true;
+                        dirty = true;
+                        HideAsteroidGameBulletsLocked(runtime);
+                        if (lives_ <= 0) {
+                            HideAsteroidGameSlotLocked(runtime, playerSlot);
+                            gameOver_ = true;
+                            gameOver = true;
+                            *runtime.animationRunning = false;
+                        }
+                        else {
+                            BgeGameViewport viewport = runtime.viewport ? runtime.viewport() : BgeGameViewport{};
+                            RespawnAsteroidGamePlayerLocked(runtime, viewport);
+                        }
+                        break;
+                    }
+                }
+            }
+
+            asteroidsRemaining = CountKindLocked(runtime, BgeObjectKind::Asteroid);
+            if (!gameOver_ && !victory_ && asteroidsRemaining == 0) {
+                victory_ = true;
+                victory = true;
+                *runtime.animationRunning = false;
+                dirty = true;
             }
 
             if (dirty) {
@@ -381,15 +463,48 @@ public:
             }
         }
 
-        if (hits > 0) {
+        if (gameOver) {
             if (runtime.setStatus) {
-                runtime.setStatus(L"Asteroid hit: score " + std::to_wstring(score) + L", split pieces " + std::to_wstring(spawned));
+                runtime.setStatus(L"Game over: score " + std::to_wstring(score_) + L", lives 0; use restart");
             }
             if (runtime.log) {
                 std::ostringstream message;
-                message << "[AsteroidGame] module-hit count=" << hits << " spawned=" << spawned << " score=" << score;
+                message << "[AsteroidGame] module-game-over score=" << score_;
                 runtime.log(message.str());
             }
+        }
+        else if (victory) {
+            if (runtime.setStatus) {
+                runtime.setStatus(L"Asteroid field cleared: score " + std::to_wstring(score_) + L", lives " + std::to_wstring(lives_));
+            }
+            if (runtime.log) {
+                std::ostringstream message;
+                message << "[AsteroidGame] module-victory score=" << score_ << " lives=" << lives_;
+                runtime.log(message.str());
+            }
+        }
+        else if (playerLostLife) {
+            if (runtime.setStatus) {
+                runtime.setStatus(L"Ship hit: lives " + std::to_wstring(lives) + L", score " + std::to_wstring(score_) + L"; respawning");
+            }
+            if (runtime.log) {
+                std::ostringstream message;
+                message << "[AsteroidGame] module-life-lost lives=" << lives << " score=" << score_;
+                runtime.log(message.str());
+            }
+        }
+        else if (hits > 0) {
+            if (runtime.setStatus) {
+                runtime.setStatus(L"Asteroid hit: +" + std::to_wstring(points) + L", score " + std::to_wstring(score) + L", lives " + std::to_wstring(lives_) + L", asteroids " + std::to_wstring(asteroidsRemaining));
+            }
+            if (runtime.log) {
+                std::ostringstream message;
+                message << "[AsteroidGame] module-hit count=" << hits << " spawned=" << spawned << " points=" << points << " score=" << score;
+                runtime.log(message.str());
+            }
+        }
+        else if (invulnerabilityEnded && runtime.setStatus) {
+            runtime.setStatus(L"Asteroid Game: score " + std::to_wstring(score_) + L", lives " + std::to_wstring(lives_) + L", asteroids " + std::to_wstring(asteroidsRemaining));
         }
         return dirty;
     }
@@ -406,6 +521,33 @@ private:
         return count;
     }
 
+    std::wstring BuildAsteroidGameStatusLocked(const BgeGameRuntime& runtime) const
+    {
+        int asteroidCount = CountKindLocked(runtime, BgeObjectKind::Asteroid);
+        int bulletCount = CountKindLocked(runtime, BgeObjectKind::Bullet);
+        std::wstring state = L"stopped";
+        if (gameOver_) {
+            state = L"game over";
+        }
+        else if (victory_) {
+            state = L"cleared";
+        }
+        else if (respawnInvulnerableSeconds_ > 0.0f) {
+            state = L"respawning";
+        }
+        else if (*runtime.animationRunning) {
+            state = L"running";
+        }
+
+        std::wstringstream status;
+        status << L"Asteroid Game: score " << score_
+               << L", lives " << lives_
+               << L", asteroids " << asteroidCount
+               << L", bullets " << bulletCount
+               << L", " << state;
+        return status.str();
+    }
+
     bool HandleStatusCommand(BgeGameRuntime& runtime, std::wstring& statusText)
     {
         if (!RuntimeReady(runtime)) {
@@ -414,15 +556,7 @@ private:
         }
 
         std::lock_guard<std::mutex> lock(*runtime.objectMutex);
-        int asteroidCount = CountKindLocked(runtime, BgeObjectKind::Asteroid);
-        int bulletCount = CountKindLocked(runtime, BgeObjectKind::Bullet);
-        std::wstringstream status;
-        status << L"Asteroid Game: score " << score_
-               << L", lives " << lives_
-               << L", asteroids " << asteroidCount
-               << L", bullets " << bulletCount
-               << (*runtime.animationRunning ? L", running" : L", stopped");
-        statusText = status.str();
+         statusText = BuildAsteroidGameStatusLocked(runtime);
         return true;
     }
 
@@ -473,7 +607,7 @@ private:
             return true;
         }
         if (operation == L"reset") {
-            lives_ = 3;
+            lives_ = BGE_ASTEROID_GAME_STARTING_LIVES;
             statusText = L"Asteroid Game lives: " + std::to_wstring(lives_);
             return true;
         }
@@ -524,6 +658,10 @@ private:
             std::lock_guard<std::mutex> lock(*runtime.objectMutex);
             if (!gameMode_) {
                 statusText = L"Use: asteroid game before fire";
+                return false;
+            }
+            if (gameOver_ || victory_ || !*runtime.animationRunning) {
+                statusText = BuildAsteroidGameStatusLocked(runtime) + L"; use restart";
                 return false;
             }
             if (!FireAsteroidGameProjectileLocked(runtime, bulletSlot)) {
@@ -597,11 +735,16 @@ private:
             {
                 std::lock_guard<std::mutex> lock(*runtime.objectMutex);
                 gameMode_ = true;
+                gameOver_ = false;
+                victory_ = false;
+                respawnInvulnerableSeconds_ = BGE_ASTEROID_GAME_RESPAWN_INVULNERABLE_SECONDS;
+                *runtime.animationRunning = true;
                 *runtime.mainPlayerGroupIndex = *runtime.activeObjectGroupIndex;
                 *runtime.mainPlayerSlot = slotIndex;
                 *runtime.selectedObjectSlot = slotIndex;
                 *runtime.objectSelectionActive = true;
                 ConfigureAsteroidGamePlayerLocked(runtime, slotIndex, viewport.width * 0.50f, viewport.playTop + viewport.playHeight * 0.50f);
+                ApplyAsteroidGamePlayerVisualLocked(runtime);
                 if (runtime.setObjectKeyboardFocusLocked) {
                     runtime.setObjectKeyboardFocusLocked();
                 }
@@ -661,6 +804,11 @@ private:
         {
             std::lock_guard<std::mutex> lock(*runtime.objectMutex);
             gameMode_ = true;
+            victory_ = false;
+            if (lives_ > 0) {
+                gameOver_ = false;
+                *runtime.animationRunning = true;
+            }
             if (slotIndex < 0) {
                 slotIndex = FindReusableAsteroidGameAsteroidSlotLocked(runtime);
             }
@@ -747,6 +895,16 @@ private:
         slot.collisionDetected = false;
         slot.kind = BgeObjectKind::Generic;
         bulletLifeSeconds_[slotIndex] = 0.0f;
+    }
+
+    void HideAsteroidGameBulletsLocked(BgeGameRuntime& runtime)
+    {
+        auto& slots = *runtime.objectSlots;
+        for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+            if (slots[index].kind == BgeObjectKind::Bullet) {
+                HideAsteroidGameSlotLocked(runtime, index);
+            }
+        }
     }
 
     bool IsAsteroidGameBulletReserveSlotLocked(BgeGameRuntime& runtime, int slotIndex) const
@@ -852,6 +1010,40 @@ private:
         slot.shape = BgeObjectShape::Ball;
         slot.kind = BgeObjectKind::Player;
         bulletLifeSeconds_[slotIndex] = 0.0f;
+    }
+
+    bool AsteroidGamePlayerAliveLocked(BgeGameRuntime& runtime, int slotIndex) const
+    {
+        auto& slots = *runtime.objectSlots;
+        return gameMode_
+            && *runtime.mainPlayerGroupIndex == *runtime.activeObjectGroupIndex
+            && slotIndex >= 0
+            && slotIndex < BGE_OBJECT_SLOT_COUNT
+            && slots[slotIndex].visible
+            && !slots[slotIndex].isDeleted
+            && slots[slotIndex].kind == BgeObjectKind::Player;
+    }
+
+    void ApplyAsteroidGamePlayerVisualLocked(BgeGameRuntime& runtime)
+    {
+        int playerSlot = *runtime.mainPlayerSlot;
+        if (!AsteroidGamePlayerAliveLocked(runtime, playerSlot)) {
+            return;
+        }
+        (*runtime.objectSlots)[playerSlot].colorA = respawnInvulnerableSeconds_ > 0.0f ? 0.48f : 1.0f;
+    }
+
+    void RespawnAsteroidGamePlayerLocked(BgeGameRuntime& runtime, const BgeGameViewport& viewport)
+    {
+        int playerSlot = *runtime.mainPlayerSlot;
+        if (playerSlot < 0 || playerSlot >= BGE_OBJECT_SLOT_COUNT) {
+            return;
+        }
+        ConfigureAsteroidGamePlayerLocked(runtime, playerSlot, viewport.width * 0.50f, viewport.playTop + viewport.playHeight * 0.50f);
+        respawnInvulnerableSeconds_ = BGE_ASTEROID_GAME_RESPAWN_INVULNERABLE_SECONDS;
+        *runtime.selectedObjectSlot = playerSlot;
+        *runtime.objectSelectionActive = true;
+        ApplyAsteroidGamePlayerVisualLocked(runtime);
     }
 
     bool SelectedAsteroidGamePlayerLocked(BgeGameRuntime& runtime) const
@@ -1000,7 +1192,10 @@ private:
 
     bool gameMode_ = false;
     int score_ = 0;
-    int lives_ = 3;
+    int lives_ = BGE_ASTEROID_GAME_STARTING_LIVES;
+    float respawnInvulnerableSeconds_ = 0.0f;
+    bool gameOver_ = false;
+    bool victory_ = false;
     std::array<float, BGE_OBJECT_SLOT_COUNT> bulletLifeSeconds_{};
 };
 
