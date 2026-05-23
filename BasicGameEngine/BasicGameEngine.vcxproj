@@ -149,6 +149,7 @@
   <ItemGroup>
     <ClInclude Include="include\BasicGameEngine.h" />
     <ClInclude Include="include\BasicGameRoleOperation.h" />
+    <ClInclude Include="include\BgeGameModule.h" />
     <ClInclude Include="include\BgeScenePrimitives.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="include\DirectX11BouncingBallOperation.h" />
@@ -169,6 +170,7 @@
     <ClInclude Include="include\WindowMutexMgr.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\AsteroidGameModule.cpp" />
     <ClCompile Include="src\BgeScenePrimitives.cpp" />
     <ClCompile Include="src\BasicGameEngine.cpp" />
     <ClCompile Include="src\DirectX11BouncingBallRenderer.cpp" />

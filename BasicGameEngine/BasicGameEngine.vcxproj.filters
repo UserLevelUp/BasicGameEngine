@@ -63,6 +63,9 @@
     <ClInclude Include="include\BasicGameRoleOperation.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\BgeGameModule.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="include\BgeScenePrimitives.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -77,6 +80,9 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\AsteroidGameModule.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\BgeScenePrimitives.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

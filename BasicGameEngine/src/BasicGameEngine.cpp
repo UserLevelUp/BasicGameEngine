@@ -32,6 +32,7 @@
 #include "../include/UserPrivilegeMgr.h"
 
 #include "../../OpNode/OpNode.h"
+#include "../include/BgeGameModule.h"
 #include "../include/BgeScenePrimitives.h"
 #include "../include/BasicGameRoleOperation.h"
 #include "../include/DirectX11BouncingBallOperation.h"
@@ -131,15 +132,6 @@ constexpr float BGE_VECTOR_MAGNITUDE_STEP = 20.0f;
 constexpr float BGE_MIN_OBJECT_RADIUS = 8.0f;
 constexpr float BGE_MAX_OBJECT_RADIUS = 160.0f;
 constexpr double BGE_ANIMATION_STEP_MILLISECONDS = 1000.0 / 60.0;
-constexpr float BGE_ASTEROID_GAME_TURN_DEGREES = 10.0f;
-constexpr float BGE_ASTEROID_GAME_THRUST_STEP = 36.0f;
-constexpr float BGE_ASTEROID_GAME_REVERSE_THRUST_STEP = 24.0f;
-constexpr float BGE_ASTEROID_GAME_MAX_PLAYER_SPEED = 420.0f;
-constexpr float BGE_ASTEROID_GAME_BULLET_SPEED = 520.0f;
-constexpr float BGE_ASTEROID_GAME_BULLET_LIFETIME_SECONDS = 1.35f;
-constexpr float BGE_ASTEROID_GAME_SPLIT_MIN_RADIUS = 28.0f;
-constexpr float BGE_ASTEROID_GAME_SPLIT_SCALE = 0.58f;
-constexpr int BGE_ASTEROID_GAME_RESERVED_BULLET_SLOTS = 2;
 constexpr int BGE_EDIT_RATE_DEFAULT_INDEX = 2;
 constexpr std::array<float, 5> BGE_EDIT_RATE_MULTIPLIERS = { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f };
 constexpr std::array<const wchar_t*, 5> BGE_EDIT_RATE_LABELS = { L"0.25x", L"0.5x", L"1x", L"2x", L"4x" };
@@ -234,9 +226,6 @@ bool g_rendererSwitchRequested = false;
 bool g_rendererResizeRequested = false;
 bool g_backgroundImageDirty = false;
 bool g_draggingVectorTip = false;
-bool g_asteroidGameMode = false;
-int g_asteroidGameScore = 0;
-std::array<float, BGE_OBJECT_SLOT_COUNT> g_asteroidGameBulletLifeSeconds{};
 float g_ballVelocityX = 180.0f;
 float g_ballVelocityY = 135.0f;
 float g_ballColorR = 0.96f;
@@ -390,6 +379,9 @@ void LoadBackgroundOnActiveRenderer(const std::wstring& path);
 void ProcessPendingRendererCommands();
 void ShowAsteroidAlphaWindow();
 void RefreshAsteroidAlphaWindow();
+BgeGameViewport CurrentGameViewport();
+BgeGameRuntime CreateGameRuntime();
+bool ExecuteAsteroidGameModuleCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool StartAsteroidGameMode(std::wstring& statusText);
 bool HandleAsteroidGameKeyDown(WPARAM key);
 bool TickAsteroidGameMode(double deltaMilliseconds);
@@ -1190,479 +1182,74 @@ void ClampObjectToClientLocked(BgeObjectSlotState& slot)
     slot.y = ClampFloat(slot.y, BGE_RENDER_TOP_INSET + slot.radius, (std::max)(BGE_RENDER_TOP_INSET + slot.radius, height - slot.radius));
 }
 
-float VectorLength(float x, float y)
+BgeGameViewport CurrentGameViewport()
 {
-    return std::sqrt(x * x + y * y);
+    RECT client{};
+    GetClientRect(g_hWnd, &client);
+    BgeGameViewport viewport;
+    viewport.width = static_cast<float>((std::max)(client.right - client.left, 640L));
+    viewport.height = static_cast<float>((std::max)(client.bottom - client.top, 480L));
+    viewport.playTop = BGE_RENDER_TOP_INSET;
+    viewport.playHeight = (std::max)(240.0f, viewport.height - viewport.playTop);
+    return viewport;
 }
 
-void NormalizeVectorOrDefault(float x, float y, float& outX, float& outY)
+void SetGameObjectKeyboardFocusLocked()
 {
-    float length = VectorLength(x, y);
-    if (length < 1.0f) {
-        outX = 1.0f;
-        outY = 0.0f;
-        return;
-    }
-
-    outX = x / length;
-    outY = y / length;
+    g_keyboardFocus = BgeKeyboardFocus::Object;
 }
 
-void ClampVelocity(float& velocityX, float& velocityY, float maxSpeed)
+void InvalidateGameRenderer()
 {
-    float speed = VectorLength(velocityX, velocityY);
-    if (speed > maxSpeed && speed > 0.0f) {
-        float scale = maxSpeed / speed;
-        velocityX *= scale;
-        velocityY *= scale;
-    }
+    InvalidateRect(g_hWnd, nullptr, FALSE);
 }
 
-void HideAsteroidGameSlotLocked(int slotIndex)
+BgeGameRuntime CreateGameRuntime()
 {
-    if (slotIndex < 0 || slotIndex >= BGE_OBJECT_SLOT_COUNT) {
-        return;
-    }
-
-    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
-    slot.visible = false;
-    slot.deleteMarked = false;
-    slot.isDeleted = false;
-    slot.collisionDetected = false;
-    slot.kind = BgeObjectKind::Generic;
-    g_asteroidGameBulletLifeSeconds[slotIndex] = 0.0f;
+    BgeGameRuntime runtime;
+    runtime.ownsGameLoop = CurrentProcessOwnsGameLoop;
+    runtime.viewport = CurrentGameViewport;
+    runtime.objectMutex = &ballConfigMutex;
+    runtime.objectSlots = &g_objectSlots;
+    runtime.animationRunning = &g_ballAnimationRunning;
+    runtime.activeObjectGroupIndex = &g_activeObjectGroupIndex;
+    runtime.mainPlayerGroupIndex = &g_mainPlayerGroupIndex;
+    runtime.mainPlayerSlot = &g_mainPlayerSlot;
+    runtime.selectedObjectSlot = &g_selectedObjectSlot;
+    runtime.objectSelectionActive = &g_objectSelectionActive;
+    runtime.rendererStateDirty = &g_rendererStateDirty;
+    runtime.setObjectKeyboardFocusLocked = SetGameObjectKeyboardFocusLocked;
+    runtime.refreshSelectedObjectGlobalsLocked = RefreshSelectedObjectGlobalsLocked;
+    runtime.persistActiveObjectGroupLocked = PersistActiveObjectGroupLocked;
+    runtime.syncControls = SyncBallControls;
+    runtime.invalidateRenderer = InvalidateGameRenderer;
+    runtime.setStatus = SetCommandStatus;
+    runtime.log = LogRendererMessage;
+    return runtime;
 }
 
-bool IsAsteroidGameBulletReserveSlotLocked(int slotIndex)
+bool ExecuteAsteroidGameModuleCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
 {
-    return slotIndex >= (BGE_OBJECT_SLOT_COUNT - BGE_ASTEROID_GAME_RESERVED_BULLET_SLOTS)
-        && slotIndex < BGE_OBJECT_SLOT_COUNT
-        && !(slotIndex == g_mainPlayerSlot && g_mainPlayerGroupIndex == g_activeObjectGroupIndex);
-}
-
-int FindReusableAsteroidGameBulletSlotLocked()
-{
-    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
-        if (!IsAsteroidGameBulletReserveSlotLocked(index)) {
-            continue;
-        }
-        if (!g_objectSlots[index].visible || g_objectSlots[index].isDeleted) {
-            return index;
-        }
-    }
-
-    int oldestBulletSlot = -1;
-    float shortestLife = 1000000.0f;
-    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
-        if (IsAsteroidGameBulletReserveSlotLocked(index)
-            && g_objectSlots[index].kind == BgeObjectKind::Bullet
-            && g_asteroidGameBulletLifeSeconds[index] < shortestLife) {
-            shortestLife = g_asteroidGameBulletLifeSeconds[index];
-            oldestBulletSlot = index;
-        }
-    }
-    if (oldestBulletSlot >= 0) {
-        return oldestBulletSlot;
-    }
-
-    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
-        if (index == g_mainPlayerSlot && g_mainPlayerGroupIndex == g_activeObjectGroupIndex) {
-            continue;
-        }
-        if (!g_objectSlots[index].visible || g_objectSlots[index].isDeleted) {
-            return index;
-        }
-    }
-
-    return -1;
-}
-
-int FindReusableAsteroidGameAsteroidSlotLocked()
-{
-    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
-        if (index == g_mainPlayerSlot && g_mainPlayerGroupIndex == g_activeObjectGroupIndex) {
-            continue;
-        }
-        if (IsAsteroidGameBulletReserveSlotLocked(index)) {
-            continue;
-        }
-        if (!g_objectSlots[index].visible || g_objectSlots[index].isDeleted) {
-            return index;
-        }
-    }
-
-    return -1;
-}
-
-void ConfigureAsteroidGameAsteroidLocked(int slotIndex, float x, float y, float radius, float velocityX, float velocityY)
-{
-    if (slotIndex < 0 || slotIndex >= BGE_OBJECT_SLOT_COUNT) {
-        return;
-    }
-
-    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
-    slot = BgeObjectSlotState{};
-    slot.visible = true;
-    slot.x = x;
-    slot.y = y;
-    slot.radius = radius;
-    slot.velocityX = velocityX;
-    slot.velocityY = velocityY;
-    slot.colorR = 0.66f;
-    slot.colorG = 0.58f;
-    slot.colorB = 0.48f;
-    slot.colorA = 0.88f;
-    slot.shape = BgeObjectShape::Asteroid;
-    slot.kind = BgeObjectKind::Asteroid;
-    g_asteroidGameBulletLifeSeconds[slotIndex] = 0.0f;
-}
-
-void ConfigureAsteroidGamePlayerLocked(int slotIndex, float x, float y)
-{
-    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
-    slot = BgeObjectSlotState{};
-    slot.visible = true;
-    slot.x = x;
-    slot.y = y;
-    slot.radius = 18.0f;
-    slot.velocityX = 120.0f;
-    slot.velocityY = 0.0f;
-    slot.colorR = 0.10f;
-    slot.colorG = 0.82f;
-    slot.colorB = 0.95f;
-    slot.colorA = 1.0f;
-    slot.shape = BgeObjectShape::Ball;
-    slot.kind = BgeObjectKind::Player;
-    g_asteroidGameBulletLifeSeconds[slotIndex] = 0.0f;
+    BgeGameRuntime runtime = CreateGameRuntime();
+    return BgeAsteroidGameModule().OnCommand(runtime, tokens, statusText);
 }
 
 bool StartAsteroidGameMode(std::wstring& statusText)
 {
-    if (!CurrentProcessOwnsGameLoop()) {
-        statusText = L"Asteroid Game runs in bge.game-loop";
-        return false;
-    }
-
-    RECT client{};
-    GetClientRect(g_hWnd, &client);
-    float width = static_cast<float>((std::max)(client.right - client.left, 640L));
-    float height = static_cast<float>((std::max)(client.bottom - client.top, 480L));
-    float playTop = BGE_RENDER_TOP_INSET;
-    float playHeight = (std::max)(240.0f, height - playTop);
-
-    {
-        std::lock_guard<std::mutex> lock(ballConfigMutex);
-        for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
-            g_objectSlots[index] = BgeObjectSlotState{};
-            g_asteroidGameBulletLifeSeconds[index] = 0.0f;
-        }
-
-        g_asteroidGameMode = true;
-        g_asteroidGameScore = 0;
-        g_mainPlayerGroupIndex = g_activeObjectGroupIndex;
-        g_mainPlayerSlot = 0;
-        g_selectedObjectSlot = 0;
-        g_objectSelectionActive = true;
-        g_keyboardFocus = BgeKeyboardFocus::Object;
-
-        ConfigureAsteroidGamePlayerLocked(0, width * 0.50f, playTop + playHeight * 0.50f);
-        ConfigureAsteroidGameAsteroidLocked(1, width * 0.22f, playTop + playHeight * 0.26f, 64.0f, 78.0f, 52.0f);
-        ConfigureAsteroidGameAsteroidLocked(2, width * 0.76f, playTop + playHeight * 0.30f, 58.0f, -72.0f, 64.0f);
-        ConfigureAsteroidGameAsteroidLocked(3, width * 0.54f, playTop + playHeight * 0.76f, 52.0f, 54.0f, -86.0f);
-
-        BgeSetCurrentEdgePolicy(BgeEdgePolicy::Wrap);
-        g_ballAnimationRunning = true;
-        RefreshSelectedObjectGlobalsLocked();
-        BgeUpdateCollisionFlags(g_objectSlots);
-        PersistActiveObjectGroupLocked();
-        g_rendererStateDirty = true;
-    }
-
-    SyncBallControls();
-    InvalidateRect(g_hWnd, nullptr, FALSE);
-    statusText = L"Asteroid Game: player selected; W/Up thrust, S/Down reverse, A/D rotate, Space fire";
-    LogRendererMessage("[AsteroidGame] start mode=asteroid-game asteroids=3 player-slot=1 edge=wrap");
-    return true;
-}
-
-bool SelectedAsteroidGamePlayerLocked()
-{
-    return g_asteroidGameMode
-        && g_mainPlayerGroupIndex == g_activeObjectGroupIndex
-        && g_mainPlayerSlot >= 0
-        && g_mainPlayerSlot < BGE_OBJECT_SLOT_COUNT
-        && g_selectedObjectSlot == g_mainPlayerSlot
-        && g_objectSlots[g_mainPlayerSlot].visible
-        && !g_objectSlots[g_mainPlayerSlot].isDeleted
-        && g_objectSlots[g_mainPlayerSlot].kind == BgeObjectKind::Player;
-}
-
-bool RotateAsteroidGamePlayerLocked(float deltaDegrees)
-{
-    if (!SelectedAsteroidGamePlayerLocked()) {
-        return false;
-    }
-
-    BgeObjectSlotState& player = g_objectSlots[g_mainPlayerSlot];
-    float currentSpeed = VectorLength(player.velocityX, player.velocityY);
-    if (currentSpeed < 1.0f) {
-        currentSpeed = 1.0f;
-        player.velocityX = currentSpeed;
-        player.velocityY = 0.0f;
-    }
-
-    float radians = std::atan2(player.velocityY, player.velocityX) + deltaDegrees * 3.14159265358979323846f / 180.0f;
-    player.velocityX = std::cos(radians) * currentSpeed;
-    player.velocityY = std::sin(radians) * currentSpeed;
-    return true;
-}
-
-bool ThrustAsteroidGamePlayerLocked(float thrustStep)
-{
-    if (!SelectedAsteroidGamePlayerLocked()) {
-        return false;
-    }
-
-    BgeObjectSlotState& player = g_objectSlots[g_mainPlayerSlot];
-    float directionX = 1.0f;
-    float directionY = 0.0f;
-    NormalizeVectorOrDefault(player.velocityX, player.velocityY, directionX, directionY);
-    player.velocityX += directionX * thrustStep;
-    player.velocityY += directionY * thrustStep;
-    ClampVelocity(player.velocityX, player.velocityY, BGE_ASTEROID_GAME_MAX_PLAYER_SPEED);
-    return true;
-}
-
-bool FireAsteroidGameProjectileLocked(int& bulletSlot)
-{
-    bulletSlot = -1;
-    if (!SelectedAsteroidGamePlayerLocked()) {
-        return false;
-    }
-
-    int targetSlot = FindReusableAsteroidGameBulletSlotLocked();
-    if (targetSlot < 0) {
-        return false;
-    }
-
-    const BgeObjectSlotState& player = g_objectSlots[g_mainPlayerSlot];
-    float directionX = 1.0f;
-    float directionY = 0.0f;
-    NormalizeVectorOrDefault(player.velocityX, player.velocityY, directionX, directionY);
-
-    BgeObjectSlotState& bullet = g_objectSlots[targetSlot];
-    bullet = BgeObjectSlotState{};
-    bullet.visible = true;
-    bullet.x = player.x + directionX * (player.radius + 10.0f);
-    bullet.y = player.y + directionY * (player.radius + 10.0f);
-    bullet.radius = 5.0f;
-    bullet.velocityX = player.velocityX + directionX * BGE_ASTEROID_GAME_BULLET_SPEED;
-    bullet.velocityY = player.velocityY + directionY * BGE_ASTEROID_GAME_BULLET_SPEED;
-    bullet.colorR = 1.0f;
-    bullet.colorG = 0.92f;
-    bullet.colorB = 0.18f;
-    bullet.colorA = 1.0f;
-    bullet.shape = BgeObjectShape::Ball;
-    bullet.kind = BgeObjectKind::Bullet;
-    g_asteroidGameBulletLifeSeconds[targetSlot] = BGE_ASTEROID_GAME_BULLET_LIFETIME_SECONDS;
-    bulletSlot = targetSlot;
-    return true;
-}
-
-int SpawnSplitAsteroidLocked(const BgeObjectSlotState& source, float radius, float angleOffsetRadians)
-{
-    int slotIndex = FindReusableAsteroidGameAsteroidSlotLocked();
-    if (slotIndex < 0) {
-        return -1;
-    }
-
-    float sourceSpeed = VectorLength(source.velocityX, source.velocityY);
-    if (sourceSpeed < 70.0f) {
-        sourceSpeed = 105.0f;
-    }
-    float baseAngle = std::atan2(source.velocityY, source.velocityX);
-    if (VectorLength(source.velocityX, source.velocityY) < 1.0f) {
-        baseAngle = angleOffsetRadians;
-    }
-    float splitAngle = baseAngle + angleOffsetRadians;
-
-    BgeObjectSlotState& split = g_objectSlots[slotIndex];
-    split = source;
-    split.visible = true;
-    split.deleteMarked = false;
-    split.isDeleted = false;
-    split.collisionDetected = false;
-    split.radius = radius;
-    split.x = source.x + std::cos(splitAngle) * radius * 0.55f;
-    split.y = source.y + std::sin(splitAngle) * radius * 0.55f;
-    split.velocityX = std::cos(splitAngle) * sourceSpeed * 1.12f;
-    split.velocityY = std::sin(splitAngle) * sourceSpeed * 1.12f;
-    split.colorA = (std::max)(0.58f, source.colorA);
-    split.shape = BgeObjectShape::Asteroid;
-    split.kind = BgeObjectKind::Asteroid;
-    g_asteroidGameBulletLifeSeconds[slotIndex] = 0.0f;
-    return slotIndex;
-}
-
-int SplitAsteroidGameAsteroidLocked(int asteroidSlot)
-{
-    if (asteroidSlot < 0 || asteroidSlot >= BGE_OBJECT_SLOT_COUNT) {
-        return 0;
-    }
-
-    BgeObjectSlotState source = g_objectSlots[asteroidSlot];
-    HideAsteroidGameSlotLocked(asteroidSlot);
-    if (source.radius < BGE_ASTEROID_GAME_SPLIT_MIN_RADIUS) {
-        return 0;
-    }
-
-    int spawned = 0;
-    float childRadius = (std::max)(14.0f, source.radius * BGE_ASTEROID_GAME_SPLIT_SCALE);
-    if (SpawnSplitAsteroidLocked(source, childRadius, -0.72f) >= 0) {
-        ++spawned;
-    }
-    if (SpawnSplitAsteroidLocked(source, childRadius, 0.72f) >= 0) {
-        ++spawned;
-    }
-    return spawned;
-}
-
-bool TickAsteroidGameMode(double deltaMilliseconds)
-{
-    bool dirty = false;
-    int hits = 0;
-    int spawned = 0;
-    int score = 0;
-    {
-        std::lock_guard<std::mutex> lock(ballConfigMutex);
-        if (!g_asteroidGameMode || !g_ballAnimationRunning) {
-            return false;
-        }
-
-        float deltaSeconds = static_cast<float>((std::max)(0.0, deltaMilliseconds) / 1000.0);
-        for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
-            BgeObjectSlotState& slot = g_objectSlots[index];
-            if (slot.visible && !slot.isDeleted && slot.kind == BgeObjectKind::Bullet) {
-                g_asteroidGameBulletLifeSeconds[index] -= deltaSeconds;
-                if (g_asteroidGameBulletLifeSeconds[index] <= 0.0f) {
-                    HideAsteroidGameSlotLocked(index);
-                    dirty = true;
-                }
-            }
-        }
-
-        for (int bulletIndex = 0; bulletIndex < BGE_OBJECT_SLOT_COUNT; ++bulletIndex) {
-            BgeObjectSlotState& bullet = g_objectSlots[bulletIndex];
-            if (!bullet.visible || bullet.isDeleted || bullet.kind != BgeObjectKind::Bullet) {
-                continue;
-            }
-
-            for (int asteroidIndex = 0; asteroidIndex < BGE_OBJECT_SLOT_COUNT; ++asteroidIndex) {
-                BgeObjectSlotState& asteroid = g_objectSlots[asteroidIndex];
-                if (!asteroid.visible || asteroid.isDeleted || asteroid.kind != BgeObjectKind::Asteroid) {
-                    continue;
-                }
-                if (!BgeObjectSlotsOverlap(bullet, asteroid)) {
-                    continue;
-                }
-
-                HideAsteroidGameSlotLocked(bulletIndex);
-                spawned += SplitAsteroidGameAsteroidLocked(asteroidIndex);
-                g_asteroidGameScore += 10;
-                score = g_asteroidGameScore;
-                ++hits;
-                dirty = true;
-                break;
-            }
-        }
-
-        if (dirty) {
-            BgeUpdateCollisionFlags(g_objectSlots);
-            RefreshSelectedObjectGlobalsLocked();
-            PersistActiveObjectGroupLocked();
-            g_rendererStateDirty = true;
-        }
-    }
-
-    if (hits > 0) {
-        std::wstring statusText = L"Asteroid hit: score " + std::to_wstring(score) + L", split pieces " + std::to_wstring(spawned);
-        SetCommandStatus(statusText);
-        std::ostringstream message;
-        message << "[AsteroidGame] hit count=" << hits << " spawned=" << spawned << " score=" << score;
-        LogRendererMessage(message.str());
-    }
-    return dirty;
+    BgeGameRuntime runtime = CreateGameRuntime();
+    return BgeAsteroidGameModule().OnStart(runtime, statusText);
 }
 
 bool HandleAsteroidGameKeyDown(WPARAM key)
 {
-    if (!CurrentProcessOwnsGameLoop()) {
-        return false;
-    }
+    BgeGameRuntime runtime = CreateGameRuntime();
+    return BgeAsteroidGameModule().OnKeyDown(runtime, static_cast<unsigned int>(key));
+}
 
-    bool isGameKey = key == L'A' || key == L'D' || key == L'W' || key == L'S' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_SPACE;
-    if (!isGameKey) {
-        return false;
-    }
-
-    bool handled = false;
-    bool noPlayerSelected = false;
-    int bulletSlot = -1;
-    std::wstring statusText;
-    {
-        std::lock_guard<std::mutex> lock(ballConfigMutex);
-        if (!g_asteroidGameMode || !g_ballAnimationRunning) {
-            return false;
-        }
-        if (!SelectedAsteroidGamePlayerLocked()) {
-            noPlayerSelected = true;
-        }
-        else if (key == L'A' || key == VK_LEFT) {
-            handled = RotateAsteroidGamePlayerLocked(-BGE_ASTEROID_GAME_TURN_DEGREES);
-            statusText = L"Asteroid Game: rotate left";
-        }
-        else if (key == L'D' || key == VK_RIGHT) {
-            handled = RotateAsteroidGamePlayerLocked(BGE_ASTEROID_GAME_TURN_DEGREES);
-            statusText = L"Asteroid Game: rotate right";
-        }
-        else if (key == L'W' || key == VK_UP) {
-            handled = ThrustAsteroidGamePlayerLocked(BGE_ASTEROID_GAME_THRUST_STEP);
-            statusText = L"Asteroid Game: thrust";
-        }
-        else if (key == L'S' || key == VK_DOWN) {
-            handled = ThrustAsteroidGamePlayerLocked(-BGE_ASTEROID_GAME_REVERSE_THRUST_STEP);
-            statusText = L"Asteroid Game: reverse thrust";
-        }
-        else if (key == VK_SPACE) {
-            handled = FireAsteroidGameProjectileLocked(bulletSlot);
-            statusText = handled ? L"Asteroid Game: fire bullet " + std::to_wstring(bulletSlot + 1) : L"Asteroid Game: no projectile slot";
-        }
-
-        if (handled) {
-            RefreshSelectedObjectGlobalsLocked();
-            BgeUpdateCollisionFlags(g_objectSlots);
-            PersistActiveObjectGroupLocked();
-            g_rendererStateDirty = true;
-        }
-    }
-
-    if (noPlayerSelected) {
-        SetCommandStatus(L"Asteroid Game: select player object 1 to fly");
-        return true;
-    }
-    if (handled) {
-        SyncBallControls();
-        InvalidateRect(g_hWnd, nullptr, FALSE);
-        SetCommandStatus(statusText);
-        std::ostringstream message;
-        message << "[AsteroidGame] input key=" << static_cast<unsigned int>(key);
-        if (bulletSlot >= 0) {
-            message << " bullet-slot=" << (bulletSlot + 1);
-        }
-        LogRendererMessage(message.str());
-        return true;
-    }
-    return false;
+bool TickAsteroidGameMode(double deltaMilliseconds)
+{
+    BgeGameRuntime runtime = CreateGameRuntime();
+    return BgeAsteroidGameModule().OnTick(runtime, deltaMilliseconds);
 }
 
 std::wstring EditModeName(BgeEditMode mode)
@@ -3816,7 +3403,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
     }
 
     if (command == L"asteroid-game" || command == L"asteroids" || command == L"game") {
-        bool ok = StartAsteroidGameMode(statusText);
+        bool ok = ExecuteAsteroidGameModuleCommand(tokens, statusText);
         logCommand(ok ? "asteroid-game" : "asteroid-game failed");
         return ok;
     }
@@ -4212,7 +3799,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
 
         std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
         if (subcommand == L"game" || subcommand == L"play" || subcommand == L"start") {
-            bool ok = StartAsteroidGameMode(statusText);
+            bool ok = ExecuteAsteroidGameModuleCommand(tokens, statusText);
             logCommand(ok ? "asteroid-game" : "asteroid-game failed");
             return ok;
         }
