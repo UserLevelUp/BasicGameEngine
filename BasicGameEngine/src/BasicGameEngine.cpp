@@ -312,6 +312,7 @@ bool g_hideWorkerWindowsByDefault = true;
 std::wstring g_cliControllerTarget;
 std::vector<std::wstring> g_cliInspectSelectors;
 std::vector<std::wstring> g_cliHideSelectors;
+std::vector<std::wstring> g_cliConstructionArtifactPaths;
 std::vector<std::wstring> g_revealedWorkerRoles;
 std::vector<std::wstring> g_pendingControllerCommands;
 std::vector<std::wstring> g_controllerHistory;
@@ -410,6 +411,7 @@ void AdvanceSoundSlotLoop();
 void ExecuteCommandBarInput();
 bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusText);
 bool ExecuteControllerCommandText(const std::wstring& commandText, std::wstring& statusText);
+bool QueueConstructionArtifactCommandsFromFile(const std::wstring& path, std::wstring& statusText);
 bool SendControllerCommandToWorker(const std::wstring& role, const std::wstring& commandText, std::wstring& statusText);
 void SetCommandStatus(const std::wstring& statusText);
 void AddControllerHistory(const std::wstring& historyText, const std::wstring& detailText = L"");
@@ -458,6 +460,11 @@ std::wstring EditRateLabel();
 void AdjustEditRate(int direction);
 bool SetEditRateFromText(const std::wstring& rateText);
 std::wstring TrimText(const std::wstring& value);
+std::wstring WidenUtf8(const std::string& value);
+bool LoadConstructionArtifactCommands(const std::wstring& path, std::vector<std::wstring>& commands, std::wstring& errorText);
+bool ExtractLineConstructionCommands(const std::wstring& text, std::vector<std::wstring>& commands);
+bool ExtractJsonConstructionCommands(const std::wstring& text, std::vector<std::wstring>& commands, std::wstring& errorText);
+bool ExtractCsvConstructionCommands(const std::wstring& text, std::vector<std::wstring>& commands, std::wstring& errorText);
 void UpdateEditModeStatus();
 bool TranslateSelectedObject(float deltaX, float deltaY, std::wstring& statusText);
 bool ResizeSelectedObject(float deltaRadius, std::wstring& statusText);
@@ -2079,6 +2086,18 @@ void ParseRuntimeArgs()
         else if (arg.rfind(L"--controller-command=", 0) == 0) {
             g_pendingControllerCommands.push_back(arg.substr(21));
         }
+        else if ((arg == L"--game-file" || arg == L"--construction-file" || arg == L"--command-file") && i + 1 < argc) {
+            g_cliConstructionArtifactPaths.push_back(argv[++i]);
+        }
+        else if (arg.rfind(L"--game-file=", 0) == 0) {
+            g_cliConstructionArtifactPaths.push_back(arg.substr(12));
+        }
+        else if (arg.rfind(L"--construction-file=", 0) == 0) {
+            g_cliConstructionArtifactPaths.push_back(arg.substr(20));
+        }
+        else if (arg.rfind(L"--command-file=", 0) == 0) {
+            g_cliConstructionArtifactPaths.push_back(arg.substr(15));
+        }
         else if (arg == L"--background" && i + 1 < argc) {
             g_backgroundImagePath = argv[++i];
             g_backgroundImageDirty = true;
@@ -2306,6 +2325,28 @@ std::string Narrow(const std::wstring& value)
     std::string result(static_cast<size_t>(size), '\0');
     WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, result.data(), size, nullptr, nullptr);
     result.pop_back();
+    return result;
+}
+
+std::wstring WidenUtf8(const std::string& value)
+{
+    if (value.empty()) {
+        return std::wstring();
+    }
+
+    int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0);
+    if (size <= 0) {
+        size = MultiByteToWideChar(CP_ACP, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0);
+        if (size <= 0) {
+            return std::wstring();
+        }
+        std::wstring result(static_cast<size_t>(size), L'\0');
+        MultiByteToWideChar(CP_ACP, 0, value.c_str(), static_cast<int>(value.size()), result.data(), size);
+        return result;
+    }
+
+    std::wstring result(static_cast<size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), result.data(), size);
     return result;
 }
 
@@ -2618,6 +2659,231 @@ std::wstring TrimText(const std::wstring& value)
     return value.substr(first, last - first + 1);
 }
 
+std::wstring ConstructionArtifactExtension(const std::wstring& path)
+{
+    size_t slash = path.find_last_of(L"\\/");
+    size_t dot = path.find_last_of(L'.');
+    if (dot == std::wstring::npos || (slash != std::wstring::npos && dot < slash)) {
+        return L"";
+    }
+    return LowerArg(path.substr(dot));
+}
+
+bool ExtractLineConstructionCommands(const std::wstring& text, std::vector<std::wstring>& commands)
+{
+    std::wstringstream stream(text);
+    std::wstring line;
+    while (std::getline(stream, line)) {
+        std::wstring trimmed = TrimText(line);
+        if (trimmed.empty() || trimmed.rfind(L"#", 0) == 0 || trimmed.rfind(L"//", 0) == 0) {
+            continue;
+        }
+        commands.push_back(trimmed);
+    }
+    return !commands.empty();
+}
+
+bool ConsumeJsonString(const std::wstring& text, size_t& index, std::wstring& value)
+{
+    if (index >= text.size() || text[index] != L'\"') {
+        return false;
+    }
+    ++index;
+    value.clear();
+    while (index < text.size()) {
+        wchar_t ch = text[index++];
+        if (ch == L'\"') {
+            return true;
+        }
+        if (ch != L'\\') {
+            value += ch;
+            continue;
+        }
+        if (index >= text.size()) {
+            return false;
+        }
+        wchar_t escaped = text[index++];
+        switch (escaped) {
+        case L'\"': value += L'\"'; break;
+        case L'\\': value += L'\\'; break;
+        case L'/': value += L'/'; break;
+        case L'b': value += L'\b'; break;
+        case L'f': value += L'\f'; break;
+        case L'n': value += L'\n'; break;
+        case L'r': value += L'\r'; break;
+        case L't': value += L'\t'; break;
+        case L'u':
+            if (index + 4 <= text.size()) {
+                index += 4;
+                value += L'?';
+            }
+            else {
+                return false;
+            }
+            break;
+        default:
+            value += escaped;
+            break;
+        }
+    }
+    return false;
+}
+
+bool ExtractJsonConstructionCommands(const std::wstring& text, std::vector<std::wstring>& commands, std::wstring& errorText)
+{
+    size_t key = text.find(L"\"commands\"");
+    if (key == std::wstring::npos) {
+        errorText = L"JSON construction artifact needs a commands array";
+        return false;
+    }
+
+    size_t colon = text.find(L':', key + 10);
+    size_t arrayStart = colon == std::wstring::npos ? std::wstring::npos : text.find(L'[', colon + 1);
+    if (arrayStart == std::wstring::npos) {
+        errorText = L"JSON commands must be an array";
+        return false;
+    }
+
+    size_t index = arrayStart + 1;
+    while (index < text.size()) {
+        while (index < text.size() && iswspace(text[index])) {
+            ++index;
+        }
+        if (index < text.size() && text[index] == L']') {
+            break;
+        }
+        if (index < text.size() && text[index] == L',') {
+            ++index;
+            continue;
+        }
+        std::wstring command;
+        if (!ConsumeJsonString(text, index, command)) {
+            errorText = L"JSON commands array must contain command strings";
+            return false;
+        }
+        command = TrimText(command);
+        if (!command.empty()) {
+            commands.push_back(command);
+        }
+    }
+
+    if (commands.empty()) {
+        errorText = L"JSON commands array is empty";
+        return false;
+    }
+    return true;
+}
+
+std::vector<std::wstring> ParseCsvConstructionRecord(const std::wstring& line)
+{
+    std::vector<std::wstring> fields;
+    std::wstring field;
+    bool inQuotes = false;
+
+    for (size_t index = 0; index < line.size(); ++index) {
+        wchar_t ch = line[index];
+        if (inQuotes && ch == L'\"' && index + 1 < line.size() && line[index + 1] == L'\"') {
+            field += L'\"';
+            ++index;
+            continue;
+        }
+        if (ch == L'\"') {
+            inQuotes = !inQuotes;
+            continue;
+        }
+        if (!inQuotes && ch == L',') {
+            fields.push_back(TrimText(field));
+            field.clear();
+            continue;
+        }
+        field += ch;
+    }
+    fields.push_back(TrimText(field));
+    return fields;
+}
+
+bool ExtractCsvConstructionCommands(const std::wstring& text, std::vector<std::wstring>& commands, std::wstring& errorText)
+{
+    std::wstringstream stream(text);
+    std::wstring line;
+    int commandColumn = -1;
+    bool headerRead = false;
+
+    while (std::getline(stream, line)) {
+        std::wstring trimmed = TrimText(line);
+        if (trimmed.empty() || trimmed.rfind(L"#", 0) == 0 || trimmed.rfind(L"//", 0) == 0) {
+            continue;
+        }
+
+        std::vector<std::wstring> fields = ParseCsvConstructionRecord(trimmed);
+        if (!headerRead) {
+            headerRead = true;
+            bool commandRow = fields.size() >= 2 && LowerArg(fields[0]) == L"command" && !TrimText(fields[1]).empty();
+            if (!commandRow) {
+                for (size_t index = 0; index < fields.size(); ++index) {
+                    if (LowerArg(fields[index]) == L"command") {
+                        commandColumn = static_cast<int>(index);
+                        break;
+                    }
+                }
+                if (commandColumn >= 0) {
+                    continue;
+                }
+            }
+        }
+
+        std::wstring command;
+        if (commandColumn >= 0 && static_cast<size_t>(commandColumn) < fields.size()) {
+            command = fields[static_cast<size_t>(commandColumn)];
+        }
+        else if (fields.size() >= 2 && LowerArg(fields[0]) == L"command") {
+            command = fields[1];
+        }
+        else if (fields.size() == 1) {
+            command = fields[0];
+        }
+        command = TrimText(command);
+        if (!command.empty()) {
+            commands.push_back(command);
+        }
+    }
+
+    if (commands.empty()) {
+        errorText = L"CSV construction artifact needs a command column or command rows";
+        return false;
+    }
+    return true;
+}
+
+bool LoadConstructionArtifactCommands(const std::wstring& path, std::vector<std::wstring>& commands, std::wstring& errorText)
+{
+    std::ifstream input(Narrow(path), std::ios::binary);
+    if (!input) {
+        errorText = L"Could not open construction artifact: " + path;
+        return false;
+    }
+
+    std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    std::wstring text = WidenUtf8(bytes);
+    if (text.empty() && !bytes.empty()) {
+        errorText = L"Could not read construction artifact text";
+        return false;
+    }
+
+    std::wstring extension = ConstructionArtifactExtension(path);
+    if (extension == L".json") {
+        return ExtractJsonConstructionCommands(text, commands, errorText);
+    }
+    if (extension == L".csv") {
+        return ExtractCsvConstructionCommands(text, commands, errorText);
+    }
+    if (!ExtractLineConstructionCommands(text, commands)) {
+        errorText = L"Construction artifact has no commands";
+        return false;
+    }
+    return true;
+}
+
 std::wstring SelectorKey(const std::wstring& value)
 {
     std::wstring lower = LowerArg(value);
@@ -2794,6 +3060,48 @@ std::wstring WindowVisibilityText(const WorkerSnapshot& snapshot)
         return L"window missing";
     }
     return snapshot.windowVisible ? L"visible" : L"hidden";
+}
+
+std::wstring ConstructionArtifactDetail(const std::wstring& path, const std::vector<std::wstring>& commands)
+{
+    std::wstring detail = L"Construction artifact:\r\n  " + path + L"\r\n\r\nCLI equivalent:\r\n  " + ControllerBaseCli() + L" --launch-basic-game --game-file " + QuoteArg(path) + L"\r\n\r\nQueued commands:";
+    for (const std::wstring& command : commands) {
+        detail += L"\r\n  " + command;
+    }
+    return detail;
+}
+
+bool QueueConstructionArtifactCommandsFromFile(const std::wstring& path, std::wstring& statusText)
+{
+    if (!g_isController) {
+        statusText = L"Construction artifacts load from the BGE controller";
+        return false;
+    }
+
+    std::vector<std::wstring> commands;
+    std::wstring errorText;
+    if (!LoadConstructionArtifactCommands(path, commands, errorText)) {
+        statusText = errorText;
+        return false;
+    }
+
+    int gameLoopIndex = ArtifactIndexForRole(L"bge.game-loop");
+    if (gameLoopIndex >= 0) {
+        SelectControllerArtifact(gameLoopIndex);
+    }
+    WorkerSnapshot snapshot = GetWorkerSnapshot(L"bge.game-loop");
+    if (!snapshot.running) {
+        LaunchWorkerRole(L"bge.game-loop");
+    }
+
+    for (const std::wstring& command : commands) {
+        g_pendingControllerCommands.push_back(command);
+    }
+
+    statusText = L"Queued " + std::to_wstring(commands.size()) + L" construction commands";
+    AddControllerHistory(L"Load construction artifact -> " + path, ConstructionArtifactDetail(path, commands));
+    SyncControllerControls();
+    return true;
 }
 
 void PlaceWorkerWindow(HWND workerWindow, const std::wstring& role)
@@ -3360,7 +3668,7 @@ bool ExecuteControllerCommandText(const std::wstring& commandText, std::wstring&
 
     std::wstring command = LowerArg(tokens[0]);
     if (command == L"help" || command == L"?") {
-        statusText = L"target <group|worker> | inspect | hide | launch | history | worker: command";
+        statusText = L"game load <file> | target <group|worker> | inspect | hide | launch | history | worker: command";
         return true;
     }
 
@@ -3368,6 +3676,22 @@ bool ExecuteControllerCommandText(const std::wstring& commandText, std::wstring&
         ShowControllerHistoryWindow();
         statusText = L"History window open";
         return true;
+    }
+
+    if (command == L"game" && tokens.size() >= 2 && (LowerArg(tokens[1]) == L"load" || LowerArg(tokens[1]) == L"import")) {
+        if (tokens.size() < 3) {
+            statusText = L"Use: game load <json|csv|command-file>";
+            return false;
+        }
+        return QueueConstructionArtifactCommandsFromFile(JoinCommandTokens(tokens, 2), statusText);
+    }
+
+    if (command == L"load" && tokens.size() >= 2 && LowerArg(tokens[1]) == L"game") {
+        if (tokens.size() < 3) {
+            statusText = L"Use: load game <json|csv|command-file>";
+            return false;
+        }
+        return QueueConstructionArtifactCommandsFromFile(JoinCommandTokens(tokens, 2), statusText);
     }
 
     if (command == L"asteroid-game" || command == L"asteroids" || command == L"game") {
@@ -5746,6 +6070,13 @@ void ProcessControllerUiAutomation()
             SelectControllerArtifact(targetIndex);
         }
         g_cliControllerTarget.clear();
+    }
+
+    for (auto artifactPath = g_cliConstructionArtifactPaths.begin(); artifactPath != g_cliConstructionArtifactPaths.end();) {
+        std::wstring statusText;
+        QueueConstructionArtifactCommandsFromFile(*artifactPath, statusText);
+        SetCommandStatus(statusText);
+        artifactPath = g_cliConstructionArtifactPaths.erase(artifactPath);
     }
 
     for (auto selector = g_cliInspectSelectors.begin(); selector != g_cliInspectSelectors.end();) {
