@@ -121,11 +121,20 @@ constexpr int IDC_BGE_ASTEROID_APPLY_RGBA = 42924;
 constexpr int IDC_BGE_ASTEROID_APPLY_SHAPE = 42925;
 constexpr int IDC_BGE_ASTEROID_STATUS = 42926;
 constexpr int IDC_BGE_ASTEROID_GAME_PRESET = 42927;
+constexpr int IDC_BGE_ASTEROID_GAME_WORKER = 42930;
+constexpr int IDC_BGE_ASTEROID_FIRE = 42931;
+constexpr int IDC_BGE_ASTEROID_HYPERSPACE = 42932;
+constexpr int IDC_BGE_ASTEROID_PAUSE = 42933;
+constexpr int IDC_BGE_ASTEROID_RESUME = 42934;
+constexpr int IDC_BGE_ASTEROID_TITLE = 42935;
+constexpr int IDC_BGE_ASTEROID_HUD = 42936;
+constexpr int IDC_BGE_ASTEROID_COMMANDS = 42937;
 constexpr ULONG_PTR BGE_COPYDATA_WORKER_COMMAND = 0xB6E00001;
 constexpr int BGE_CONTROLLER_ARTIFACT_COUNT = 6;
 constexpr size_t BGE_CONTROLLER_HISTORY_LIMIT = 128;
 constexpr size_t BGE_DELETE_HISTORY_LIMIT = 64;
 constexpr float BGE_RENDER_TOP_INSET = 140.0f;
+constexpr int BGE_MIN_WORKER_CLIENT_WIDTH = 360;
 constexpr float BGE_TRANSLATE_STEP = 12.0f;
 constexpr float BGE_RESIZE_STEP = 4.0f;
 constexpr float BGE_ROTATE_STEP_DEGREES = 5.0f;
@@ -258,6 +267,14 @@ HWND g_toggleGhostButton = nullptr;
 HWND g_setPlayerButton = nullptr;
 HWND g_playerStatus = nullptr;
 HWND g_gameHudStatus = nullptr;
+HWND g_asteroidGameWorkerButton = nullptr;
+HWND g_asteroidFireButton = nullptr;
+HWND g_asteroidHyperspaceButton = nullptr;
+HWND g_asteroidPauseButton = nullptr;
+HWND g_asteroidResumeButton = nullptr;
+HWND g_asteroidTitleButton = nullptr;
+HWND g_asteroidHudButton = nullptr;
+HWND g_asteroidCommandsButton = nullptr;
 HWND g_loadBackgroundButton = nullptr;
 HWND g_openMappingButton = nullptr;
 HWND g_editModeStatus = nullptr;
@@ -400,6 +417,7 @@ void AddObjectGroupFromControls();
 void SelectGhostGroupFromControls();
 void ToggleGhostGroupFromControls();
 void SetMainPlayerFromControls();
+void ExecuteAsteroidCommandFromControls(const wchar_t* commandText);
 void SelectSoundSlotFromControls(int slotIndex);
 void AdvanceSoundSlotLoop();
 void ExecuteCommandBarInput();
@@ -1190,10 +1208,10 @@ BgeGameViewport CurrentGameViewport()
     RECT client{};
     GetClientRect(g_hWnd, &client);
     BgeGameViewport viewport;
-    viewport.width = static_cast<float>((std::max)(client.right - client.left, 640L));
-    viewport.height = static_cast<float>((std::max)(client.bottom - client.top, 480L));
+    viewport.width = static_cast<float>((std::max)(client.right - client.left, 1L));
+    viewport.height = static_cast<float>((std::max)(client.bottom - client.top, 1L));
     viewport.playTop = BGE_RENDER_TOP_INSET;
-    viewport.playHeight = (std::max)(240.0f, viewport.height - viewport.playTop);
+    viewport.playHeight = (std::max)(1.0f, viewport.height - viewport.playTop);
     return viewport;
 }
 
@@ -2706,14 +2724,16 @@ void PlaceWorkerWindow(HWND workerWindow, const std::wstring& role)
 {
     RECT workArea{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
-    int width = 880;
-    int height = 620;
+    int availableWidth = (std::max)(640, static_cast<int>(workArea.right - workArea.left));
+    int availableHeight = (std::max)(480, static_cast<int>(workArea.bottom - workArea.top));
+    int width = (std::min)(availableWidth - 64, (std::max)(880, availableWidth - 160));
+    int height = (std::min)(availableHeight - 96, (std::max)(620, availableHeight - 144));
     int x = workArea.right - width - 32;
     int y = workArea.top + 48;
 
     if (role == L"bge.sound" || role == L"bge.images") {
-        width = 760;
-        height = 480;
+        width = (std::min)(availableWidth - 96, 760);
+        height = (std::min)(availableHeight - 128, 480);
         x = workArea.right - width - 56;
         y = workArea.top + 96;
     }
@@ -2724,6 +2744,8 @@ void PlaceWorkerWindow(HWND workerWindow, const std::wstring& role)
 
     x = (std::max)(static_cast<int>(workArea.left) + 16, x);
     y = (std::max)(static_cast<int>(workArea.top) + 16, y);
+    width = (std::max)(BGE_MIN_WORKER_CLIENT_WIDTH, width);
+    height = (std::max)(320, height);
     SetWindowPos(workerWindow, HWND_TOP, x, y, width, height, SWP_SHOWWINDOW);
 }
 
@@ -3802,7 +3824,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
         return true;
     }
 
-    if (command == L"score" || command == L"lives" || command == L"fire" || command == L"restart") {
+    if (command == L"score" || command == L"lives" || command == L"fire" || command == L"restart" || command == L"pause" || command == L"resume" || command == L"hyperspace" || command == L"hyper") {
         if (!CurrentProcessOwnsGameLoop()) {
             statusText = L"Asteroid Game component commands run in bge.game-loop";
             return false;
@@ -3821,6 +3843,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
         std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
         if (subcommand == L"game" || subcommand == L"play" || subcommand == L"start" || subcommand == L"status" || subcommand == L"state"
             || subcommand == L"restart" || subcommand == L"reset" || subcommand == L"score" || subcommand == L"lives" || subcommand == L"fire"
+            || subcommand == L"pause" || subcommand == L"resume" || subcommand == L"hyperspace" || subcommand == L"hyper"
             || subcommand == L"player" || subcommand == L"add" || subcommand == L"spawn" || subcommand == L"target" || subcommand == L"remove"
             || subcommand == L"clear" || subcommand == L"count" || subcommand == L"hud" || subcommand == L"header" || subcommand == L"title"
             || subcommand == L"screen" || subcommand == L"commands" || subcommand == L"help") {
@@ -3939,7 +3962,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
             return true;
         }
 
-        statusText = L"Use: asteroid game | asteroid status/hud/commands/title | asteroid player set/select | asteroid add/remove | asteroid fire | asteroid score|lives | asteroid alpha/color/window";
+        statusText = L"Use: asteroid game | asteroid status/hud/commands/title | asteroid pause/resume/hyperspace | asteroid player set/select | asteroid add/remove | asteroid fire | asteroid score|lives | asteroid alpha/color/window";
         return false;
     }
 
@@ -5051,9 +5074,10 @@ std::wstring MappingWindowText()
     text << L"  Worker command: asteroid game | asteroid-game | game\r\n";
     text << L"  Controller command: asteroid-game | game-loop: asteroid game\r\n";
     text << L"  Component commands: asteroid status | asteroid player set/select | asteroid add/remove | asteroid fire | score | lives | restart\r\n";
+    text << L"  Arcade commands: asteroid pause | asteroid resume | asteroid hyperspace\r\n";
     text << L"  Presentation commands: asteroid title | asteroid hud | asteroid commands\r\n";
     text << L"  Rules: asteroid size controls score; ship collisions cost one life; zero lives or cleared asteroids stops the loop\r\n";
-    text << L"  When object 1 is selected: A/D or Left/Right rotate, W/Up thrust, S/Down reverse, Space fires\r\n";
+    text << L"  When object 1 is selected: A/D or Left/Right rotate, W/Up thrust, S/Down reverse, Space fires, H hyperspace, P pauses/resumes\r\n";
     text << L"  Bullets split large asteroids into smaller asteroids; edge policy switches to wrap\r\n\r\n";
     text << L"Edge policy\r\n";
     text << L"  Worker command: edge bounce | edge wrap | edge clamp | edge status\r\n";
@@ -5503,19 +5527,79 @@ void CreateBallControls(HWND hWnd)
     }
 
     CreateControl(hWnd, L"STATIC", L"Cmd", 0, 0, 8, 104, 30, 20);
-    g_commandEdit = CreateControl(hWnd, L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_COMMAND_EDIT, 42, 100, 512, 24);
+    g_commandEdit = CreateControl(hWnd, L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_COMMAND_EDIT, 42, 100, 260, 24);
     if (g_commandEdit) {
         g_commandEditOriginalProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(g_commandEdit, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(CommandEditProc)));
     }
-    g_runCommandButton = CreateControl(hWnd, L"BUTTON", L"Run", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_RUN_COMMAND, 562, 100, 48, 24);
-    g_commandStatus = CreateControl(hWnd, L"STATIC", L"help", 0, IDC_BGE_COMMAND_STATUS, 620, 104, 280, 20);
+    g_runCommandButton = CreateControl(hWnd, L"BUTTON", L"Run", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_RUN_COMMAND, 310, 100, 46, 24);
+    g_asteroidGameWorkerButton = CreateControl(hWnd, L"BUTTON", L"Game", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_GAME_WORKER, 364, 100, 56, 24);
+    g_asteroidFireButton = CreateControl(hWnd, L"BUTTON", L"Fire", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_FIRE, 426, 100, 48, 24);
+    g_asteroidHyperspaceButton = CreateControl(hWnd, L"BUTTON", L"Hyper", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_HYPERSPACE, 480, 100, 62, 24);
+    g_asteroidPauseButton = CreateControl(hWnd, L"BUTTON", L"Pause", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_PAUSE, 548, 100, 58, 24);
+    g_asteroidResumeButton = CreateControl(hWnd, L"BUTTON", L"Resume", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_RESUME, 612, 100, 70, 24);
+    g_asteroidTitleButton = CreateControl(hWnd, L"BUTTON", L"Title", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_TITLE, 688, 100, 50, 24);
+    g_asteroidHudButton = CreateControl(hWnd, L"BUTTON", L"HUD", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_HUD, 744, 100, 46, 24);
+    g_asteroidCommandsButton = CreateControl(hWnd, L"BUTTON", L"Help", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_COMMANDS, 796, 100, 52, 24);
+    g_commandStatus = CreateControl(hWnd, L"STATIC", L"help", 0, IDC_BGE_COMMAND_STATUS, 856, 104, 116, 20);
     g_gameHudStatus = CreateControl(hWnd, L"STATIC", L"Game HUD: no module active", 0, IDC_BGE_GAME_HUD_STATUS, 8, 126, 960, 14);
     UpdateEditModeStatus();
+    LayoutBallControls(hWnd);
 }
 
 void LayoutBallControls(HWND hWnd)
 {
-    UNREFERENCED_PARAMETER(hWnd);
+    if (g_isController) {
+        return;
+    }
+
+    RECT client{};
+    GetClientRect(hWnd, &client);
+    int width = (std::max)(BGE_MIN_WORKER_CLIENT_WIDTH, static_cast<int>(client.right - client.left));
+    int right = width - 8;
+    bool compact = width < 760;
+    bool tiny = width < 560;
+
+    if (g_editModeStatus) {
+        SetWindowPos(g_editModeStatus, nullptr, 872, 9, (std::max)(80, right - 872), 20, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    int y = 100;
+    int gap = 6;
+    int statusWidth = (std::min)(260, (std::max)(116, width / 5));
+    int x = right;
+    auto placeRight = [&](HWND control, int controlWidth, bool visible = true) {
+        if (!control) {
+            return;
+        }
+        ShowWindow(control, visible ? SW_SHOW : SW_HIDE);
+        if (!visible) {
+            return;
+        }
+        x -= controlWidth;
+        SetWindowPos(control, nullptr, x, y, controlWidth, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+        x -= gap;
+    };
+
+    placeRight(g_commandStatus, tiny ? 96 : statusWidth);
+    placeRight(g_asteroidCommandsButton, 52, !compact);
+    placeRight(g_asteroidHudButton, 46, !compact);
+    placeRight(g_asteroidTitleButton, 50, !compact);
+    placeRight(g_asteroidResumeButton, 70, !compact);
+    placeRight(g_asteroidPauseButton, 58, !tiny);
+    placeRight(g_asteroidHyperspaceButton, 62, !tiny);
+    placeRight(g_asteroidFireButton, 48);
+    placeRight(g_asteroidGameWorkerButton, 56);
+    placeRight(g_runCommandButton, 46);
+
+    if (g_commandEdit) {
+        int editLeft = 42;
+        int editWidth = (std::max)(96, x - editLeft);
+        SetWindowPos(g_commandEdit, nullptr, editLeft, y, editWidth, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    if (g_gameHudStatus) {
+        SetWindowPos(g_gameHudStatus, nullptr, 8, 126, (std::max)(96, width - 16), 14, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
 }
 
 void UpdateControllerTargetLabel()
@@ -5970,6 +6054,20 @@ void SetMainPlayerFromControls()
     SetCommandStatus(statusText);
 }
 
+void ExecuteAsteroidCommandFromControls(const wchar_t* commandText)
+{
+    if (!CurrentProcessOwnsGameLoop() || !commandText) {
+        return;
+    }
+
+    std::wstring statusText;
+    ExecuteCommandText(commandText, statusText);
+    SetCommandStatus(statusText);
+    if (g_hWnd) {
+        SetFocus(g_hWnd);
+    }
+}
+
 void SyncBallControls()
 {
     if (g_isController) {
@@ -6085,6 +6183,14 @@ void SyncBallControls()
         g_setPlayerButton,
         g_playerStatus,
         g_gameHudStatus,
+        g_asteroidGameWorkerButton,
+        g_asteroidFireButton,
+        g_asteroidHyperspaceButton,
+        g_asteroidPauseButton,
+        g_asteroidResumeButton,
+        g_asteroidTitleButton,
+        g_asteroidHudButton,
+        g_asteroidCommandsButton,
         g_commandEdit,
         g_runCommandButton,
     };
@@ -6737,6 +6843,38 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         case IDC_BGE_RUN_COMMAND:
             ExecuteCommandBarInput();
+            break;
+
+        case IDC_BGE_ASTEROID_GAME_WORKER:
+            ExecuteAsteroidCommandFromControls(L"asteroid game");
+            break;
+
+        case IDC_BGE_ASTEROID_FIRE:
+            ExecuteAsteroidCommandFromControls(L"asteroid fire");
+            break;
+
+        case IDC_BGE_ASTEROID_HYPERSPACE:
+            ExecuteAsteroidCommandFromControls(L"asteroid hyperspace");
+            break;
+
+        case IDC_BGE_ASTEROID_PAUSE:
+            ExecuteAsteroidCommandFromControls(L"asteroid pause");
+            break;
+
+        case IDC_BGE_ASTEROID_RESUME:
+            ExecuteAsteroidCommandFromControls(L"asteroid resume");
+            break;
+
+        case IDC_BGE_ASTEROID_TITLE:
+            ExecuteAsteroidCommandFromControls(L"asteroid title");
+            break;
+
+        case IDC_BGE_ASTEROID_HUD:
+            ExecuteAsteroidCommandFromControls(L"asteroid hud");
+            break;
+
+        case IDC_BGE_ASTEROID_COMMANDS:
+            ExecuteAsteroidCommandFromControls(L"asteroid commands");
             break;
 
         case IDC_BGE_OPEN_HISTORY:

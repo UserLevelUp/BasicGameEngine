@@ -23,6 +23,7 @@ constexpr float BGE_ASTEROID_GAME_SPLIT_SCALE = 0.58f;
 constexpr int BGE_ASTEROID_GAME_RESERVED_BULLET_SLOTS = 2;
 constexpr int BGE_ASTEROID_GAME_STARTING_LIVES = 3;
 constexpr float BGE_ASTEROID_GAME_RESPAWN_INVULNERABLE_SECONDS = 1.50f;
+constexpr float BGE_ASTEROID_GAME_HYPERSPACE_INVULNERABLE_SECONDS = 0.85f;
 constexpr int BGE_ASTEROID_GAME_LARGE_ASTEROID_POINTS = 20;
 constexpr int BGE_ASTEROID_GAME_MEDIUM_ASTEROID_POINTS = 50;
 constexpr int BGE_ASTEROID_GAME_SMALL_ASTEROID_POINTS = 100;
@@ -66,6 +67,15 @@ bool TryParseSlotModuleArg(const std::wstring& text, int& slotIndex)
 float VectorLength(float x, float y)
 {
     return std::sqrt(x * x + y * y);
+}
+
+float RandomFloatInRange(float minimum, float maximum)
+{
+    if (maximum <= minimum) {
+        return minimum;
+    }
+    float unit = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+    return minimum + (maximum - minimum) * unit;
 }
 
 void NormalizeVectorOrDefault(float x, float y, float& outX, float& outY)
@@ -117,12 +127,12 @@ int AsteroidGameHitPoints(float radius)
 
 std::wstring AsteroidGameTitleText()
 {
-    return L"Asteroid Game | Press asteroid game/restart | A/D turn | W/S thrust | Space fire";
+    return L"Asteroid Game | asteroid game/restart | A/D turn | W/S thrust | Space fire | H hyperspace | P pause";
 }
 
 std::wstring AsteroidGameCommandText()
 {
-    return L"Asteroid commands: asteroid title | asteroid hud | asteroid status | asteroid commands | asteroid player set/select | asteroid add/remove/count | asteroid fire | asteroid score/lives | restart";
+    return L"Asteroid commands: asteroid title | asteroid hud | asteroid status | asteroid commands | asteroid pause/resume | asteroid hyperspace | asteroid player set/select | asteroid add/remove/count | asteroid fire | asteroid score/lives | restart";
 }
 
 class AsteroidGameModule final : public BgeGameModule {
@@ -218,6 +228,15 @@ public:
         if (command == L"fire") {
             return HandleFireCommand(runtime, statusText);
         }
+        if (command == L"pause") {
+            return HandlePauseCommand(runtime, statusText);
+        }
+        if (command == L"resume") {
+            return HandleResumeCommand(runtime, statusText);
+        }
+        if (command == L"hyperspace" || command == L"hyper") {
+            return HandleHyperspaceCommand(runtime, statusText);
+        }
         if (command == L"restart") {
             return OnStart(runtime, statusText);
         }
@@ -254,6 +273,15 @@ public:
             if (subcommand == L"fire") {
                 return HandleFireCommand(runtime, statusText);
             }
+            if (subcommand == L"pause") {
+                return HandlePauseCommand(runtime, statusText);
+            }
+            if (subcommand == L"resume") {
+                return HandleResumeCommand(runtime, statusText);
+            }
+            if (subcommand == L"hyperspace" || subcommand == L"hyper") {
+                return HandleHyperspaceCommand(runtime, statusText);
+            }
             if (subcommand == L"player") {
                 return HandlePlayerCommand(runtime, tokens, 2, statusText);
             }
@@ -278,7 +306,7 @@ public:
             return false;
         }
 
-        bool isGameKey = key == L'A' || key == L'D' || key == L'W' || key == L'S' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_SPACE;
+        bool isGameKey = key == L'A' || key == L'D' || key == L'W' || key == L'S' || key == L'H' || key == L'P' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_SPACE;
         if (!isGameKey || !RuntimeReady(runtime)) {
             return false;
         }
@@ -287,12 +315,18 @@ public:
         bool noPlayerSelected = false;
         int bulletSlot = -1;
         std::wstring statusText;
+        std::wstring hudText;
         {
             std::lock_guard<std::mutex> lock(*runtime.objectMutex);
             if (!gameMode_) {
                 return false;
             }
-            if (gameOver_ || victory_ || !*runtime.animationRunning) {
+            if (key == L'P' && !gameOver_ && !victory_) {
+                *runtime.animationRunning = !*runtime.animationRunning;
+                handled = true;
+                statusText = *runtime.animationRunning ? L"Asteroid Game resumed" : L"Asteroid Game paused";
+            }
+            else if (gameOver_ || victory_ || !*runtime.animationRunning) {
                 handled = true;
                 statusText = BuildAsteroidGameStatusLocked(runtime);
             }
@@ -319,6 +353,10 @@ public:
                 handled = FireAsteroidGameProjectileLocked(runtime, bulletSlot);
                 statusText = handled ? L"Asteroid Game: fire bullet " + std::to_wstring(bulletSlot + 1) : L"Asteroid Game: no projectile slot";
             }
+            else if (key == L'H') {
+                handled = HyperspaceAsteroidGamePlayerLocked(runtime);
+                statusText = handled ? L"Asteroid Game: hyperspace" : L"Asteroid Game: hyperspace unavailable";
+            }
 
             if (handled) {
                 auto& slots = *runtime.objectSlots;
@@ -330,6 +368,7 @@ public:
                     runtime.persistActiveObjectGroupLocked();
                 }
                 *runtime.rendererStateDirty = true;
+                hudText = BuildAsteroidGameHudLocked(runtime);
             }
         }
 
@@ -348,6 +387,9 @@ public:
             }
             if (runtime.setStatus) {
                 runtime.setStatus(statusText);
+            }
+            if (!hudText.empty() && runtime.setHud) {
+                runtime.setHud(hudText);
             }
             if (runtime.log) {
                 std::ostringstream message;
@@ -592,6 +634,9 @@ private:
         if (*runtime.animationRunning) {
             return L"RUNNING";
         }
+        if (gameMode_) {
+            return L"PAUSED";
+        }
         return L"READY";
     }
 
@@ -610,8 +655,11 @@ private:
         else if (victory_) {
             hud << L" | field cleared | restart";
         }
+        else if (gameMode_ && !*runtime.animationRunning) {
+            hud << L" | paused | resume/restart";
+        }
         else {
-            hud << L" | A/D turn W/S thrust Space fire";
+            hud << L" | A/D turn W/S thrust Space fire H hyperspace P pause";
         }
         return hud.str();
     }
@@ -688,6 +736,117 @@ private:
             runtime.setHud(statusText);
         }
         return true;
+    }
+
+    bool HandlePauseCommand(BgeGameRuntime& runtime, std::wstring& statusText)
+    {
+        if (!RuntimeReady(runtime)) {
+            statusText = L"Asteroid Game runtime unavailable";
+            return false;
+        }
+
+        std::wstring hudText;
+        {
+            std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+            if (!gameMode_) {
+                statusText = L"Use: asteroid game before pause";
+                return false;
+            }
+            if (gameOver_ || victory_) {
+                statusText = BuildAsteroidGameStatusLocked(runtime);
+                hudText = BuildAsteroidGameHudLocked(runtime);
+            }
+            else {
+                *runtime.animationRunning = false;
+                statusText = L"Asteroid Game paused";
+                hudText = BuildAsteroidGameHudLocked(runtime);
+            }
+        }
+        if (runtime.setHud) {
+            runtime.setHud(hudText);
+        }
+        return true;
+    }
+
+    bool HandleResumeCommand(BgeGameRuntime& runtime, std::wstring& statusText)
+    {
+        if (!RuntimeReady(runtime)) {
+            statusText = L"Asteroid Game runtime unavailable";
+            return false;
+        }
+
+        std::wstring hudText;
+        {
+            std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+            if (!gameMode_) {
+                statusText = L"Use: asteroid game before resume";
+                return false;
+            }
+            if (gameOver_ || victory_) {
+                statusText = BuildAsteroidGameStatusLocked(runtime) + L"; use restart";
+                hudText = BuildAsteroidGameHudLocked(runtime);
+            }
+            else {
+                *runtime.animationRunning = true;
+                statusText = L"Asteroid Game resumed";
+                hudText = BuildAsteroidGameHudLocked(runtime);
+            }
+        }
+        if (runtime.setHud) {
+            runtime.setHud(hudText);
+        }
+        if (runtime.invalidateRenderer) {
+            runtime.invalidateRenderer();
+        }
+        return true;
+    }
+
+    bool HandleHyperspaceCommand(BgeGameRuntime& runtime, std::wstring& statusText)
+    {
+        if (!RuntimeReady(runtime)) {
+            statusText = L"Asteroid Game runtime unavailable";
+            return false;
+        }
+
+        bool moved = false;
+        {
+            std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+            if (!gameMode_) {
+                statusText = L"Use: asteroid game before hyperspace";
+                return false;
+            }
+            if (gameOver_ || victory_ || !*runtime.animationRunning) {
+                statusText = BuildAsteroidGameStatusLocked(runtime) + L"; use resume/restart";
+                PublishAsteroidGameHudLocked(runtime);
+                return false;
+            }
+            moved = HyperspaceAsteroidGamePlayerLocked(runtime);
+            if (!moved) {
+                statusText = L"Asteroid Game: hyperspace unavailable";
+                return false;
+            }
+            BgeUpdateCollisionFlags(*runtime.objectSlots);
+            if (runtime.refreshSelectedObjectGlobalsLocked) {
+                runtime.refreshSelectedObjectGlobalsLocked();
+            }
+            if (runtime.persistActiveObjectGroupLocked) {
+                runtime.persistActiveObjectGroupLocked();
+            }
+            *runtime.rendererStateDirty = true;
+        }
+
+        if (runtime.syncControls) {
+            runtime.syncControls();
+        }
+        if (runtime.invalidateRenderer) {
+            runtime.invalidateRenderer();
+        }
+        PublishAsteroidGameHud(runtime);
+        statusText = L"Asteroid Game: hyperspace";
+        if (runtime.log) {
+            runtime.log("[AsteroidGame] module-command hyperspace");
+        }
+        return moved;
     }
 
     bool HandleScoreCommand(BgeGameRuntime& runtime, const std::vector<std::wstring>& tokens, size_t operationIndex, std::wstring& statusText)
@@ -1282,6 +1441,60 @@ private:
         bullet.kind = BgeObjectKind::Bullet;
         bulletLifeSeconds_[targetSlot] = BGE_ASTEROID_GAME_BULLET_LIFETIME_SECONDS;
         bulletSlot = targetSlot;
+        return true;
+    }
+
+    bool PlayerOverlapsAsteroidLocked(BgeGameRuntime& runtime, int playerSlot) const
+    {
+        auto& slots = *runtime.objectSlots;
+        for (int asteroidIndex = 0; asteroidIndex < BGE_OBJECT_SLOT_COUNT; ++asteroidIndex) {
+            if (asteroidIndex == playerSlot) {
+                continue;
+            }
+            const BgeObjectSlotState& asteroid = slots[asteroidIndex];
+            if (!asteroid.visible || asteroid.isDeleted || asteroid.kind != BgeObjectKind::Asteroid) {
+                continue;
+            }
+            if (BgeObjectSlotsOverlap(slots[playerSlot], asteroid)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool HyperspaceAsteroidGamePlayerLocked(BgeGameRuntime& runtime)
+    {
+        int playerSlot = *runtime.mainPlayerSlot;
+        if (!AsteroidGamePlayerAliveLocked(runtime, playerSlot)) {
+            return false;
+        }
+
+        BgeGameViewport viewport = runtime.viewport ? runtime.viewport() : BgeGameViewport{};
+        BgeObjectSlotState& player = (*runtime.objectSlots)[playerSlot];
+        float minX = player.radius;
+        float maxX = (std::max)(minX, viewport.width - player.radius);
+        float minY = viewport.playTop + player.radius;
+        float maxY = (std::max)(minY, viewport.playTop + viewport.playHeight - player.radius);
+        float fallbackX = player.x;
+        float fallbackY = player.y;
+
+        for (int attempt = 0; attempt < 12; ++attempt) {
+            player.x = RandomFloatInRange(minX, maxX);
+            player.y = RandomFloatInRange(minY, maxY);
+            if (!PlayerOverlapsAsteroidLocked(runtime, playerSlot)) {
+                break;
+            }
+        }
+        if (PlayerOverlapsAsteroidLocked(runtime, playerSlot)) {
+            player.x = fallbackX;
+            player.y = fallbackY;
+            return false;
+        }
+
+        respawnInvulnerableSeconds_ = BGE_ASTEROID_GAME_HYPERSPACE_INVULNERABLE_SECONDS;
+        *runtime.selectedObjectSlot = playerSlot;
+        *runtime.objectSelectionActive = true;
+        ApplyAsteroidGamePlayerVisualLocked(runtime);
         return true;
     }
 
