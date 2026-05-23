@@ -115,6 +115,16 @@ int AsteroidGameHitPoints(float radius)
     return BGE_ASTEROID_GAME_SMALL_ASTEROID_POINTS;
 }
 
+std::wstring AsteroidGameTitleText()
+{
+    return L"Asteroid Game | Press asteroid game/restart | A/D turn | W/S thrust | Space fire";
+}
+
+std::wstring AsteroidGameCommandText()
+{
+    return L"Asteroid commands: asteroid title | asteroid hud | asteroid status | asteroid commands | asteroid player set/select | asteroid add/remove/count | asteroid fire | asteroid score/lives | restart";
+}
+
 class AsteroidGameModule final : public BgeGameModule {
 public:
     const wchar_t* Name() const override
@@ -134,6 +144,7 @@ public:
         }
 
         BgeGameViewport viewport = runtime.viewport ? runtime.viewport() : BgeGameViewport{};
+        std::wstring hudText;
         {
             std::lock_guard<std::mutex> lock(*runtime.objectMutex);
             auto& slots = *runtime.objectSlots;
@@ -171,6 +182,7 @@ public:
                 runtime.persistActiveObjectGroupLocked();
             }
             *runtime.rendererStateDirty = true;
+            hudText = BuildAsteroidGameHudLocked(runtime);
         }
 
         if (runtime.syncControls) {
@@ -178,6 +190,9 @@ public:
         }
         if (runtime.invalidateRenderer) {
             runtime.invalidateRenderer();
+        }
+        if (runtime.setHud) {
+            runtime.setHud(hudText);
         }
         statusText = L"Asteroid Game: score 0, lives " + std::to_wstring(lives_) + L"; W/Up thrust, S/Down reverse, A/D rotate, Space fire";
         if (runtime.log) {
@@ -217,6 +232,15 @@ public:
             }
             if (subcommand == L"status" || subcommand == L"state") {
                 return HandleStatusCommand(runtime, statusText);
+            }
+            if (subcommand == L"hud" || subcommand == L"header") {
+                return HandleHudCommand(runtime, statusText);
+            }
+            if (subcommand == L"title" || subcommand == L"screen") {
+                return HandleTitleCommand(runtime, statusText);
+            }
+            if (subcommand == L"commands" || subcommand == L"help") {
+                return HandleCommandsCommand(runtime, statusText);
             }
             if (subcommand == L"restart" || subcommand == L"reset") {
                 return OnStart(runtime, statusText);
@@ -355,6 +379,7 @@ public:
         int lives = 0;
         int points = 0;
         int asteroidsRemaining = 0;
+        std::wstring hudText;
         {
             std::lock_guard<std::mutex> lock(*runtime.objectMutex);
             if (!gameMode_ || !*runtime.animationRunning) {
@@ -460,7 +485,12 @@ public:
                     runtime.persistActiveObjectGroupLocked();
                 }
                 *runtime.rendererStateDirty = true;
+                hudText = BuildAsteroidGameHudLocked(runtime);
             }
+        }
+
+        if (!hudText.empty() && runtime.setHud) {
+            runtime.setHud(hudText);
         }
 
         if (gameOver) {
@@ -548,6 +578,65 @@ private:
         return status.str();
     }
 
+    std::wstring BuildAsteroidGameStateTextLocked(const BgeGameRuntime& runtime) const
+    {
+        if (gameOver_) {
+            return L"GAME OVER";
+        }
+        if (victory_) {
+            return L"CLEARED";
+        }
+        if (respawnInvulnerableSeconds_ > 0.0f) {
+            return L"RESPAWN";
+        }
+        if (*runtime.animationRunning) {
+            return L"RUNNING";
+        }
+        return L"READY";
+    }
+
+    std::wstring BuildAsteroidGameHudLocked(const BgeGameRuntime& runtime) const
+    {
+        std::wstringstream hud;
+        hud << L"ASTEROID GAME"
+            << L" | SCORE " << score_
+            << L" | LIVES " << lives_
+            << L" | AST " << CountKindLocked(runtime, BgeObjectKind::Asteroid)
+            << L" | BUL " << CountKindLocked(runtime, BgeObjectKind::Bullet)
+            << L" | " << BuildAsteroidGameStateTextLocked(runtime);
+        if (gameOver_) {
+            hud << L" | restart";
+        }
+        else if (victory_) {
+            hud << L" | field cleared | restart";
+        }
+        else {
+            hud << L" | A/D turn W/S thrust Space fire";
+        }
+        return hud.str();
+    }
+
+    std::wstring BuildAsteroidGameScreenTextLocked(const BgeGameRuntime& runtime) const
+    {
+        if (gameOver_) {
+            return L"Game Over | final score " + std::to_wstring(score_) + L" | restart to play again";
+        }
+        if (victory_) {
+            return L"Asteroid Field Cleared | score " + std::to_wstring(score_) + L" | restart for a new field";
+        }
+        if (!gameMode_) {
+            return AsteroidGameTitleText();
+        }
+        return BuildAsteroidGameHudLocked(runtime);
+    }
+
+    void PublishAsteroidGameHudLocked(BgeGameRuntime& runtime) const
+    {
+        if (runtime.setHud) {
+            runtime.setHud(BuildAsteroidGameHudLocked(runtime));
+        }
+    }
+
     bool HandleStatusCommand(BgeGameRuntime& runtime, std::wstring& statusText)
     {
         if (!RuntimeReady(runtime)) {
@@ -556,7 +645,48 @@ private:
         }
 
         std::lock_guard<std::mutex> lock(*runtime.objectMutex);
-         statusText = BuildAsteroidGameStatusLocked(runtime);
+        statusText = BuildAsteroidGameStatusLocked(runtime);
+        PublishAsteroidGameHudLocked(runtime);
+        return true;
+    }
+
+    bool HandleHudCommand(BgeGameRuntime& runtime, std::wstring& statusText)
+    {
+        if (!RuntimeReady(runtime)) {
+            statusText = L"Asteroid Game runtime unavailable";
+            return false;
+        }
+
+        std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+        statusText = BuildAsteroidGameHudLocked(runtime);
+        PublishAsteroidGameHudLocked(runtime);
+        return true;
+    }
+
+    bool HandleTitleCommand(BgeGameRuntime& runtime, std::wstring& statusText)
+    {
+        if (!RuntimeReady(runtime)) {
+            statusText = AsteroidGameTitleText();
+            if (runtime.setHud) {
+                runtime.setHud(statusText);
+            }
+            return true;
+        }
+
+        std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+        statusText = BuildAsteroidGameScreenTextLocked(runtime);
+        if (runtime.setHud) {
+            runtime.setHud(statusText);
+        }
+        return true;
+    }
+
+    bool HandleCommandsCommand(BgeGameRuntime& runtime, std::wstring& statusText)
+    {
+        statusText = AsteroidGameCommandText();
+        if (runtime.setHud) {
+            runtime.setHud(statusText);
+        }
         return true;
     }
 
@@ -566,11 +696,13 @@ private:
         std::wstring operation = operationIndex < tokens.size() ? LowerModuleArg(tokens[operationIndex]) : L"status";
         if (operation == L"status" || operation == L"show" || operation == L"current") {
             statusText = L"Asteroid Game score: " + std::to_wstring(score_);
+            PublishAsteroidGameHud(runtime);
             return true;
         }
         if (operation == L"reset" || operation == L"clear") {
             score_ = 0;
             statusText = L"Asteroid Game score reset";
+            PublishAsteroidGameHud(runtime);
             return true;
         }
 
@@ -582,6 +714,7 @@ private:
             }
             score_ = (std::max)(0, points);
             statusText = L"Asteroid Game score: " + std::to_wstring(score_);
+            PublishAsteroidGameHud(runtime);
             return true;
         }
         if (operation == L"add") {
@@ -591,6 +724,7 @@ private:
             }
             score_ = (std::max)(0, score_ + points);
             statusText = L"Asteroid Game score: " + std::to_wstring(score_);
+            PublishAsteroidGameHud(runtime);
             return true;
         }
 
@@ -604,11 +738,13 @@ private:
         std::wstring operation = operationIndex < tokens.size() ? LowerModuleArg(tokens[operationIndex]) : L"status";
         if (operation == L"status" || operation == L"show" || operation == L"current") {
             statusText = L"Asteroid Game lives: " + std::to_wstring(lives_);
+            PublishAsteroidGameHud(runtime);
             return true;
         }
         if (operation == L"reset") {
             lives_ = BGE_ASTEROID_GAME_STARTING_LIVES;
             statusText = L"Asteroid Game lives: " + std::to_wstring(lives_);
+            PublishAsteroidGameHud(runtime);
             return true;
         }
 
@@ -620,6 +756,7 @@ private:
             }
             lives_ = (std::max)(0, count);
             statusText = L"Asteroid Game lives: " + std::to_wstring(lives_);
+            PublishAsteroidGameHud(runtime);
             return true;
         }
         if (operation == L"add") {
@@ -629,6 +766,7 @@ private:
             }
             lives_ = (std::max)(0, lives_ + count);
             statusText = L"Asteroid Game lives: " + std::to_wstring(lives_);
+            PublishAsteroidGameHud(runtime);
             return true;
         }
         if (operation == L"lose" || operation == L"lost" || operation == L"remove") {
@@ -639,6 +777,7 @@ private:
             }
             lives_ = (std::max)(0, lives_ - count);
             statusText = L"Asteroid Game lives: " + std::to_wstring(lives_);
+            PublishAsteroidGameHud(runtime);
             return true;
         }
 
@@ -681,6 +820,7 @@ private:
         if (runtime.invalidateRenderer) {
             runtime.invalidateRenderer();
         }
+        PublishAsteroidGameHud(runtime);
         statusText = L"Asteroid Game: fire bullet " + std::to_wstring(bulletSlot + 1);
         if (runtime.log) {
             std::ostringstream message;
@@ -762,6 +902,7 @@ private:
             if (runtime.invalidateRenderer) {
                 runtime.invalidateRenderer();
             }
+            PublishAsteroidGameHud(runtime);
             statusText = L"Asteroid Game player set: object " + std::to_wstring(slotIndex + 1);
             return true;
         }
@@ -832,6 +973,7 @@ private:
         if (runtime.invalidateRenderer) {
             runtime.invalidateRenderer();
         }
+        PublishAsteroidGameHud(runtime);
         statusText = L"Asteroid Game asteroid set: object " + std::to_wstring(slotIndex + 1);
         return true;
     }
@@ -866,6 +1008,7 @@ private:
         if (runtime.invalidateRenderer) {
             runtime.invalidateRenderer();
         }
+        PublishAsteroidGameHud(runtime);
         statusText = L"Asteroid Game object cleared: " + std::to_wstring(slotIndex + 1);
         return true;
     }
@@ -879,7 +1022,17 @@ private:
 
         std::lock_guard<std::mutex> lock(*runtime.objectMutex);
         statusText = L"Asteroid Game asteroids: " + std::to_wstring(CountKindLocked(runtime, BgeObjectKind::Asteroid));
+        PublishAsteroidGameHudLocked(runtime);
         return true;
+    }
+
+    void PublishAsteroidGameHud(BgeGameRuntime& runtime) const
+    {
+        if (!runtime.setHud || !RuntimeReady(runtime)) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+        runtime.setHud(BuildAsteroidGameHudLocked(runtime));
     }
 
     void HideAsteroidGameSlotLocked(BgeGameRuntime& runtime, int slotIndex)

@@ -34,6 +34,7 @@ struct BgeGameRuntime {
     void (*syncControls)() = nullptr;
     void (*invalidateRenderer)() = nullptr;
     void (*setStatus)(const std::wstring& statusText) = nullptr;
+    void (*setHud)(const std::wstring& hudText) = nullptr;
     void (*log)(const std::string& message) = nullptr;
 };
 

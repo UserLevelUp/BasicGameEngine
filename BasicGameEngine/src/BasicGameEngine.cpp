@@ -112,6 +112,7 @@ constexpr int IDC_BGE_GHOST_GROUP_COMBO = 42912;
 constexpr int IDC_BGE_TOGGLE_GHOST = 42913;
 constexpr int IDC_BGE_SET_PLAYER = 42914;
 constexpr int IDC_BGE_PLAYER_STATUS = 42915;
+constexpr int IDC_BGE_GAME_HUD_STATUS = 42916;
 constexpr int IDC_BGE_ASTEROID_R = 42920;
 constexpr int IDC_BGE_ASTEROID_G = 42921;
 constexpr int IDC_BGE_ASTEROID_B = 42922;
@@ -256,6 +257,7 @@ HWND g_ghostGroupCombo = nullptr;
 HWND g_toggleGhostButton = nullptr;
 HWND g_setPlayerButton = nullptr;
 HWND g_playerStatus = nullptr;
+HWND g_gameHudStatus = nullptr;
 HWND g_loadBackgroundButton = nullptr;
 HWND g_openMappingButton = nullptr;
 HWND g_editModeStatus = nullptr;
@@ -406,6 +408,7 @@ bool ExecuteControllerCommandText(const std::wstring& commandText, std::wstring&
 bool QueueConstructionArtifactCommandsFromFile(const std::wstring& path, std::wstring& statusText);
 bool SendControllerCommandToWorker(const std::wstring& role, const std::wstring& commandText, std::wstring& statusText);
 void SetCommandStatus(const std::wstring& statusText);
+void SetGameHudStatus(const std::wstring& hudText);
 void AddControllerHistory(const std::wstring& historyText, const std::wstring& detailText = L"");
 void UpdateControllerHistoryDetail(const std::wstring& detailText);
 void UpdateControllerHistoryDetailFromSelection();
@@ -1204,6 +1207,13 @@ void InvalidateGameRenderer()
     InvalidateRect(g_hWnd, nullptr, FALSE);
 }
 
+void SetGameHudStatus(const std::wstring& hudText)
+{
+    if (g_gameHudStatus) {
+        SetWindowTextW(g_gameHudStatus, hudText.c_str());
+    }
+}
+
 BgeGameRuntime CreateGameRuntime()
 {
     BgeGameRuntime runtime;
@@ -1224,6 +1234,7 @@ BgeGameRuntime CreateGameRuntime()
     runtime.syncControls = SyncBallControls;
     runtime.invalidateRenderer = InvalidateGameRenderer;
     runtime.setStatus = SetCommandStatus;
+    runtime.setHud = SetGameHudStatus;
     runtime.log = LogRendererMessage;
     return runtime;
 }
@@ -3811,7 +3822,8 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
         if (subcommand == L"game" || subcommand == L"play" || subcommand == L"start" || subcommand == L"status" || subcommand == L"state"
             || subcommand == L"restart" || subcommand == L"reset" || subcommand == L"score" || subcommand == L"lives" || subcommand == L"fire"
             || subcommand == L"player" || subcommand == L"add" || subcommand == L"spawn" || subcommand == L"target" || subcommand == L"remove"
-            || subcommand == L"clear" || subcommand == L"count") {
+            || subcommand == L"clear" || subcommand == L"count" || subcommand == L"hud" || subcommand == L"header" || subcommand == L"title"
+            || subcommand == L"screen" || subcommand == L"commands" || subcommand == L"help") {
             bool ok = ExecuteAsteroidGameModuleCommand(tokens, statusText);
             logCommand(ok ? "asteroid-module-command" : "asteroid-module-command failed");
             return ok;
@@ -3927,7 +3939,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
             return true;
         }
 
-        statusText = L"Use: asteroid game | asteroid status | asteroid player set/select | asteroid add/remove | asteroid fire | asteroid score|lives | asteroid alpha/color/window";
+        statusText = L"Use: asteroid game | asteroid status/hud/commands/title | asteroid player set/select | asteroid add/remove | asteroid fire | asteroid score|lives | asteroid alpha/color/window";
         return false;
     }
 
@@ -5039,6 +5051,7 @@ std::wstring MappingWindowText()
     text << L"  Worker command: asteroid game | asteroid-game | game\r\n";
     text << L"  Controller command: asteroid-game | game-loop: asteroid game\r\n";
     text << L"  Component commands: asteroid status | asteroid player set/select | asteroid add/remove | asteroid fire | score | lives | restart\r\n";
+    text << L"  Presentation commands: asteroid title | asteroid hud | asteroid commands\r\n";
     text << L"  Rules: asteroid size controls score; ship collisions cost one life; zero lives or cleared asteroids stops the loop\r\n";
     text << L"  When object 1 is selected: A/D or Left/Right rotate, W/Up thrust, S/Down reverse, Space fires\r\n";
     text << L"  Bullets split large asteroids into smaller asteroids; edge policy switches to wrap\r\n\r\n";
@@ -5496,6 +5509,7 @@ void CreateBallControls(HWND hWnd)
     }
     g_runCommandButton = CreateControl(hWnd, L"BUTTON", L"Run", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_RUN_COMMAND, 562, 100, 48, 24);
     g_commandStatus = CreateControl(hWnd, L"STATIC", L"help", 0, IDC_BGE_COMMAND_STATUS, 620, 104, 280, 20);
+    g_gameHudStatus = CreateControl(hWnd, L"STATIC", L"Game HUD: no module active", 0, IDC_BGE_GAME_HUD_STATUS, 8, 126, 960, 14);
     UpdateEditModeStatus();
 }
 
@@ -6070,6 +6084,7 @@ void SyncBallControls()
         g_toggleGhostButton,
         g_setPlayerButton,
         g_playerStatus,
+        g_gameHudStatus,
         g_commandEdit,
         g_runCommandButton,
     };
