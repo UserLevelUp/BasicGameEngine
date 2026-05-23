@@ -3791,6 +3791,16 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
         return true;
     }
 
+    if (command == L"score" || command == L"lives" || command == L"fire" || command == L"restart") {
+        if (!CurrentProcessOwnsGameLoop()) {
+            statusText = L"Asteroid Game component commands run in bge.game-loop";
+            return false;
+        }
+        bool ok = ExecuteAsteroidGameModuleCommand(tokens, statusText);
+        logCommand(ok ? "asteroid-component" : "asteroid-component failed");
+        return ok;
+    }
+
     if (command == L"asteroid" || command == L"rock") {
         if (!CurrentProcessOwnsGameLoop()) {
             statusText = L"Asteroid commands run in bge.game-loop";
@@ -3798,9 +3808,12 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
         }
 
         std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
-        if (subcommand == L"game" || subcommand == L"play" || subcommand == L"start") {
+        if (subcommand == L"game" || subcommand == L"play" || subcommand == L"start" || subcommand == L"status" || subcommand == L"state"
+            || subcommand == L"restart" || subcommand == L"reset" || subcommand == L"score" || subcommand == L"lives" || subcommand == L"fire"
+            || subcommand == L"player" || subcommand == L"add" || subcommand == L"spawn" || subcommand == L"target" || subcommand == L"remove"
+            || subcommand == L"clear" || subcommand == L"count") {
             bool ok = ExecuteAsteroidGameModuleCommand(tokens, statusText);
-            logCommand(ok ? "asteroid-game" : "asteroid-game failed");
+            logCommand(ok ? "asteroid-module-command" : "asteroid-module-command failed");
             return ok;
         }
 
@@ -3811,24 +3824,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
             return true;
         }
 
-        if (subcommand == L"status") {
-            int selectedSlot = 0;
-            BgeObjectSlotState slot;
-            {
-                std::lock_guard<std::mutex> lock(ballConfigMutex);
-                selectedSlot = g_selectedObjectSlot;
-                slot = g_objectSlots[selectedSlot];
-            }
-            std::wstringstream status;
-            status << L"Object " << (selectedSlot + 1) << L": " << BgeObjectShapeName(slot.shape)
-                     << L" kind " << BgeObjectKindName(slot.kind)
-                     << L" alpha " << static_cast<int>(slot.colorA * 255.0f);
-            statusText = status.str();
-            logCommand("asteroid-status");
-            return true;
-        }
-
-        if (subcommand == L"add" || subcommand == L"set" || subcommand == L"shape") {
+        if (subcommand == L"set" || subcommand == L"shape") {
             int slotIndex = -1;
             if (tokens.size() >= 3) {
                 TryParseSlotArg(tokens[2], slotIndex);
@@ -3931,7 +3927,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
             return true;
         }
 
-        statusText = L"Use: asteroid game | asteroid add [slot] | asteroid alpha <0-255> | asteroid color [slot] r g b [a] | asteroid window | asteroid status";
+        statusText = L"Use: asteroid game | asteroid status | asteroid player set/select | asteroid add/remove | asteroid fire | asteroid score|lives | asteroid alpha/color/window";
         return false;
     }
 
@@ -5042,6 +5038,7 @@ std::wstring MappingWindowText()
     text << L"  Controller button: Asteroid Game\r\n";
     text << L"  Worker command: asteroid game | asteroid-game | game\r\n";
     text << L"  Controller command: asteroid-game | game-loop: asteroid game\r\n";
+    text << L"  Component commands: asteroid status | asteroid player set/select | asteroid add/remove | asteroid fire | score | lives | restart\r\n";
     text << L"  When object 1 is selected: A/D or Left/Right rotate, W/Up thrust, S/Down reverse, Space fires\r\n";
     text << L"  Bullets split large asteroids into smaller asteroids; edge policy switches to wrap\r\n\r\n";
     text << L"Edge policy\r\n";
