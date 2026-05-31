@@ -572,6 +572,7 @@ bool ExecuteBgeSoundCommand(const std::vector<std::wstring>& tokens, std::wstrin
 bool HandleBgeVectorShipKeyDown(WPARAM key);
 bool HandleBgeVectorShipKeyUp(WPARAM key);
 void ClearBgeVectorShipInputState();
+void ApplyVectorShipHeadingModeLocked(BgeObjectSlotState& slot, const BgeVectorShipState& ship);
 bool TickBgeProjectiles(double deltaMilliseconds);
 bool TickBgeVectorShip(double deltaMilliseconds);
 bool VectorShipPlayerAliveLocked();
@@ -2522,18 +2523,11 @@ bool FireBgeProjectileFromVectorShipLocked(std::wstring& statusText)
     }
 
     int projectileSlot = -1;
-    // Freshen the ship slot's heading from the authoritative
-    // g_vectorShipState.headingDegrees before firing. The slot.headingX/Y
-    // can lag by one frame because the renderer round-trips slots through
-    // SyncObjectSlotsFromRenderer, and projectiles fire from the OS keyboard
-    // thread (HandleBgeVectorShipKeyDown -> here) outside the game tick.
-    // Without this refresh, bullets fired immediately after a turn fly along
-    // the previous heading - the "turret" symptom Marc reported.
+    // Freshen the ship slot's transformed heading before firing so bullets,
+    // thrust, and the rendered nose all use the same 0-9 trial mode.
     {
         BgeObjectSlotState& shipSlot = g_objectSlots[g_vectorShipState.slotIndex];
-        float headingRadians = g_vectorShipState.headingDegrees * 3.14159265358979323846f / 180.0f;
-        shipSlot.headingX = std::cos(headingRadians);
-        shipSlot.headingY = std::sin(headingRadians);
+        ApplyVectorShipHeadingModeLocked(shipSlot, g_vectorShipState);
     }
     if (!SpawnBgeProjectileLocked(*definition, g_objectSlots[g_vectorShipState.slotIndex], projectileSlot)) {
         statusText = L"Player ship: no projectile slot";
@@ -2975,6 +2969,14 @@ bool VectorShipPlayerAliveLocked()
         && g_objectSlots[g_vectorShipState.slotIndex].kind == BgeObjectKind::Player;
 }
 
+void ApplyVectorShipHeadingModeLocked(BgeObjectSlotState& slot, const BgeVectorShipState& ship)
+{
+    float headingRadians = ship.headingDegrees * 3.14159265358979323846f / 180.0f;
+    slot.headingX = std::cos(headingRadians);
+    slot.headingY = std::sin(headingRadians);
+    BgeApplyPlayerIconHeadingMode(slot, slot.headingX, slot.headingY, ship.playerIconVisibilityMode);
+}
+
 std::wstring VectorShipStatusText(const BgeVectorShipState& ship)
 {
     if (!ship.active) {
@@ -3001,9 +3003,7 @@ void ConfigureVectorShipSlotLocked(const BgeVectorShipState& ship, const BgeGame
     // Asteroids feel: ship spawns stationary, pointing straight up.
     slot.velocityX = 0.0f;
     slot.velocityY = 0.0f;
-    float headingRadians = ship.headingDegrees * 3.14159265358979323846f / 180.0f;
-    slot.headingX = std::cos(headingRadians);
-    slot.headingY = std::sin(headingRadians);
+    ApplyVectorShipHeadingModeLocked(slot, ship);
     // Monochrome white vector ship matches the original arcade look.
     slot.colorR = 1.0f;
     slot.colorG = 1.0f;
@@ -3195,6 +3195,7 @@ bool HandleBgeVectorShipKeyDown(WPARAM key)
             g_vectorShipState.playerIconVisibilityMode = BgeNormalizePlayerIconVisibilityModeIndex(visibilityMode);
             BgeObjectSlotState& shipSlot = g_objectSlots[g_vectorShipState.slotIndex];
             BgeApplyPlayerIconVisibilityMode(shipSlot, g_vectorShipState.playerIconVisibilityMode, g_vectorShipState.invulnerableRemainingSeconds > 0.0f);
+            ApplyVectorShipHeadingModeLocked(shipSlot, g_vectorShipState);
             g_selectedObjectSlot = g_vectorShipState.slotIndex;
             g_objectSelectionActive = true;
             g_ballColorR = shipSlot.colorR;
@@ -3626,16 +3627,12 @@ bool TickBgeVectorShip(double deltaMilliseconds)
         // Normalize to [-180, 180].
         while (g_vectorShipState.headingDegrees > 180.0f)  g_vectorShipState.headingDegrees -= 360.0f;
         while (g_vectorShipState.headingDegrees < -180.0f) g_vectorShipState.headingDegrees += 360.0f;
-        float headingRadians = g_vectorShipState.headingDegrees * 3.14159265358979323846f / 180.0f;
-        slot.headingX = std::cos(headingRadians);
-        slot.headingY = std::sin(headingRadians);
+        ApplyVectorShipHeadingModeLocked(slot, g_vectorShipState);
         dirty = true;
     }
     else {
         // Keep slot heading in sync (e.g. after respawn).
-        float headingRadians = g_vectorShipState.headingDegrees * 3.14159265358979323846f / 180.0f;
-        slot.headingX = std::cos(headingRadians);
-        slot.headingY = std::sin(headingRadians);
+        ApplyVectorShipHeadingModeLocked(slot, g_vectorShipState);
     }
 
     // --- Thrust: apply along heading (NOT along velocity). ---
@@ -3664,19 +3661,13 @@ bool TickBgeVectorShip(double deltaMilliseconds)
         }
     }
 
-    // --- Invulnerability countdown / classic-Asteroids on/off blink ---
-    // Real Asteroids flashes the ship ON/OFF (~5 Hz) during the post-respawn
-    // grace period so the player can SEE the ship clearly while still being
-    // signalled "you are temporarily safe". The previous flat 0.54 alpha made
-    // the ship hard to spot against the asteroid field — engine-neutral fix:
-    // a square-wave alpha. Any slot can be flashed by writing colorA per tick.
+    // --- Invulnerability countdown / steady visibility mode alpha ---
+    // These player-icon trial modes are for readability testing, so keep the
+    // icon visually steady even while the ship is temporarily invulnerable.
     if (g_vectorShipState.invulnerableRemainingSeconds > 0.0f) {
         g_vectorShipState.invulnerableRemainingSeconds = (std::max)(0.0f, g_vectorShipState.invulnerableRemainingSeconds - deltaSeconds);
         if (g_vectorShipState.invulnerableRemainingSeconds > 0.0f) {
-            // 5 Hz blink. Visibility modes keep the low phase readable when
-            // we are testing whether the player icon can be seen during play.
-            float phase = std::fmod(g_vectorShipState.invulnerableRemainingSeconds * 10.0f, 2.0f);
-            slot.colorA = BgePlayerIconVisibilityModeAlpha(g_vectorShipState.playerIconVisibilityMode, true, phase >= 1.0f);
+            slot.colorA = BgePlayerIconVisibilityModeAlpha(g_vectorShipState.playerIconVisibilityMode, true, false);
         }
         else {
             slot.colorA = BgePlayerIconVisibilityModeAlpha(g_vectorShipState.playerIconVisibilityMode, false, false);

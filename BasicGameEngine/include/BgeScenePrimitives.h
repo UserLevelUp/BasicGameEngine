@@ -275,27 +275,28 @@ struct BgePlayerIconVisibilityMode {
     float alpha;
     float invulnerableAlphaHigh;
     float invulnerableAlphaLow;
+    float headingOffsetDegrees;
+    bool invertHeadingY;
 };
 
 inline const std::array<BgePlayerIconVisibilityMode, BGE_PLAYER_ICON_VISIBILITY_MODE_COUNT>& BgePlayerIconVisibilityModes()
 {
-    // Second-pass visibility lineup. Mode 5 ("filled white") is the proven
-    // baseline and is intentionally kept identical to the previous set so the
-    // pilot has a stable reference. All other modes are fresh variations
-    // tuned for "can I still see my ship while it is moving?": Filled
-    // VectorShip everywhere (so orientation stays visible), sweeping size
-    // and high-contrast colors against the dark playfield.
+    // Third-pass heading lineup. Marc picked the small filled white icon as
+    // the readable baseline, so keep the look stable and vary only the heading
+    // transform: screen-y direction, coarse offsets, and small +/-10 degree
+    // nudges. This isolates "where is the nose / where do bullets go?" from
+    // color and size changes.
     static const std::array<BgePlayerIconVisibilityMode, BGE_PLAYER_ICON_VISIBILITY_MODE_COUNT> modes{{
-        { L"filled white tiny",   BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 12.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
-        { L"filled white small",  BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
-        { L"filled white medium", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 18.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
-        { L"filled white large",  BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 22.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
-        { L"filled yellow large", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 22.0f, 2.0f, 1.00f, 0.92f, 0.16f, 1.0f, 1.00f, 0.90f },
-        { L"filled white",        BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 18.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
-        { L"filled cyan large",   BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 22.0f, 2.0f, 0.20f, 0.92f, 1.00f, 1.0f, 1.00f, 0.90f },
-        { L"filled lime large",   BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 22.0f, 2.0f, 0.32f, 1.00f, 0.28f, 1.0f, 1.00f, 0.90f },
-        { L"filled white huge",   BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 28.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
-        { L"filled magenta huge", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 28.0f, 2.0f, 1.00f, 0.20f, 0.92f, 1.0f, 1.00f, 0.90f },
+        { L"heading current",      BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 1.00f,   0.0f, false },
+        { L"heading invert y",     BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 1.00f,   0.0f, true  },
+        { L"heading plus 90",      BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 1.00f,  90.0f, false },
+        { L"heading minus 90",     BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 1.00f, -90.0f, false },
+        { L"heading 180",          BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 1.00f, 180.0f, false },
+        { L"invert y plus 90",     BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 1.00f,  90.0f, true  },
+        { L"invert y minus 90",    BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 1.00f, -90.0f, true  },
+        { L"invert y 180",         BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 1.00f, 180.0f, true  },
+        { L"heading fine minus 10", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 1.00f, -10.0f, false },
+        { L"heading fine plus 10",  BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 1.00f,  10.0f, false },
     }};
     return modes;
 }
@@ -334,7 +335,8 @@ inline float BgePlayerIconVisibilityModeAlpha(int modeIndex, bool invulnerable, 
     if (!invulnerable) {
         return mode.alpha;
     }
-    return lowBlinkPhase ? mode.invulnerableAlphaLow : mode.invulnerableAlphaHigh;
+    (void)lowBlinkPhase;
+    return mode.invulnerableAlphaHigh;
 }
 
 inline void BgeApplyPlayerIconVisibilityMode(BgeObjectSlotState& slot, int modeIndex, bool invulnerable)
@@ -348,6 +350,34 @@ inline void BgeApplyPlayerIconVisibilityMode(BgeObjectSlotState& slot, int modeI
     slot.colorG = mode.colorG;
     slot.colorB = mode.colorB;
     slot.colorA = BgePlayerIconVisibilityModeAlpha(modeIndex, invulnerable, false);
+}
+
+inline void BgeApplyPlayerIconHeadingMode(BgeObjectSlotState& slot, float logicalHeadingX, float logicalHeadingY, int modeIndex)
+{
+    const BgePlayerIconVisibilityMode& mode = BgePlayerIconVisibilityModeForIndex(modeIndex);
+    float headingX = logicalHeadingX;
+    float headingY = mode.invertHeadingY ? -logicalHeadingY : logicalHeadingY;
+    float length = std::sqrt(headingX * headingX + headingY * headingY);
+    if (length < 0.001f) {
+        headingX = 1.0f;
+        headingY = 0.0f;
+        length = 1.0f;
+    }
+    headingX /= length;
+    headingY /= length;
+
+    if (mode.headingOffsetDegrees != 0.0f) {
+        float radians = mode.headingOffsetDegrees * 3.14159265358979323846f / 180.0f;
+        float cosine = std::cos(radians);
+        float sine = std::sin(radians);
+        float rotatedX = headingX * cosine - headingY * sine;
+        float rotatedY = headingX * sine + headingY * cosine;
+        headingX = rotatedX;
+        headingY = rotatedY;
+    }
+
+    slot.headingX = headingX;
+    slot.headingY = headingY;
 }
 
 inline bool BgeObjectSlotsOverlap(const BgeObjectSlotState& first, const BgeObjectSlotState& second)

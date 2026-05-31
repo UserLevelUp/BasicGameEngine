@@ -1319,8 +1319,13 @@ private:
         slot.radius = 18.0f;
         slot.velocityX = 0.0f;
         slot.velocityY = 0.0f;
-        slot.headingX = 1.0f;
-        slot.headingY = 0.0f;
+        // Asteroids convention: ship spawns pointing straight up. In screen
+        // coordinates Y+ is down, so "up" is heading (0, -1). Spawning with
+        // (1, 0) made the icon visibly face right when the player pressed
+        // any 0-9 visibility key (the mode re-apply caused a brief radius
+        // change that read as a "blink" and revealed the wrong heading).
+        slot.headingX = 0.0f;
+        slot.headingY = -1.0f;
         slot.colorR = 0.10f;
         slot.colorG = 0.82f;
         slot.colorB = 0.95f;
@@ -1328,7 +1333,15 @@ private:
         slot.shape = BgeObjectShape::VectorShip;
         slot.kind = BgeObjectKind::Player;
         BgeApplyPlayerIconVisibilityMode(slot, playerIconVisibilityMode_, false);
+        playerHeadingX_ = 0.0f;
+        playerHeadingY_ = -1.0f;
+        ApplyAsteroidGamePlayerHeadingModeLocked(slot);
         bulletLifeSeconds_[slotIndex] = 0.0f;
+    }
+
+    void ApplyAsteroidGamePlayerHeadingModeLocked(BgeObjectSlotState& player)
+    {
+        BgeApplyPlayerIconHeadingMode(player, playerHeadingX_, playerHeadingY_, playerIconVisibilityMode_);
     }
 
     bool AsteroidGamePlayerAliveLocked(BgeGameRuntime& runtime, int slotIndex) const
@@ -1349,7 +1362,9 @@ private:
         if (!AsteroidGamePlayerAliveLocked(runtime, playerSlot)) {
             return;
         }
-        BgeApplyPlayerIconVisibilityMode((*runtime.objectSlots)[playerSlot], playerIconVisibilityMode_, respawnInvulnerableSeconds_ > 0.0f);
+        BgeObjectSlotState& player = (*runtime.objectSlots)[playerSlot];
+        BgeApplyPlayerIconVisibilityMode(player, playerIconVisibilityMode_, respawnInvulnerableSeconds_ > 0.0f);
+        ApplyAsteroidGamePlayerHeadingModeLocked(player);
     }
 
     bool ApplyAsteroidGamePlayerIconVisibilityModeLocked(BgeGameRuntime& runtime, int modeIndex, std::wstring& statusText)
@@ -1360,7 +1375,9 @@ private:
         }
 
         playerIconVisibilityMode_ = BgeNormalizePlayerIconVisibilityModeIndex(modeIndex);
-        BgeApplyPlayerIconVisibilityMode((*runtime.objectSlots)[playerSlot], playerIconVisibilityMode_, respawnInvulnerableSeconds_ > 0.0f);
+        BgeObjectSlotState& player = (*runtime.objectSlots)[playerSlot];
+        BgeApplyPlayerIconVisibilityMode(player, playerIconVisibilityMode_, respawnInvulnerableSeconds_ > 0.0f);
+        ApplyAsteroidGamePlayerHeadingModeLocked(player);
         *runtime.selectedObjectSlot = playerSlot;
         *runtime.objectSelectionActive = true;
         statusText = L"Asteroid Game: player icon mode " + std::to_wstring(playerIconVisibilityMode_)
@@ -1404,15 +1421,16 @@ private:
 
         // Rotate the heading vector independently of velocity so the ship
         // can turn in place without being forced to drift.
-        float headingX = player.headingX;
-        float headingY = player.headingY;
+        float headingX = playerHeadingX_;
+        float headingY = playerHeadingY_;
         if (VectorLength(headingX, headingY) < 0.001f) {
-            headingX = 1.0f;
-            headingY = 0.0f;
+            headingX = 0.0f;
+            headingY = -1.0f;
         }
         float radians = std::atan2(headingY, headingX) + deltaDegrees * 3.14159265358979323846f / 180.0f;
-        player.headingX = std::cos(radians);
-        player.headingY = std::sin(radians);
+        playerHeadingX_ = std::cos(radians);
+        playerHeadingY_ = std::sin(radians);
+        ApplyAsteroidGamePlayerHeadingModeLocked(player);
         return true;
     }
 
@@ -1593,6 +1611,8 @@ private:
     int score_ = 0;
     int lives_ = BGE_ASTEROID_GAME_STARTING_LIVES;
     int playerIconVisibilityMode_ = 0;
+    float playerHeadingX_ = 0.0f;
+    float playerHeadingY_ = -1.0f;
     float respawnInvulnerableSeconds_ = 0.0f;
     bool gameOver_ = false;
     bool victory_ = false;

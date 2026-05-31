@@ -602,8 +602,13 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
             length = std::sqrt(directionX * directionX + directionY * directionY);
         }
         if (length < 1.0f) {
-            directionX = 1.0f;
-            directionY = 0.0f;
+            // Default to "up" (screen Y+ is down, so up = -1) to match the
+            // Asteroids spawn convention. Defaulting to (1,0) here caused
+            // a one-frame flicker pointing right whenever the slot was
+            // momentarily stationary with no authored heading (e.g. just
+            // after a visibility-mode key press).
+            directionX = 0.0f;
+            directionY = -1.0f;
             length = 1.0f;
         }
         float unitX = directionX / length;
