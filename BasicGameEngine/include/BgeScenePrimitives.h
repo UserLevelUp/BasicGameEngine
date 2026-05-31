@@ -279,17 +279,23 @@ struct BgePlayerIconVisibilityMode {
 
 inline const std::array<BgePlayerIconVisibilityMode, BGE_PLAYER_ICON_VISIBILITY_MODE_COUNT>& BgePlayerIconVisibilityModes()
 {
+    // Second-pass visibility lineup. Mode 5 ("filled white") is the proven
+    // baseline and is intentionally kept identical to the previous set so the
+    // pilot has a stable reference. All other modes are fresh variations
+    // tuned for "can I still see my ship while it is moving?": Filled
+    // VectorShip everywhere (so orientation stays visible), sweeping size
+    // and high-contrast colors against the dark playfield.
     static const std::array<BgePlayerIconVisibilityMode, BGE_PLAYER_ICON_VISIBILITY_MODE_COUNT> modes{{
-        { L"baseline outline", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Outline, 14.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 0.54f, 0.30f },
-        { L"larger outline", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Outline, 18.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 0.90f, 0.75f },
-        { L"big outline", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Outline, 22.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 0.95f, 0.80f },
-        { L"thick outline", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Outline, 18.0f, 4.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.85f },
-        { L"max outline", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Outline, 20.0f, 6.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
-        { L"filled white", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 18.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
-        { L"cyan outline", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Outline, 18.0f, 4.0f, 0.10f, 0.92f, 1.00f, 1.0f, 1.00f, 0.88f },
-        { L"yellow outline", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Outline, 18.0f, 4.0f, 1.00f, 0.92f, 0.16f, 1.0f, 1.00f, 0.88f },
-        { L"huge cyan outline", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Outline, 26.0f, 6.0f, 0.52f, 1.00f, 0.94f, 1.0f, 1.00f, 0.92f },
-        { L"debug magenta marker", BgeObjectShape::Ball, BgeObjectRenderStyle::Filled, 26.0f, 2.0f, 1.00f, 0.12f, 0.92f, 1.0f, 1.00f, 0.92f },
+        { L"filled white tiny",   BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 12.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
+        { L"filled white small",  BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 15.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
+        { L"filled white medium", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 18.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
+        { L"filled white large",  BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 22.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
+        { L"filled yellow large", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 22.0f, 2.0f, 1.00f, 0.92f, 0.16f, 1.0f, 1.00f, 0.90f },
+        { L"filled white",        BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 18.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
+        { L"filled cyan large",   BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 22.0f, 2.0f, 0.20f, 0.92f, 1.00f, 1.0f, 1.00f, 0.90f },
+        { L"filled lime large",   BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 22.0f, 2.0f, 0.32f, 1.00f, 0.28f, 1.0f, 1.00f, 0.90f },
+        { L"filled white huge",   BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 28.0f, 2.0f, 1.00f, 1.00f, 1.00f, 1.0f, 1.00f, 0.90f },
+        { L"filled magenta huge", BgeObjectShape::VectorShip, BgeObjectRenderStyle::Filled, 28.0f, 2.0f, 1.00f, 0.20f, 0.92f, 1.0f, 1.00f, 0.90f },
     }};
     return modes;
 }
