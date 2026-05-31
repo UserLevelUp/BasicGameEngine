@@ -21,12 +21,21 @@ constexpr float BGE_ASTEROID_GAME_BULLET_LIFETIME_SECONDS = 1.35f;
 constexpr float BGE_ASTEROID_GAME_SPLIT_MIN_RADIUS = 28.0f;
 constexpr float BGE_ASTEROID_GAME_SPLIT_SCALE = 0.58f;
 constexpr int BGE_ASTEROID_GAME_RESERVED_BULLET_SLOTS = 2;
+// Dedicated UFO slot, sitting just below the bullet reserve. Without this,
+// asteroid splits would fill slots 1..N-bulletReserve-1 and starve the UFO
+// finder, so a UFO would silently fail to spawn for an entire game.
+constexpr int BGE_ASTEROID_GAME_UFO_RESERVED_SLOT = BGE_OBJECT_SLOT_COUNT - BGE_ASTEROID_GAME_RESERVED_BULLET_SLOTS - 1;
 constexpr int BGE_ASTEROID_GAME_STARTING_LIVES = 3;
 constexpr float BGE_ASTEROID_GAME_RESPAWN_INVULNERABLE_SECONDS = 1.50f;
 constexpr float BGE_ASTEROID_GAME_HYPERSPACE_INVULNERABLE_SECONDS = 0.85f;
 constexpr int BGE_ASTEROID_GAME_LARGE_ASTEROID_POINTS = 20;
 constexpr int BGE_ASTEROID_GAME_MEDIUM_ASTEROID_POINTS = 50;
 constexpr int BGE_ASTEROID_GAME_SMALL_ASTEROID_POINTS = 100;
+constexpr float BGE_ASTEROID_GAME_UFO_RADIUS = 20.0f;
+constexpr float BGE_ASTEROID_GAME_UFO_SPEED = 170.0f;
+constexpr float BGE_ASTEROID_GAME_UFO_MIN_ARRIVAL_SECONDS = 7.0f;
+constexpr float BGE_ASTEROID_GAME_UFO_MAX_ARRIVAL_SECONDS = 18.0f;
+constexpr int BGE_ASTEROID_GAME_UFO_POINTS = 200;
 
 std::wstring LowerModuleArg(std::wstring value)
 {
@@ -167,6 +176,8 @@ public:
             score_ = 0;
             lives_ = BGE_ASTEROID_GAME_STARTING_LIVES;
             respawnInvulnerableSeconds_ = 0.0f;
+            ufoSlotIndex_ = -1;
+            ResetAsteroidGameUfoArrivalTimerLocked();
             gameOver_ = false;
             victory_ = false;
             *runtime.mainPlayerGroupIndex = *runtime.activeObjectGroupIndex;
@@ -424,6 +435,7 @@ public:
         int score = 0;
         int lives = 0;
         int points = 0;
+        int ufoHits = 0;
         int asteroidsRemaining = 0;
         std::wstring hudText;
         {
@@ -434,6 +446,7 @@ public:
 
             auto& slots = *runtime.objectSlots;
             float deltaSeconds = static_cast<float>((std::max)(0.0, deltaMilliseconds) / 1000.0);
+            BgeGameViewport viewport = runtime.viewport ? runtime.viewport() : BgeGameViewport{};
             if (respawnInvulnerableSeconds_ > 0.0f) {
                 float previousInvulnerability = respawnInvulnerableSeconds_;
                 respawnInvulnerableSeconds_ = (std::max)(0.0f, respawnInvulnerableSeconds_ - deltaSeconds);
@@ -452,6 +465,55 @@ public:
                         HideAsteroidGameSlotLocked(runtime, index);
                         dirty = true;
                     }
+                }
+            }
+
+            if (!gameOver_ && !victory_) {
+                int activeUfoSlot = ActiveAsteroidGameUfoSlotLocked(runtime);
+                if (activeUfoSlot >= 0) {
+                    const BgeObjectSlotState& ufo = slots[activeUfoSlot];
+                    float margin = (std::max)(40.0f, ufo.radius * 3.0f);
+                    if (ufo.x < -margin || ufo.x > viewport.width + margin || ufo.y < viewport.playTop - margin || ufo.y > viewport.playTop + viewport.playHeight + margin) {
+                        HideAsteroidGameSlotLocked(runtime, activeUfoSlot);
+                        ResetAsteroidGameUfoArrivalTimerLocked();
+                        dirty = true;
+                    }
+                }
+                else {
+                    ufoArrivalSeconds_ = (std::max)(0.0f, ufoArrivalSeconds_ - deltaSeconds);
+                    if (ufoArrivalSeconds_ <= 0.0f) {
+                        if (SpawnAsteroidGameUfoLocked(runtime, viewport)) {
+                            dirty = true;
+                        }
+                        ResetAsteroidGameUfoArrivalTimerLocked();
+                    }
+                }
+            }
+
+            for (int bulletIndex = 0; bulletIndex < BGE_OBJECT_SLOT_COUNT; ++bulletIndex) {
+                BgeObjectSlotState& bullet = slots[bulletIndex];
+                if (!bullet.visible || bullet.isDeleted || bullet.kind != BgeObjectKind::Bullet) {
+                    continue;
+                }
+
+                for (int ufoIndex = 0; ufoIndex < BGE_OBJECT_SLOT_COUNT; ++ufoIndex) {
+                    BgeObjectSlotState& ufo = slots[ufoIndex];
+                    if (!ufo.visible || ufo.isDeleted || ufo.kind != BgeObjectKind::Ufo) {
+                        continue;
+                    }
+                    if (!BgeObjectSlotsOverlap(bullet, ufo)) {
+                        continue;
+                    }
+
+                    HideAsteroidGameSlotLocked(runtime, bulletIndex);
+                    HideAsteroidGameSlotLocked(runtime, ufoIndex);
+                    ResetAsteroidGameUfoArrivalTimerLocked();
+                    score_ += BGE_ASTEROID_GAME_UFO_POINTS;
+                    points += BGE_ASTEROID_GAME_UFO_POINTS;
+                    score = score_;
+                    ++ufoHits;
+                    dirty = true;
+                    break;
                 }
             }
 
@@ -487,7 +549,7 @@ public:
                 if (AsteroidGamePlayerAliveLocked(runtime, playerSlot)) {
                     for (int asteroidIndex = 0; asteroidIndex < BGE_OBJECT_SLOT_COUNT; ++asteroidIndex) {
                         BgeObjectSlotState& asteroid = slots[asteroidIndex];
-                        if (!asteroid.visible || asteroid.isDeleted || asteroid.kind != BgeObjectKind::Asteroid) {
+                        if (!asteroid.visible || asteroid.isDeleted || (asteroid.kind != BgeObjectKind::Asteroid && asteroid.kind != BgeObjectKind::Ufo)) {
                             continue;
                         }
                         if (!BgeObjectSlotsOverlap(slots[playerSlot], asteroid)) {
@@ -499,6 +561,10 @@ public:
                         playerLostLife = true;
                         dirty = true;
                         HideAsteroidGameBulletsLocked(runtime);
+                        if (asteroid.kind == BgeObjectKind::Ufo) {
+                            HideAsteroidGameSlotLocked(runtime, asteroidIndex);
+                            ResetAsteroidGameUfoArrivalTimerLocked();
+                        }
                         if (lives_ <= 0) {
                             HideAsteroidGameSlotLocked(runtime, playerSlot);
                             gameOver_ = true;
@@ -569,6 +635,16 @@ public:
                 runtime.log(message.str());
             }
         }
+        else if (ufoHits > 0) {
+            if (runtime.setStatus) {
+                runtime.setStatus(L"UFO hit: +" + std::to_wstring(points) + L", score " + std::to_wstring(score) + L", lives " + std::to_wstring(lives_));
+            }
+            if (runtime.log) {
+                std::ostringstream message;
+                message << "[AsteroidGame] module-ufo-hit count=" << ufoHits << " points=" << points << " score=" << score;
+                runtime.log(message.str());
+            }
+        }
         else if (hits > 0) {
             if (runtime.setStatus) {
                 runtime.setStatus(L"Asteroid hit: +" + std::to_wstring(points) + L", score " + std::to_wstring(score) + L", lives " + std::to_wstring(lives_) + L", asteroids " + std::to_wstring(asteroidsRemaining));
@@ -601,6 +677,7 @@ private:
     {
         int asteroidCount = CountKindLocked(runtime, BgeObjectKind::Asteroid);
         int bulletCount = CountKindLocked(runtime, BgeObjectKind::Bullet);
+        int ufoCount = CountKindLocked(runtime, BgeObjectKind::Ufo);
         std::wstring state = L"stopped";
         if (gameOver_) {
             state = L"game over";
@@ -620,6 +697,7 @@ private:
                << L", lives " << lives_
                << L", asteroids " << asteroidCount
                << L", bullets " << bulletCount
+             << L", ufo " << ufoCount
                << L", " << state;
         return status.str();
     }
@@ -651,6 +729,7 @@ private:
             << L" | SCORE " << score_
             << L" | LIVES " << lives_
             << L" | AST " << CountKindLocked(runtime, BgeObjectKind::Asteroid)
+            << L" | UFO " << CountKindLocked(runtime, BgeObjectKind::Ufo)
             << L" | BUL " << CountKindLocked(runtime, BgeObjectKind::Bullet)
             << L" | " << BuildAsteroidGameStateTextLocked(runtime);
         if (gameOver_) {
@@ -1205,12 +1284,16 @@ private:
         }
 
         BgeObjectSlotState& slot = (*runtime.objectSlots)[slotIndex];
+        bool wasUfo = slot.kind == BgeObjectKind::Ufo;
         slot.visible = false;
         slot.deleteMarked = false;
         slot.isDeleted = false;
         slot.collisionDetected = false;
         slot.kind = BgeObjectKind::Generic;
         bulletLifeSeconds_[slotIndex] = 0.0f;
+        if (wasUfo && ufoSlotIndex_ == slotIndex) {
+            ufoSlotIndex_ = -1;
+        }
     }
 
     void HideAsteroidGameBulletsLocked(BgeGameRuntime& runtime)
@@ -1230,11 +1313,22 @@ private:
             && !(slotIndex == *runtime.mainPlayerSlot && *runtime.mainPlayerGroupIndex == *runtime.activeObjectGroupIndex);
     }
 
+    // The UFO gets a dedicated slot so asteroid debris cannot starve it.
+    // Bullets, asteroids, and split children must all skip it.
+    bool IsAsteroidGameUfoReserveSlotLocked(BgeGameRuntime& runtime, int slotIndex) const
+    {
+        return slotIndex == BGE_ASTEROID_GAME_UFO_RESERVED_SLOT
+            && !(slotIndex == *runtime.mainPlayerSlot && *runtime.mainPlayerGroupIndex == *runtime.activeObjectGroupIndex);
+    }
+
     int FindReusableAsteroidGameBulletSlotLocked(BgeGameRuntime& runtime) const
     {
         auto& slots = *runtime.objectSlots;
         for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
             if (!IsAsteroidGameBulletReserveSlotLocked(runtime, index)) {
+                continue;
+            }
+            if (IsAsteroidGameUfoReserveSlotLocked(runtime, index)) {
                 continue;
             }
             if (!slots[index].visible || slots[index].isDeleted) {
@@ -1278,12 +1372,97 @@ private:
             if (IsAsteroidGameBulletReserveSlotLocked(runtime, index)) {
                 continue;
             }
+            if (IsAsteroidGameUfoReserveSlotLocked(runtime, index)) {
+                continue;
+            }
             if (!slots[index].visible || slots[index].isDeleted) {
                 return index;
             }
         }
 
         return -1;
+    }
+
+    void ResetAsteroidGameUfoArrivalTimerLocked()
+    {
+        ufoArrivalSeconds_ = RandomFloatInRange(BGE_ASTEROID_GAME_UFO_MIN_ARRIVAL_SECONDS, BGE_ASTEROID_GAME_UFO_MAX_ARRIVAL_SECONDS);
+    }
+
+    int ActiveAsteroidGameUfoSlotLocked(BgeGameRuntime& runtime) const
+    {
+        auto& slots = *runtime.objectSlots;
+        for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+            const BgeObjectSlotState& slot = slots[index];
+            if (slot.visible && !slot.isDeleted && slot.kind == BgeObjectKind::Ufo) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    int FindReusableAsteroidGameUfoSlotLocked(BgeGameRuntime& runtime) const
+    {
+        auto& slots = *runtime.objectSlots;
+        // Prefer the dedicated UFO reserve slot. It cannot be a bullet,
+        // an asteroid, or the player, so if it is free the UFO can always
+        // spawn even when the field is crowded with split asteroid debris.
+        int reserved = BGE_ASTEROID_GAME_UFO_RESERVED_SLOT;
+        if (reserved >= 0 && reserved < BGE_OBJECT_SLOT_COUNT
+            && !(reserved == *runtime.mainPlayerSlot && *runtime.mainPlayerGroupIndex == *runtime.activeObjectGroupIndex)
+            && (!slots[reserved].visible || slots[reserved].isDeleted)) {
+            return reserved;
+        }
+        // Fallback: scan the rest, still skipping bullet reserve.
+        for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+            if (index == *runtime.mainPlayerSlot && *runtime.mainPlayerGroupIndex == *runtime.activeObjectGroupIndex) {
+                continue;
+            }
+            if (IsAsteroidGameBulletReserveSlotLocked(runtime, index)) {
+                continue;
+            }
+            if (!slots[index].visible || slots[index].isDeleted) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    bool SpawnAsteroidGameUfoLocked(BgeGameRuntime& runtime, const BgeGameViewport& viewport)
+    {
+        if (ActiveAsteroidGameUfoSlotLocked(runtime) >= 0) {
+            return false;
+        }
+        int slotIndex = FindReusableAsteroidGameUfoSlotLocked(runtime);
+        if (slotIndex < 0) {
+            return false;
+        }
+
+        bool fromLeft = RandomFloatInRange(0.0f, 1.0f) < 0.5f;
+        float direction = fromLeft ? 1.0f : -1.0f;
+        float radius = BGE_ASTEROID_GAME_UFO_RADIUS;
+        float minY = viewport.playTop + radius * 1.8f;
+        float maxY = (std::max)(minY, viewport.playTop + viewport.playHeight - radius * 1.8f);
+
+        BgeObjectSlotState& slot = (*runtime.objectSlots)[slotIndex];
+        slot = BgeObjectSlotState{};
+        slot.visible = true;
+        slot.x = fromLeft ? -radius * 2.5f : viewport.width + radius * 2.5f;
+        slot.y = RandomFloatInRange(minY, maxY);
+        slot.radius = radius;
+        slot.velocityX = direction * BGE_ASTEROID_GAME_UFO_SPEED;
+        slot.velocityY = RandomFloatInRange(-38.0f, 38.0f);
+        slot.headingX = direction;
+        slot.headingY = 0.0f;
+        slot.colorR = 0.84f;
+        slot.colorG = 0.96f;
+        slot.colorB = 1.0f;
+        slot.colorA = 1.0f;
+        slot.shape = BgeObjectShape::Ufo;
+        slot.kind = BgeObjectKind::Ufo;
+        slot.renderStyle = BgeObjectRenderStyle::Outline;
+        slot.outlineThickness = 2.0f;
+        ufoSlotIndex_ = slotIndex;
+        return true;
     }
 
     void ConfigureAsteroidGameAsteroidLocked(BgeGameRuntime& runtime, int slotIndex, float x, float y, float radius, float velocityX, float velocityY)
@@ -1614,6 +1793,8 @@ private:
     float playerHeadingX_ = 0.0f;
     float playerHeadingY_ = -1.0f;
     float respawnInvulnerableSeconds_ = 0.0f;
+    float ufoArrivalSeconds_ = 0.0f;
+    int ufoSlotIndex_ = -1;
     bool gameOver_ = false;
     bool victory_ = false;
     std::array<float, BGE_OBJECT_SLOT_COUNT> bulletLifeSeconds_{};

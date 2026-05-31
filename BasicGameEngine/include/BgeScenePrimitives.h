@@ -22,6 +22,7 @@ enum class BgeObjectShape : int {
     Asteroid = 1,
     VectorShip = 2,
     Line = 3,
+    Ufo = 4,
 };
 
 // Render style is recipe-driven, NOT a player/controller mode toggle.
@@ -45,6 +46,7 @@ enum class BgeObjectKind : int {
     Player = 1,
     Asteroid = 2,
     Bullet = 3,
+    Ufo = 4,
 };
 
 constexpr int BGE_ASTEROID_POINT_COUNT = 18;
@@ -110,6 +112,7 @@ inline const wchar_t* BgeObjectShapeName(BgeObjectShape shape)
 {
     switch (shape) {
     case BgeObjectShape::Line: return L"line";
+    case BgeObjectShape::Ufo: return L"ufo";
     case BgeObjectShape::VectorShip: return L"vector-ship";
     case BgeObjectShape::Asteroid: return L"asteroid";
     case BgeObjectShape::Ball:
@@ -123,6 +126,7 @@ inline bool BgeTryParseObjectShape(const std::wstring& text, BgeObjectShape& out
     if (text == L"asteroid" || text == L"rock") { out = BgeObjectShape::Asteroid; return true; }
     if (text == L"vector-ship" || text == L"ship" || text == L"player-ship") { out = BgeObjectShape::VectorShip; return true; }
     if (text == L"line" || text == L"projectile" || text == L"shot") { out = BgeObjectShape::Line; return true; }
+    if (text == L"ufo" || text == L"saucer") { out = BgeObjectShape::Ufo; return true; }
     return false;
 }
 
@@ -150,6 +154,7 @@ inline const wchar_t* BgeObjectKindName(BgeObjectKind kind)
     case BgeObjectKind::Player:   return L"player";
     case BgeObjectKind::Asteroid: return L"asteroid";
     case BgeObjectKind::Bullet:   return L"bullet";
+    case BgeObjectKind::Ufo:      return L"ufo";
     case BgeObjectKind::Generic:
     default:                      return L"generic";
     }

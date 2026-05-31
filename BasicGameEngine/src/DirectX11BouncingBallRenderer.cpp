@@ -148,7 +148,9 @@ void DirectX11BouncingBallRenderer::Tick(double deltaMilliseconds)
             (std::max)(BgeRenderTopInset() + slot.radius, static_cast<float>(height) - slot.radius),
         };
 
-        BgeApplyEdgePolicy(slot, extent, edgePolicy);
+        if (slot.kind != BgeObjectKind::Ufo) {
+            BgeApplyEdgePolicy(slot, extent, edgePolicy);
+        }
     }
 
     BgeUpdateCollisionFlags(slots_);
@@ -698,9 +700,90 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
         vertices[vertexCount++] = headRight;
     };
 
+    auto appendUfoSlot = [&](const BgeObjectSlotState& slot, bool ghost) {
+        if (!slot.visible || slot.isDeleted) {
+            return;
+        }
+
+        float radius = ghost ? slot.radius * 1.10f : slot.radius;
+        float alpha = ghost ? (std::min)(0.38f, slot.colorA * 0.50f) : slot.colorA;
+        float halfWidth = radius * 1.65f;
+        float hullTop = radius * 0.34f;
+        float hullBottom = radius * 0.38f;
+        float domeTop = radius * 0.82f;
+        float domeHalf = radius * 0.62f;
+
+        float hullX[6] = {
+            slot.x - halfWidth,
+            slot.x - radius * 0.78f,
+            slot.x + radius * 0.78f,
+            slot.x + halfWidth,
+            slot.x + radius * 0.70f,
+            slot.x - radius * 0.70f,
+        };
+        float hullY[6] = {
+            slot.y,
+            slot.y - hullTop,
+            slot.y - hullTop,
+            slot.y,
+            slot.y + hullBottom,
+            slot.y + hullBottom,
+        };
+        float domeX[4] = {
+            slot.x - domeHalf,
+            slot.x - radius * 0.30f,
+            slot.x + radius * 0.30f,
+            slot.x + domeHalf,
+        };
+        float domeY[4] = {
+            slot.y - hullTop,
+            slot.y - domeTop,
+            slot.y - domeTop,
+            slot.y - hullTop,
+        };
+
+        if (slot.renderStyle == BgeObjectRenderStyle::Outline) {
+            BgeAppendStrokedPolygon(vertices, vertexCount, kMaxVertexCount,
+                                    hullX, hullY, 6, true,
+                                    slot.outlineThickness,
+                                    slot.colorR, slot.colorG, slot.colorB, alpha,
+                                    static_cast<float>(width), static_cast<float>(height));
+            BgeAppendStrokedPolygon(vertices, vertexCount, kMaxVertexCount,
+                                    domeX, domeY, 4, false,
+                                    slot.outlineThickness,
+                                    slot.colorR, slot.colorG, slot.colorB, alpha,
+                                    static_cast<float>(width), static_cast<float>(height));
+            return;
+        }
+
+        float red = ghost ? 0.14f + slot.colorR * 0.16f : slot.colorR;
+        float green = ghost ? 0.16f + slot.colorG * 0.18f : slot.colorG;
+        float blue = ghost ? 0.18f + slot.colorB * 0.20f : slot.colorB;
+        auto makeVertex = [&](float x, float y, float shade) {
+            return BgeColorVertex{ toNdcX(x), toNdcY(y), (std::min)(1.0f, red * shade), (std::min)(1.0f, green * shade), (std::min)(1.0f, blue * shade), alpha };
+        };
+
+        BgeColorVertex center = makeVertex(slot.x, slot.y, 1.12f);
+        for (int index = 0; index < 6; ++index) {
+            int next = (index + 1) % 6;
+            vertices[vertexCount++] = center;
+            vertices[vertexCount++] = makeVertex(hullX[index], hullY[index], index < 3 ? 1.18f : 0.82f);
+            vertices[vertexCount++] = makeVertex(hullX[next], hullY[next], next < 3 ? 1.18f : 0.82f);
+        }
+        vertices[vertexCount++] = makeVertex(domeX[0], domeY[0], 0.92f);
+        vertices[vertexCount++] = makeVertex(domeX[1], domeY[1], 1.24f);
+        vertices[vertexCount++] = makeVertex(domeX[2], domeY[2], 1.24f);
+        vertices[vertexCount++] = makeVertex(domeX[0], domeY[0], 0.92f);
+        vertices[vertexCount++] = makeVertex(domeX[2], domeY[2], 1.24f);
+        vertices[vertexCount++] = makeVertex(domeX[3], domeY[3], 0.92f);
+    };
+
     auto appendObjectSlot = [&](const BgeObjectSlotState& slot, bool ghost) {
         if (slot.shape == BgeObjectShape::Line) {
             appendLineSlot(slot, ghost);
+        }
+        else if (slot.shape == BgeObjectShape::Ufo) {
+            appendUfoSlot(slot, ghost);
         }
         else if (slot.shape == BgeObjectShape::VectorShip) {
             appendVectorShipSlot(slot, ghost);

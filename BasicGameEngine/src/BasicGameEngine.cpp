@@ -282,6 +282,23 @@ struct BgeBreakableRockFieldState {
     float outlineThickness = 2.0f;
 };
 
+struct BgeUfoState {
+    bool active = false;
+    std::wstring id = L"saucer";
+    int slotIndex = -1;
+    std::wstring score = L"score:200";
+    std::wstring weapon = L"enemy-shot";
+    std::wstring aim = L"player_ship";
+    float arrivalMinSeconds = 7.0f;
+    float arrivalMaxSeconds = 18.0f;
+    float arrivalRemainingSeconds = 0.0f;
+    float radius = 20.0f;
+    float speed = 170.0f;
+    bool edgeSpawn = true;
+    BgeObjectRenderStyle renderStyle = BgeObjectRenderStyle::Outline;
+    float outlineThickness = 2.0f;
+};
+
 struct BgeVectorShipState {
     bool active = false;
     std::wstring id = L"player_ship";
@@ -402,6 +419,8 @@ BgeScoreboardState g_scoreboardState;
 std::vector<BgeCounterState> g_bgeCounters;
 bool g_breakableRockFieldActive = false;
 BgeBreakableRockFieldState g_breakableRockFieldState;
+bool g_ufoActive = false;
+BgeUfoState g_ufoState;
 std::vector<BgeProjectileDefinition> g_projectileDefinitions;
 std::array<float, BGE_OBJECT_SLOT_COUNT> g_bgeProjectileLifeSeconds{};
 bool g_vectorShipActive = false;
@@ -567,6 +586,7 @@ bool ExecuteBgeCounterCommand(const std::vector<std::wstring>& tokens, std::wstr
 bool ExecuteBgeScoreboardCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeBreakableRockFieldCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeProjectileCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeUfoCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeVectorShipCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeSoundCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool HandleBgeVectorShipKeyDown(WPARAM key);
@@ -574,6 +594,7 @@ bool HandleBgeVectorShipKeyUp(WPARAM key);
 void ClearBgeVectorShipInputState();
 void ApplyVectorShipHeadingModeLocked(BgeObjectSlotState& slot, const BgeVectorShipState& ship);
 bool TickBgeProjectiles(double deltaMilliseconds);
+bool TickBgeUfo(double deltaMilliseconds);
 bool TickBgeVectorShip(double deltaMilliseconds);
 bool VectorShipPlayerAliveLocked();
 void ResolveBgeShipRockCollisionsLocked();
@@ -2538,6 +2559,357 @@ bool FireBgeProjectileFromVectorShipLocked(std::wstring& statusText)
     return true;
 }
 
+float RandomBgeUnitFloat()
+{
+    return static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+}
+
+float RandomBgeRange(float minimum, float maximum)
+{
+    if (maximum <= minimum) {
+        return minimum;
+    }
+    return minimum + (maximum - minimum) * RandomBgeUnitFloat();
+}
+
+void ResetBgeUfoArrivalTimerLocked(float minimumOverride = -1.0f, float maximumOverride = -1.0f)
+{
+    float minimum = minimumOverride >= 0.0f ? minimumOverride : g_ufoState.arrivalMinSeconds;
+    float maximum = maximumOverride >= 0.0f ? maximumOverride : g_ufoState.arrivalMaxSeconds;
+    if (maximum < minimum) {
+        maximum = minimum;
+    }
+    g_ufoState.arrivalRemainingSeconds = RandomBgeRange(minimum, maximum);
+}
+
+bool BgeUfoScoreSpec(const std::wstring& scoreSpec, std::wstring& counterName, int& points)
+{
+    std::wstring trimmed = TrimText(scoreSpec);
+    if (trimmed.empty()) {
+        counterName = L"score";
+        points = 200;
+        return true;
+    }
+
+    size_t colon = trimmed.find(L':');
+    std::wstring pointsText;
+    if (colon == std::wstring::npos) {
+        counterName = L"score";
+        pointsText = trimmed;
+    }
+    else {
+        counterName = NormalizeTitleScreenText(trimmed.substr(0, colon));
+        pointsText = trimmed.substr(colon + 1);
+    }
+    if (counterName.empty()) {
+        counterName = L"score";
+    }
+
+    int parsedPoints = 0;
+    if (!TryParseIntArg(pointsText, parsedPoints)) {
+        return false;
+    }
+    points = parsedPoints;
+    return true;
+}
+
+std::wstring BgeUfoStatusText(const BgeUfoState& ufo)
+{
+    return L"UFO: " + std::wstring(ufo.active ? L"active" : L"inactive")
+        + L" id=" + ufo.id
+        + L" score=" + ufo.score
+        + L" weapon=" + ufo.weapon
+        + L" arrival=" + std::to_wstring(static_cast<int>(ufo.arrivalMinSeconds)) + L".." + std::to_wstring(static_cast<int>(ufo.arrivalMaxSeconds))
+        + L" next=" + std::to_wstring(static_cast<int>(ufo.arrivalRemainingSeconds));
+}
+
+void HideBgeUfoSlotLocked(int slotIndex)
+{
+    if (slotIndex < 0 || slotIndex >= BGE_OBJECT_SLOT_COUNT) {
+        return;
+    }
+    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
+    if (slot.kind != BgeObjectKind::Ufo) {
+        return;
+    }
+    slot.visible = false;
+    slot.deleteMarked = false;
+    slot.isDeleted = false;
+    slot.collisionDetected = false;
+    slot.kind = BgeObjectKind::Generic;
+    if (g_ufoState.slotIndex == slotIndex) {
+        g_ufoState.slotIndex = -1;
+    }
+}
+
+void HideBgeUfoLocked()
+{
+    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+        HideBgeUfoSlotLocked(index);
+    }
+}
+
+int ActiveBgeUfoSlotLocked()
+{
+    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+        const BgeObjectSlotState& slot = g_objectSlots[index];
+        if (slot.visible && !slot.isDeleted && slot.kind == BgeObjectKind::Ufo) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+int FindReusableBgeUfoSlotLocked()
+{
+    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+        if (g_mainPlayerGroupIndex == g_activeObjectGroupIndex && index == g_mainPlayerSlot) {
+            continue;
+        }
+        if (g_objectSlots[index].kind == BgeObjectKind::Bullet && g_bgeProjectileLifeSeconds[index] > 0.0f) {
+            continue;
+        }
+        if (!g_objectSlots[index].visible || g_objectSlots[index].isDeleted) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+bool SpawnBgeUfoLocked()
+{
+    int slotIndex = FindReusableBgeUfoSlotLocked();
+    if (slotIndex < 0) {
+        return false;
+    }
+
+    BgeGameViewport viewport = CurrentGameViewport();
+    float radius = (std::max)(10.0f, g_ufoState.radius);
+    float minY = viewport.playTop + radius * 1.8f;
+    float maxY = (std::max)(minY, viewport.playTop + viewport.playHeight - radius * 1.8f);
+    bool fromLeft = RandomBgeUnitFloat() < 0.5f;
+    float direction = fromLeft ? 1.0f : -1.0f;
+    float speed = (std::max)(40.0f, g_ufoState.speed);
+
+    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
+    slot = BgeObjectSlotState{};
+    slot.visible = true;
+    slot.x = fromLeft ? -radius * 2.5f : viewport.width + radius * 2.5f;
+    slot.y = RandomBgeRange(minY, maxY);
+    slot.radius = radius;
+    slot.velocityX = direction * speed;
+    slot.velocityY = RandomBgeRange(-38.0f, 38.0f);
+    slot.headingX = direction;
+    slot.headingY = 0.0f;
+    slot.colorR = 0.84f;
+    slot.colorG = 0.96f;
+    slot.colorB = 1.0f;
+    slot.colorA = 1.0f;
+    slot.shape = BgeObjectShape::Ufo;
+    slot.kind = BgeObjectKind::Ufo;
+    slot.renderStyle = g_ufoState.renderStyle;
+    slot.outlineThickness = g_ufoState.outlineThickness;
+    g_ufoState.slotIndex = slotIndex;
+    return true;
+}
+
+bool AwardBgeUfoScoreLocked(int& scoreDelta)
+{
+    std::wstring counterName;
+    int points = 0;
+    if (!BgeUfoScoreSpec(g_ufoState.score, counterName, points)) {
+        return false;
+    }
+    if (points != 0 && AddBgeCounterValueLocked(counterName, points)) {
+        scoreDelta += points;
+        return true;
+    }
+    return false;
+}
+
+bool ExecuteBgeUfoCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"ufo commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"status" || subcommand == L"list") {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        statusText = BgeUfoStatusText(g_ufoState);
+        return true;
+    }
+
+    if (subcommand == L"hide" || subcommand == L"clear") {
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            HideBgeUfoLocked();
+            g_ufoState.active = false;
+            g_ufoActive = false;
+            g_rendererStateDirty = true;
+            PersistActiveObjectGroupLocked();
+        }
+        InvalidateGameRenderer();
+        statusText = L"UFO hidden";
+        return true;
+    }
+
+    if (subcommand != L"create" && subcommand != L"show") {
+        statusText = L"Use: ufo create --id saucer --score score:200 --weapon enemy-shot --arrival 7..18 --aim player_ship --edge-spawn";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.piece.ufo")) {
+        statusText = L"Import UFO first: plugin import bge.piece.ufo";
+        return false;
+    }
+
+    BgeUfoState ufo;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        ufo = g_ufoState;
+    }
+    ufo.active = true;
+
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--id", value)) {
+        ufo.id = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--score", value)) {
+        std::wstring counterName;
+        int points = 0;
+        if (BgeUfoScoreSpec(value, counterName, points)) {
+            ufo.score = NormalizeTitleScreenText(counterName) + L":" + std::to_wstring(points);
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--weapon", value)) {
+        ufo.weapon = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--aim", value)) {
+        ufo.aim = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--arrival", value)) {
+        float minimum = 0.0f;
+        float maximum = 0.0f;
+        if (TryParseBgeRange(value, minimum, maximum)) {
+            ufo.arrivalMinSeconds = ClampFloat(minimum, 0.5f, 120.0f);
+            ufo.arrivalMaxSeconds = ClampFloat(maximum, ufo.arrivalMinSeconds, 180.0f);
+        }
+        else {
+            float seconds = 0.0f;
+            if (TryParseFloatArg(value, seconds)) {
+                ufo.arrivalMinSeconds = ClampFloat(seconds, 0.5f, 120.0f);
+                ufo.arrivalMaxSeconds = ufo.arrivalMinSeconds;
+            }
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--radius", value)) {
+        float parsedRadius = 0.0f;
+        if (TryParseFloatArg(value, parsedRadius)) {
+            ufo.radius = ClampFloat(parsedRadius, 8.0f, 80.0f);
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--speed", value)) {
+        float parsedSpeed = 0.0f;
+        if (TryParseFloatArg(value, parsedSpeed)) {
+            ufo.speed = ClampFloat(parsedSpeed, 30.0f, 900.0f);
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--style", value)) {
+        BgeObjectRenderStyle parsedStyle = BgeObjectRenderStyle::Outline;
+        if (BgeTryParseObjectRenderStyle(LowerArg(value), parsedStyle)) {
+            ufo.renderStyle = parsedStyle;
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--outline-thickness", value)) {
+        float parsedThickness = 0.0f;
+        if (TryParseFloatArg(value, parsedThickness)) {
+            ufo.outlineThickness = ClampFloat(parsedThickness, 0.5f, 16.0f);
+        }
+    }
+    ufo.edgeSpawn = HasCommandFlag(tokens, L"--edge-spawn") || !HasCommandFlag(tokens, L"--no-edge-spawn");
+
+    bool spawned = false;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        g_ufoState = ufo;
+        g_ufoActive = true;
+        ResetBgeUfoArrivalTimerLocked();
+        if (subcommand == L"show") {
+            HideBgeUfoLocked();
+            spawned = SpawnBgeUfoLocked();
+            ResetBgeUfoArrivalTimerLocked();
+        }
+        g_rendererStateDirty = true;
+        PersistActiveObjectGroupLocked();
+    }
+
+    InvalidateGameRenderer();
+    statusText = BgeUfoStatusText(ufo);
+    if (spawned) {
+        statusText += L" | spawned";
+    }
+    LogRendererMessage("[BgeUfoPlugin] configured id=\"" + Narrow(ufo.id) + "\" score=\"" + Narrow(ufo.score) + "\" arrival=" + std::to_string(static_cast<int>(ufo.arrivalMinSeconds)) + ".." + std::to_string(static_cast<int>(ufo.arrivalMaxSeconds)));
+    return true;
+}
+
+bool TickBgeUfo(double deltaMilliseconds)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    bool dirty = false;
+    bool spawned = false;
+    bool exited = false;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (!g_ufoActive || !g_ufoState.active || g_titleScreenActive || g_vectorShipState.gameOver || !g_ballAnimationRunning) {
+            return false;
+        }
+
+        float deltaSeconds = static_cast<float>((std::max)(0.0, deltaMilliseconds) / 1000.0);
+        BgeGameViewport viewport = CurrentGameViewport();
+        int activeSlot = ActiveBgeUfoSlotLocked();
+        if (activeSlot >= 0) {
+            const BgeObjectSlotState& ufo = g_objectSlots[activeSlot];
+            float margin = (std::max)(40.0f, ufo.radius * 3.0f);
+            if (ufo.x < -margin || ufo.x > viewport.width + margin || ufo.y < viewport.playTop - margin || ufo.y > viewport.playTop + viewport.playHeight + margin) {
+                HideBgeUfoSlotLocked(activeSlot);
+                ResetBgeUfoArrivalTimerLocked();
+                exited = true;
+                dirty = true;
+            }
+        }
+        else {
+            if (g_ufoState.arrivalRemainingSeconds <= 0.0f) {
+                ResetBgeUfoArrivalTimerLocked();
+            }
+            g_ufoState.arrivalRemainingSeconds = (std::max)(0.0f, g_ufoState.arrivalRemainingSeconds - deltaSeconds);
+            if (g_ufoState.arrivalRemainingSeconds <= 0.0f) {
+                spawned = SpawnBgeUfoLocked();
+                ResetBgeUfoArrivalTimerLocked(spawned ? -1.0f : 3.0f, spawned ? -1.0f : 6.0f);
+                dirty = dirty || spawned;
+            }
+        }
+
+        if (dirty) {
+            BgeUpdateCollisionFlags(g_objectSlots);
+            PersistActiveObjectGroupLocked();
+            g_rendererStateDirty = true;
+        }
+    }
+
+    if (spawned) {
+        SendWorkerTelemetry(L"game-event", L"ufo-spawn", L"saucer entered");
+        LogRendererMessage("[BgeUfoPlugin] spawned");
+    }
+    else if (exited) {
+        LogRendererMessage("[BgeUfoPlugin] exited");
+    }
+    return dirty;
+}
+
 // ============================================================
 // bge.piece.audio plugin (engine-neutral)
 // Attributes contributed by BgeAudioPluginOperation: plugin.bge.piece.audio
@@ -2817,6 +3189,7 @@ bool TickBgeProjectiles(double deltaMilliseconds)
 
     bool dirty = false;
     int hitCount = 0;
+    int ufoHitCount = 0;
     int scoreDelta = 0;
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
@@ -2834,6 +3207,34 @@ bool TickBgeProjectiles(double deltaMilliseconds)
                 slot.collisionDetected = false;
                 slot.kind = BgeObjectKind::Generic;
                 dirty = true;
+            }
+        }
+
+        for (int projectileIndex = 0; projectileIndex < BGE_OBJECT_SLOT_COUNT; ++projectileIndex) {
+            BgeObjectSlotState& projectile = g_objectSlots[projectileIndex];
+            if (!projectile.visible || projectile.kind != BgeObjectKind::Bullet || g_bgeProjectileLifeSeconds[projectileIndex] <= 0.0f) {
+                continue;
+            }
+
+            for (int ufoIndex = 0; ufoIndex < BGE_OBJECT_SLOT_COUNT; ++ufoIndex) {
+                BgeObjectSlotState& ufo = g_objectSlots[ufoIndex];
+                if (!ufo.visible || ufo.kind != BgeObjectKind::Ufo || !BgeObjectSlotsOverlap(projectile, ufo)) {
+                    continue;
+                }
+
+                projectile.visible = false;
+                projectile.deleteMarked = false;
+                projectile.isDeleted = false;
+                projectile.collisionDetected = false;
+                projectile.kind = BgeObjectKind::Generic;
+                g_bgeProjectileLifeSeconds[projectileIndex] = 0.0f;
+
+                HideBgeUfoSlotLocked(ufoIndex);
+                AwardBgeUfoScoreLocked(scoreDelta);
+                ResetBgeUfoArrivalTimerLocked();
+                ++ufoHitCount;
+                dirty = true;
+                break;
             }
         }
 
@@ -2925,6 +3326,11 @@ bool TickBgeProjectiles(double deltaMilliseconds)
         std::wstring statusText = L"Rock hit: " + std::to_wstring(hitCount) + L" score +" + std::to_wstring(scoreDelta);
         SendWorkerTelemetry(L"game-event", L"rock-field collision", statusText);
         LogRendererMessage("[BgeBreakableRockFieldPlugin] projectile-hit hits=" + std::to_string(hitCount) + " scoreDelta=" + std::to_string(scoreDelta));
+    }
+    if (ufoHitCount > 0) {
+        std::wstring statusText = L"UFO hit: " + std::to_wstring(ufoHitCount) + L" score +" + std::to_wstring(scoreDelta);
+        SendWorkerTelemetry(L"game-event", L"ufo collision", statusText);
+        LogRendererMessage("[BgeUfoPlugin] projectile-hit hits=" + std::to_string(ufoHitCount) + " scoreDelta=" + std::to_string(scoreDelta));
     }
     return dirty;
 }
@@ -3415,6 +3821,7 @@ void ShowSpaceRocksGameOverScreenLocked()
     g_titleScreenState.subtitle = L"PRESS ENTER";
     g_titleScreenActive = true;
     g_vectorShipState.gameOver = true;
+    HideBgeUfoLocked();
     g_rendererStateDirty = true;
 }
 
@@ -3480,6 +3887,10 @@ void StartOrRestartSpaceRocksGameLocked()
             slot.kind = BgeObjectKind::Generic;
         }
     }
+    HideBgeUfoLocked();
+    if (g_ufoActive && g_ufoState.active) {
+        ResetBgeUfoArrivalTimerLocked(3.0f, 8.0f);
+    }
 
     g_vectorShipState.gameOver = false;
     g_vectorShipState.awaitingRespawn = false;
@@ -3509,7 +3920,7 @@ void ResolveBgeShipRockCollisionsLocked()
         BgeObjectSlotState& other = g_objectSlots[i];
         if (i == g_vectorShipState.slotIndex) continue;
         if (!other.visible) continue;
-        if (other.kind != BgeObjectKind::Asteroid) continue;
+        if (other.kind != BgeObjectKind::Asteroid && other.kind != BgeObjectKind::Ufo) continue;
         if (!BgeObjectSlotsOverlap(shipSlot, other)) continue;
 
         // Hit! Hide ship, decrement lives, schedule respawn or game-over.
@@ -3527,7 +3938,7 @@ void ResolveBgeShipRockCollisionsLocked()
             g_vectorShipState.gameOver = true;
             SendWorkerTelemetry(L"game-event", L"game-over", L"lives=0");
         } else {
-            SendWorkerTelemetry(L"game-event", L"life-lost", L"ship destroyed by asteroid");
+            SendWorkerTelemetry(L"game-event", L"life-lost", other.kind == BgeObjectKind::Ufo ? L"ship destroyed by ufo" : L"ship destroyed by asteroid");
         }
         BgeUpdateCollisionFlags(g_objectSlots);
         return;
@@ -5650,24 +6061,28 @@ std::vector<std::wstring> BuildExportCommandsFromCurrentState()
     BgeTitleScreenState titleScreen;
     BgeScoreboardState scoreboard;
     BgeBreakableRockFieldState rockField;
+    BgeUfoState ufo;
     std::vector<BgeCounterState> counters;
     std::vector<BgeProjectileDefinition> projectiles;
     BgeVectorShipState vectorShip;
     bool titleScreenActive = false;
     bool scoreboardActive = false;
     bool rockFieldActive = false;
+    bool ufoActive = false;
     bool vectorShipActive = false;
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
         titleScreen = g_titleScreenState;
         scoreboard = g_scoreboardState;
         rockField = g_breakableRockFieldState;
+        ufo = g_ufoState;
         counters = g_bgeCounters;
         projectiles = g_projectileDefinitions;
         vectorShip = g_vectorShipState;
         titleScreenActive = g_titleScreenActive && g_titleScreenState.visible;
         scoreboardActive = g_scoreboardActive && g_scoreboardState.visible;
         rockFieldActive = g_breakableRockFieldActive && g_breakableRockFieldState.active;
+        ufoActive = g_ufoActive && g_ufoState.active;
         vectorShipActive = g_vectorShipActive && g_vectorShipState.active;
     }
 
@@ -5693,6 +6108,20 @@ std::vector<std::wstring> BuildExportCommandsFromCurrentState()
             + L" --ttl " + std::to_wstring(projectile.ttlSeconds)
             + L" --collision-tag " + CommandFileArg(projectile.collisionTag);
         command += projectile.wrap ? L" --wrap" : L" --no-wrap";
+        commands.push_back(command);
+    }
+
+    if (ufoActive) {
+        std::wstring command = L"ufo create --id " + CommandFileArg(ufo.id)
+            + L" --score " + CommandFileArg(ufo.score)
+            + L" --weapon " + CommandFileArg(ufo.weapon)
+            + L" --arrival " + std::to_wstring(static_cast<int>(ufo.arrivalMinSeconds)) + L".." + std::to_wstring(static_cast<int>(ufo.arrivalMaxSeconds))
+            + L" --aim " + CommandFileArg(ufo.aim)
+            + L" --radius " + std::to_wstring(static_cast<int>(ufo.radius))
+            + L" --speed " + std::to_wstring(static_cast<int>(ufo.speed))
+            + L" --style " + CommandFileArg(BgeObjectRenderStyleName(ufo.renderStyle))
+            + L" --outline-thickness " + std::to_wstring(ufo.outlineThickness);
+        command += ufo.edgeSpawn ? L" --edge-spawn" : L" --no-edge-spawn";
         commands.push_back(command);
     }
 
@@ -6307,8 +6736,9 @@ void TickActiveRenderer(double deltaMilliseconds)
             // thrust"). Bitwise OR forces all ticks to run.
             bool asteroidDirty = TickAsteroidGameMode(deltaMilliseconds);
             bool projectileDirty = TickBgeProjectiles(deltaMilliseconds);
+            bool ufoDirty = TickBgeUfo(deltaMilliseconds);
             bool shipDirty = TickBgeVectorShip(deltaMilliseconds);
-            if (asteroidDirty | projectileDirty | shipDirty | overlayActive) {
+            if (asteroidDirty | projectileDirty | ufoDirty | shipDirty | overlayActive) {
                 ApplyBallStateToRenderer();
             }
         }
@@ -6325,8 +6755,9 @@ void TickActiveRenderer(double deltaMilliseconds)
         // See DX12 branch above for the short-circuit explanation.
         bool asteroidDirty = TickAsteroidGameMode(deltaMilliseconds);
         bool projectileDirty = TickBgeProjectiles(deltaMilliseconds);
+        bool ufoDirty = TickBgeUfo(deltaMilliseconds);
         bool shipDirty = TickBgeVectorShip(deltaMilliseconds);
-        if (asteroidDirty | projectileDirty | shipDirty | overlayActive) {
+        if (asteroidDirty | projectileDirty | ufoDirty | shipDirty | overlayActive) {
             ApplyBallStateToRenderer();
         }
     }
@@ -6746,7 +7177,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
     };
 
     if (command == L"help" || command == L"?") {
-        statusText = L"plugin import/import-set | player-ship create | projectile create | counter define/set | scoreboard create | title-screen create | export executable | inspect commands | mapping";
+        statusText = L"plugin import/import-set | player-ship create | projectile create | ufo create | counter define/set | scoreboard create | title-screen create | export executable | inspect commands | mapping";
         logCommand("help");
         return true;
     }
@@ -6815,6 +7246,12 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
     if (command == L"projectile") {
         bool ok = ExecuteBgeProjectileCommand(tokens, statusText);
         logCommand(ok ? "projectile" : "projectile failed");
+        return ok;
+    }
+
+    if (command == L"ufo" || command == L"saucer") {
+        bool ok = ExecuteBgeUfoCommand(tokens, statusText);
+        logCommand(ok ? "ufo" : "ufo failed");
         return ok;
     }
 
@@ -8547,6 +8984,7 @@ std::wstring MappingWindowText()
     text << L"  Controller command: game-loop: plugin import bge.piece.vector-ship\r\n";
     text << L"  Vector ship piece: plugin import bge.piece.vector-ship, then player-ship create --id player_ship --shape vector-ship --lives lives --input-profile arrows-space --fire shot --hyperspace H\r\n";
     text << L"  Projectile piece: plugin import bge.piece.projectile, then projectile create --id shot --owner player --shape line --speed 620 --ttl 1.1 --wrap\r\n";
+    text << L"  UFO piece: plugin import bge.piece.ufo, then ufo create --id saucer --score score:200 --weapon enemy-shot --arrival 7..18 --edge-spawn\r\n";
     text << L"  Counter capability: counter define score 0 min 0 | counter set score 100 | counter add score 20\r\n";
     text << L"  Scoreboard piece: plugin import bge.piece.scoreboard, then scoreboard create --counters score|high-score|lives|wave --anchor top-left --format SCORE:{score}|HIGH:{high-score}|LIVES:{lives}|WAVE:{wave}\r\n";
     text << L"  Title screen piece: plugin import bge.piece.title-screen, then title-screen create --text ASTEROIDS --subtitle PRESS_ENTER --start Enter --next playing --blink\r\n";
