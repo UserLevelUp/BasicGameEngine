@@ -306,7 +306,8 @@ public:
             return false;
         }
 
-        bool isGameKey = key == L'A' || key == L'D' || key == L'W' || key == L'S' || key == L'H' || key == L'P' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_SPACE;
+        int visibilityMode = BgePlayerIconVisibilityModeIndexFromKey(key);
+        bool isGameKey = visibilityMode >= 0 || key == L'A' || key == L'a' || key == L'D' || key == L'd' || key == L'W' || key == L'w' || key == L'S' || key == L's' || key == L'H' || key == L'h' || key == L'P' || key == L'p' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_SPACE;
         if (!isGameKey || !RuntimeReady(runtime)) {
             return false;
         }
@@ -330,7 +331,10 @@ public:
                 handled = true;
                 statusText = BuildAsteroidGameStatusLocked(runtime);
             }
-            else if (!SelectedAsteroidGamePlayerLocked(runtime)) {
+            else if (visibilityMode >= 0) {
+                handled = ApplyAsteroidGamePlayerIconVisibilityModeLocked(runtime, visibilityMode, statusText);
+            }
+            else if (!AsteroidGamePlayerAliveLocked(runtime, *runtime.mainPlayerSlot)) {
                 noPlayerSelected = true;
             }
             else if (key == L'A' || key == VK_LEFT) {
@@ -1313,14 +1317,17 @@ private:
         slot.x = x;
         slot.y = y;
         slot.radius = 18.0f;
-        slot.velocityX = 120.0f;
+        slot.velocityX = 0.0f;
         slot.velocityY = 0.0f;
+        slot.headingX = 1.0f;
+        slot.headingY = 0.0f;
         slot.colorR = 0.10f;
         slot.colorG = 0.82f;
         slot.colorB = 0.95f;
         slot.colorA = 1.0f;
-        slot.shape = BgeObjectShape::Ball;
+        slot.shape = BgeObjectShape::VectorShip;
         slot.kind = BgeObjectKind::Player;
+        BgeApplyPlayerIconVisibilityMode(slot, playerIconVisibilityMode_, false);
         bulletLifeSeconds_[slotIndex] = 0.0f;
     }
 
@@ -1342,7 +1349,23 @@ private:
         if (!AsteroidGamePlayerAliveLocked(runtime, playerSlot)) {
             return;
         }
-        (*runtime.objectSlots)[playerSlot].colorA = respawnInvulnerableSeconds_ > 0.0f ? 0.48f : 1.0f;
+        BgeApplyPlayerIconVisibilityMode((*runtime.objectSlots)[playerSlot], playerIconVisibilityMode_, respawnInvulnerableSeconds_ > 0.0f);
+    }
+
+    bool ApplyAsteroidGamePlayerIconVisibilityModeLocked(BgeGameRuntime& runtime, int modeIndex, std::wstring& statusText)
+    {
+        int playerSlot = *runtime.mainPlayerSlot;
+        if (!AsteroidGamePlayerAliveLocked(runtime, playerSlot)) {
+            return false;
+        }
+
+        playerIconVisibilityMode_ = BgeNormalizePlayerIconVisibilityModeIndex(modeIndex);
+        BgeApplyPlayerIconVisibilityMode((*runtime.objectSlots)[playerSlot], playerIconVisibilityMode_, respawnInvulnerableSeconds_ > 0.0f);
+        *runtime.selectedObjectSlot = playerSlot;
+        *runtime.objectSelectionActive = true;
+        statusText = L"Asteroid Game: player icon mode " + std::to_wstring(playerIconVisibilityMode_)
+            + L" (" + BgePlayerIconVisibilityModeName(playerIconVisibilityMode_) + L")";
+        return true;
     }
 
     void RespawnAsteroidGamePlayerLocked(BgeGameRuntime& runtime, const BgeGameViewport& viewport)
@@ -1373,34 +1396,41 @@ private:
 
     bool RotateAsteroidGamePlayerLocked(BgeGameRuntime& runtime, float deltaDegrees)
     {
-        if (!SelectedAsteroidGamePlayerLocked(runtime)) {
+        if (!AsteroidGamePlayerAliveLocked(runtime, *runtime.mainPlayerSlot)) {
             return false;
         }
 
         BgeObjectSlotState& player = (*runtime.objectSlots)[*runtime.mainPlayerSlot];
-        float currentSpeed = VectorLength(player.velocityX, player.velocityY);
-        if (currentSpeed < 1.0f) {
-            currentSpeed = 1.0f;
-            player.velocityX = currentSpeed;
-            player.velocityY = 0.0f;
-        }
 
-        float radians = std::atan2(player.velocityY, player.velocityX) + deltaDegrees * 3.14159265358979323846f / 180.0f;
-        player.velocityX = std::cos(radians) * currentSpeed;
-        player.velocityY = std::sin(radians) * currentSpeed;
+        // Rotate the heading vector independently of velocity so the ship
+        // can turn in place without being forced to drift.
+        float headingX = player.headingX;
+        float headingY = player.headingY;
+        if (VectorLength(headingX, headingY) < 0.001f) {
+            headingX = 1.0f;
+            headingY = 0.0f;
+        }
+        float radians = std::atan2(headingY, headingX) + deltaDegrees * 3.14159265358979323846f / 180.0f;
+        player.headingX = std::cos(radians);
+        player.headingY = std::sin(radians);
         return true;
     }
 
     bool ThrustAsteroidGamePlayerLocked(BgeGameRuntime& runtime, float thrustStep)
     {
-        if (!SelectedAsteroidGamePlayerLocked(runtime)) {
+        if (!AsteroidGamePlayerAliveLocked(runtime, *runtime.mainPlayerSlot)) {
             return false;
         }
 
         BgeObjectSlotState& player = (*runtime.objectSlots)[*runtime.mainPlayerSlot];
-        float directionX = 1.0f;
-        float directionY = 0.0f;
-        NormalizeVectorOrDefault(player.velocityX, player.velocityY, directionX, directionY);
+        // Thrust along the heading vector, not the current velocity, so the
+        // pilot decides the direction of acceleration.
+        float directionX = player.headingX;
+        float directionY = player.headingY;
+        if (VectorLength(directionX, directionY) < 0.001f) {
+            directionX = 1.0f;
+            directionY = 0.0f;
+        }
         player.velocityX += directionX * thrustStep;
         player.velocityY += directionY * thrustStep;
         ClampVelocity(player.velocityX, player.velocityY, BGE_ASTEROID_GAME_MAX_PLAYER_SPEED);
@@ -1410,7 +1440,7 @@ private:
     bool FireAsteroidGameProjectileLocked(BgeGameRuntime& runtime, int& bulletSlot)
     {
         bulletSlot = -1;
-        if (!SelectedAsteroidGamePlayerLocked(runtime)) {
+        if (!AsteroidGamePlayerAliveLocked(runtime, *runtime.mainPlayerSlot)) {
             return false;
         }
 
@@ -1421,9 +1451,12 @@ private:
 
         auto& slots = *runtime.objectSlots;
         const BgeObjectSlotState& player = slots[*runtime.mainPlayerSlot];
-        float directionX = 1.0f;
-        float directionY = 0.0f;
-        NormalizeVectorOrDefault(player.velocityX, player.velocityY, directionX, directionY);
+        // Fire along the ship's heading, not its drift velocity.
+        float directionX = player.headingX;
+        float directionY = player.headingY;
+        if (VectorLength(directionX, directionY) < 0.001f) {
+            NormalizeVectorOrDefault(player.velocityX, player.velocityY, directionX, directionY);
+        }
 
         BgeObjectSlotState& bullet = slots[targetSlot];
         bullet = BgeObjectSlotState{};
@@ -1559,6 +1592,7 @@ private:
     bool gameMode_ = false;
     int score_ = 0;
     int lives_ = BGE_ASTEROID_GAME_STARTING_LIVES;
+    int playerIconVisibilityMode_ = 0;
     float respawnInvulnerableSeconds_ = 0.0f;
     bool gameOver_ = false;
     bool victory_ = false;

@@ -14,6 +14,7 @@
 #include <cwchar>
 #include <cwctype>
 #include <fstream>      // Pass A: bge.toml config reader
+#include <filesystem>
 #include <iostream>
 #include <iterator>
 #include <memory>
@@ -25,6 +26,8 @@
 #include "../resource.h"
 #include <shellapi.h>
 #include <windowsx.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
 #include "../include/TaskBarMgr.h"
 #include "../include/WindowMutexMgr.h"
 #include "../include/InterprocessCommMgr.h"  // Include the InterprocessCommMgr header
@@ -33,7 +36,13 @@
 
 #include "../../OpNode/OpNode.h"
 #include "../include/BgeGameModule.h"
+#include "../include/BgeAudioPluginOperation.h"
+#include "../include/BgeBreakableRockFieldPluginOperation.h"
+#include "../include/BgeProjectilePluginOperation.h"
 #include "../include/BgeScenePrimitives.h"
+#include "../include/BgeScoreboardPluginOperation.h"
+#include "../include/BgeTitleScreenPluginOperation.h"
+#include "../include/BgeVectorShipPluginOperation.h"
 #include "../include/BasicGameRoleOperation.h"
 #include "../include/DirectX11BouncingBallOperation.h"
 #include "../include/DirectX11BouncingBallRenderer.h"
@@ -130,6 +139,7 @@ constexpr int IDC_BGE_ASTEROID_TITLE = 42935;
 constexpr int IDC_BGE_ASTEROID_HUD = 42936;
 constexpr int IDC_BGE_ASTEROID_COMMANDS = 42937;
 constexpr ULONG_PTR BGE_COPYDATA_WORKER_COMMAND = 0xB6E00001;
+constexpr ULONG_PTR BGE_COPYDATA_WORKER_TELEMETRY = 0xB6E00002;
 constexpr int BGE_CONTROLLER_ARTIFACT_COUNT = 6;
 constexpr size_t BGE_CONTROLLER_HISTORY_LIMIT = 128;
 constexpr size_t BGE_DELETE_HISTORY_LIMIT = 64;
@@ -148,6 +158,8 @@ constexpr std::array<const wchar_t*, 5> BGE_EDIT_RATE_LABELS = { L"0.25x", L"0.5
 const wchar_t kBgeHistoryWindowClass[] = L"BasicGameEngineHistoryWindow";
 const wchar_t kBgeMappingWindowClass[] = L"BasicGameEngineMappingWindow";
 const wchar_t kBgeAsteroidAlphaWindowClass[] = L"BasicGameEngineAsteroidAlphaWindow";
+const wchar_t kBgeEmbeddedGameScriptResourceName[] = L"BGE_GAME_SCRIPT";
+const wchar_t kBgeEmbeddedFeatureLedgerResourceName[] = L"BGE_FEATURE_LEDGER";
 
 enum class BgeEditMode {
     Translate,
@@ -200,6 +212,109 @@ struct BgeControllerArtifactSpec {
     bool visualByDefault;
 };
 
+struct BgePluginDescriptor {
+    const wchar_t* id;
+    const wchar_t* kind;
+    const wchar_t* summary;
+    const wchar_t* command;
+    const wchar_t* flags;
+    const wchar_t* emits;
+};
+
+struct BgeTitleScreenState {
+    bool visible = false;
+    std::wstring text = L"ASTEROIDS";
+    std::wstring subtitle = L"PRESS ENTER";
+    std::wstring start = L"Enter";
+    std::wstring next = L"playing";
+    std::wstring font = L"vector-5x7";
+    std::wstring legend = L"20 LARGE ROCK   50 MEDIUM ROCK   100 SMALL ROCK   200 SAUCER";
+    std::wstring credit = L"1 CREDIT  1 PLAY";
+    bool centered = true;
+    bool showLegend = true;
+    bool showCredit = true;
+    bool blinkPrompt = true;
+};
+
+struct BgeCounterState {
+    std::wstring name;
+    int value = 0;
+    int minValue = 0;
+    int maxValue = 0;
+    bool hasMin = false;
+    bool hasMax = false;
+    bool persistSession = false;
+};
+
+struct BgeScoreboardState {
+    bool visible = false;
+    std::vector<std::wstring> counters;
+    std::wstring anchor = L"top-left";
+    std::wstring format = L"SCORE:{score}|HIGH:{high-score}|LIVES:{lives}|WAVE:{wave}";
+    std::wstring font = L"vector-5x7";
+    std::wstring color = L"vector-white";
+    std::wstring iconRow;
+    float scale = 2.0f;
+};
+
+struct BgeProjectileDefinition {
+    std::wstring id = L"shot";
+    std::wstring owner = L"player";
+    BgeObjectShape shape = BgeObjectShape::Line;
+    float speed = 620.0f;
+    float ttlSeconds = 1.1f;
+    bool wrap = true;
+    std::wstring collisionTag = L"projectile";
+};
+
+struct BgeBreakableRockFieldState {
+    bool active = false;
+    std::vector<std::wstring> sizes = { L"large", L"medium", L"small" };
+    int count = 4;
+    int splitCount = 2;
+    std::wstring score = L"score:20|50|100";
+    float speedMin = 30.0f;
+    float speedMax = 180.0f;
+    std::wstring waveCounter = L"wave";
+    std::wstring avoid = L"player_ship";
+    float avoidRadius = 160.0f;
+    BgeObjectRenderStyle renderStyle = BgeObjectRenderStyle::Filled;
+    float outlineThickness = 2.0f;
+};
+
+struct BgeVectorShipState {
+    bool active = false;
+    std::wstring id = L"player_ship";
+    int slotIndex = 0;
+    BgeObjectShape shape = BgeObjectShape::VectorShip;
+    std::wstring lives = L"lives";
+    std::wstring inputProfile = L"arrows-space";
+    std::wstring fire = L"shot";
+    std::wstring hyperspace = L"H";
+    float respawnSeconds = 1.5f;
+    float invulnerableSeconds = 2.0f;
+    float invulnerableRemainingSeconds = 0.0f;
+    float respawnRemainingSeconds = 0.0f;
+    bool awaitingRespawn = false;
+    bool gameOver = false;
+    float headingDegrees = -90.0f;
+    float turnDegrees = 200.0f;
+    float thrustStep = 280.0f;
+    float reverseThrustStep = 187.0f;
+    float drag = 0.012f;
+    float maxSpeed = 420.0f;
+    BgeObjectRenderStyle renderStyle = BgeObjectRenderStyle::Filled;
+    float outlineThickness = 2.0f;
+    int playerIconVisibilityMode = 0;
+};
+
+struct BgeVectorShipInputState {
+    bool turnLeft = false;
+    bool turnRight = false;
+    bool thrust = false;
+    bool reverse = false;
+};
+
 const std::array<BgeControllerArtifactSpec, BGE_CONTROLLER_ARTIFACT_COUNT> kControllerArtifacts = {{
     { L"Scene And Render", L"Game Loop", L"bge.game-loop", L"renderer, objects, animation", true },
     { L"Scene And Render", L"Scene 3D", L"bge.scene-3d", L"3D scene surface", false },
@@ -207,6 +322,28 @@ const std::array<BgeControllerArtifactSpec, BGE_CONTROLLER_ARTIFACT_COUNT> kCont
     { L"Scene And Render", L"Sample Game Two", L"bge.sample-game-two", L"sample game plugin", false },
     { L"Assets", L"Images", L"bge.images", L"backgrounds and image assets", false },
     { L"Audio", L"Sound", L"bge.sound", L"sound slots and playback", false },
+}};
+
+const std::array<BgePluginDescriptor, 8> kBgePluginRegistry = {{
+    { L"bge.2d.arcade", L"capability", L"2D arcade viewport, counters, overlays, replay, and executable export command grammar", L"game define | viewport fit-host | counter define | export enable | export executable | inspect commands", L"--design-size --wrap-x --wrap-y --background --formats --target --name --include", L"bge.event.game.defined bge.event.scene.configured bge.event.replay.surface.enabled bge.event.export.requested" },
+    { L"bge.piece.vector-ship", L"piece", L"Reusable vector player ship with input, firing, respawn, and hyperspace signature", L"player-ship create", L"--id --shape --lives --input-profile --fire --hyperspace --respawn --invulnerable", L"bge.event.entity.spawned bge.event.input.bound bge.event.player.respawned" },
+    { L"bge.piece.breakable-rock-field", L"piece", L"Reusable breakable rock field with split, scoring, wave, and avoid-zone signature", L"rock-field create", L"--sizes --count --split --score --speed-range --wave-counter --avoid", L"bge.event.entity.spawned bge.event.rule.defined bge.event.counter.changed" },
+    { L"bge.piece.projectile", L"piece", L"Reusable projectile with owner, speed, lifetime, wrap, and collision tag signature", L"projectile create", L"--id --owner --shape --speed --ttl --wrap --collision-tag", L"bge.event.entity.grammar.extended bge.event.entity.lifecycle.changed" },
+    { L"bge.piece.ufo", L"piece", L"Reusable UFO enemy with score, weapon, arrival, aim, and edge-spawn signature", L"ufo create", L"--id --score --weapon --arrival --aim --edge-spawn", L"bge.event.entity.spawned bge.event.rule.fired bge.event.counter.changed" },
+    { L"bge.piece.scoreboard", L"piece", L"Reusable vector scoreboard and HUD line bound to counters", L"scoreboard create", L"--counters --anchor --format --font --color --icon-row --scale", L"bge.event.overlay.defined bge.event.counter.observed" },
+    { L"bge.piece.title-screen", L"piece", L"Reusable vector-arcade title screen with score legend, credit line, blinking prompt, and start command binding", L"title-screen create", L"--text --subtitle --start --next --font --center --legend --credit --blink", L"bge.event.screen.defined bge.event.command.bound bge.event.overlay.defined" },
+    { L"bge.piece.audio", L"piece", L"Engine-neutral audio piece with synthesized-tone WAV playback via winmm; any domain (game, business-rules, DICOM alert) can consume it", L"sound define | sound play", L"--id --kind --freq --duration --volume", L"bge.event.sound.defined bge.event.sound.played" },
+}};
+
+const std::array<const wchar_t*, 8> kBgeAsteroidsPluginSet = {{
+    L"bge.2d.arcade",
+    L"bge.piece.vector-ship",
+    L"bge.piece.breakable-rock-field",
+    L"bge.piece.projectile",
+    L"bge.piece.ufo",
+    L"bge.piece.scoreboard",
+    L"bge.piece.title-screen",
+    L"bge.piece.audio",
 }};
 
 enum class BgeRendererApi {
@@ -220,6 +357,9 @@ bool g_closeBroadcastSent = false;
 std::wstring g_workerName = L"worker";
 bool g_workerRoleRequested = false;
 bool g_launchBasicGameStack = false;
+bool g_playerRuntimeMode = false;
+bool g_playerRuntimeCommandsProcessed = false;
+std::wstring g_playerRuntimeTitle = L"Space Rocks";
 std::wstring g_sessionCliName;
 std::vector<std::wstring> g_launchRoles;
 std::vector<std::wstring> g_workerCliArgs;
@@ -255,6 +395,18 @@ BgeKeyboardFocus g_keyboardFocus = BgeKeyboardFocus::None;
 int g_mainPlayerGroupIndex = -1;
 int g_mainPlayerSlot = -1;
 std::vector<BgeDeleteHistoryEntry> g_deleteHistory;
+bool g_titleScreenActive = false;
+BgeTitleScreenState g_titleScreenState;
+bool g_scoreboardActive = false;
+BgeScoreboardState g_scoreboardState;
+std::vector<BgeCounterState> g_bgeCounters;
+bool g_breakableRockFieldActive = false;
+BgeBreakableRockFieldState g_breakableRockFieldState;
+std::vector<BgeProjectileDefinition> g_projectileDefinitions;
+std::array<float, BGE_OBJECT_SLOT_COUNT> g_bgeProjectileLifeSeconds{};
+bool g_vectorShipActive = false;
+BgeVectorShipState g_vectorShipState;
+BgeVectorShipInputState g_vectorShipInputState;
 std::wstring g_backgroundImagePath;
 HWND g_addBallButton = nullptr;
 HWND g_startAnimationButton = nullptr;
@@ -325,6 +477,8 @@ std::vector<std::wstring> g_revealedWorkerRoles;
 std::vector<std::wstring> g_pendingControllerCommands;
 std::vector<std::wstring> g_controllerHistory;
 std::vector<std::wstring> g_controllerHistoryDetails;
+std::vector<std::wstring> g_workerCommandHistory;
+std::vector<std::wstring> g_importedBgePlugins;
 BgeEditMode g_editMode = BgeEditMode::Translate;
 int g_editRateIndex = BGE_EDIT_RATE_DEFAULT_INDEX;
 
@@ -404,6 +558,32 @@ bool ExecuteAsteroidGameModuleCommand(const std::vector<std::wstring>& tokens, s
 bool StartAsteroidGameMode(std::wstring& statusText);
 bool HandleAsteroidGameKeyDown(WPARAM key);
 bool TickAsteroidGameMode(double deltaMilliseconds);
+void AddBgePluginRegistryAttributesToOpNode(const std::shared_ptr<OpNode>& root);
+bool BgePluginAlreadyImported(const std::wstring& pluginId);
+bool ExecuteBgePluginCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeInspectCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeTitleScreenCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeCounterCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeScoreboardCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeBreakableRockFieldCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeProjectileCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeVectorShipCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeSoundCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool HandleBgeVectorShipKeyDown(WPARAM key);
+bool HandleBgeVectorShipKeyUp(WPARAM key);
+void ClearBgeVectorShipInputState();
+bool TickBgeProjectiles(double deltaMilliseconds);
+bool TickBgeVectorShip(double deltaMilliseconds);
+bool VectorShipPlayerAliveLocked();
+void ResolveBgeShipRockCollisionsLocked();
+void RespawnVectorShipLocked();
+bool SpawnSpaceRocksWaveLocked(int waveIndex);
+void StartOrRestartSpaceRocksGameLocked();
+void ShowSpaceRocksGameOverScreenLocked();
+void ShowSpaceRocksTitleScreenLocked();
+std::vector<BgeSceneOverlayText> BuildTitleScreenOverlays(const BgeTitleScreenState& titleScreen, const BgeGameViewport& viewport);
+std::vector<BgeSceneOverlayText> BuildScoreboardOverlays(const BgeScoreboardState& scoreboard, const std::vector<BgeCounterState>& counters, const BgeGameViewport& viewport);
+void ApplySceneOverlayTextToRenderer(const std::vector<BgeSceneOverlayText>& overlays);
 void AddBallFromControls();
 void StartAnimationFromControls();
 void StopAnimationFromControls();
@@ -420,11 +600,17 @@ void SetMainPlayerFromControls();
 void ExecuteAsteroidCommandFromControls(const wchar_t* commandText);
 void SelectSoundSlotFromControls(int slotIndex);
 void AdvanceSoundSlotLoop();
+std::vector<std::wstring> TokenizeCommandText(const std::wstring& commandText);
 void ExecuteCommandBarInput();
 bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusText);
 bool ExecuteControllerCommandText(const std::wstring& commandText, std::wstring& statusText);
+bool ExecuteBgeExportCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool QueueConstructionArtifactCommandsFromFile(const std::wstring& path, std::wstring& statusText);
+bool ExecuteConstructionCommandsLocally(const std::vector<std::wstring>& commands, const std::wstring& sourceLabel, std::wstring& statusText);
+bool ExecuteConstructionArtifactCommandsLocally(const std::wstring& path, std::wstring& statusText);
+bool LoadEmbeddedGameScriptCommands(std::vector<std::wstring>& commands, std::wstring& errorText);
 bool SendControllerCommandToWorker(const std::wstring& role, const std::wstring& commandText, std::wstring& statusText);
+void SendWorkerTelemetry(const std::wstring& kind, const std::wstring& commandText, const std::wstring& statusText);
 void SetCommandStatus(const std::wstring& statusText);
 void SetGameHudStatus(const std::wstring& hudText);
 void AddControllerHistory(const std::wstring& historyText, const std::wstring& detailText = L"");
@@ -452,6 +638,7 @@ std::wstring RoleShortName(const std::wstring& role);
 int ArtifactIndexForRole(const std::wstring& role);
 LRESULT CALLBACK CommandEditProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 bool HandleWorkerCommandCopyData(COPYDATASTRUCT* copyData);
+bool HandleControllerTelemetryCopyData(COPYDATASTRUCT* copyData);
 bool TryStartVectorDrag(int x, int y);
 bool TrySelectObjectAtPoint(int x, int y);
 void UpdateVectorDrag(int x, int y);
@@ -465,6 +652,7 @@ bool StartAnimationState(std::wstring& statusText);
 bool StopAnimationState(std::wstring& statusText);
 bool StepAnimationOneTick(std::wstring& statusText);
 bool HandleRendererKeyDown(WPARAM key);
+bool HandleRendererKeyUp(WPARAM key);
 void CycleEditMode(int direction);
 bool SetEditModeFromText(const std::wstring& modeText);
 std::wstring EditModeName(BgeEditMode mode);
@@ -473,7 +661,10 @@ std::wstring EditRateLabel();
 void AdjustEditRate(int direction);
 bool SetEditRateFromText(const std::wstring& rateText);
 std::wstring TrimText(const std::wstring& value);
+std::string Narrow(const std::wstring& value);
 std::wstring WidenUtf8(const std::string& value);
+std::wstring QuoteArg(const std::wstring& value);
+std::wstring CommandFileArg(const std::wstring& value);
 bool LoadConstructionArtifactCommands(const std::wstring& path, std::vector<std::wstring>& commands, std::wstring& errorText);
 bool ExtractLineConstructionCommands(const std::wstring& text, std::vector<std::wstring>& commands);
 bool ExtractJsonConstructionCommands(const std::wstring& text, std::vector<std::wstring>& commands, std::wstring& errorText);
@@ -490,6 +681,8 @@ void LayoutBallControls(HWND hWnd);
 void SyncBallControls();
 void SyncObjectGroupControls();
 void SyncControllerControls();
+void ProcessPlayerRuntimeAutomation();
+void RecordWorkerCommandHistory(const std::wstring& commandText);
 void SelectControllerArtifact(int artifactIndex, bool recordHistory = true);
 void LaunchControllerArtifact(int artifactIndex);
 void InspectControllerArtifact(int artifactIndex);
@@ -558,6 +751,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     // Initialize global strings, register class, etc.
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_BASICGAMEENGINE, szWindowClass, MAX_LOADSTRING);
+    if (g_playerRuntimeMode && !g_playerRuntimeTitle.empty()) {
+        wcsncpy_s(szTitle, g_playerRuntimeTitle.c_str(), _TRUNCATE);
+    }
     MyRegisterClass(hInstance);
 
     if (!InitInstance(hInstance, nCmdShow))
@@ -571,6 +767,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     SyncBallControls();
     BootstrapRoleOpNode();
     InitializeSelectedRenderer(g_hWnd);
+    ProcessPlayerRuntimeAutomation();
     LogRuntimeSceneState();
 
     if (g_isController) {
@@ -583,7 +780,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     }
 
     // Update the instance count in the status bar
-    if (sharedData) {
+    if (!g_playerRuntimeMode && sharedData) {
         statusBarMgr.UpdateInstanceCount(sharedData->instanceCount); // Update status bar with instance count
     }
 
@@ -603,6 +800,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             continue;
         }
         if (msg.message == WM_KEYDOWN && !IsEditControl(msg.hwnd) && HandleRendererKeyDown(msg.wParam)) {
+            continue;
+        }
+        if (msg.message == WM_KEYUP && !IsEditControl(msg.hwnd) && HandleRendererKeyUp(msg.wParam)) {
             continue;
         }
         if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
@@ -904,7 +1104,7 @@ bool ClearObjectSelectionLocked()
 bool ClearObjectSelectionFromRendererClick(int x, int y)
 {
     UNREFERENCED_PARAMETER(x);
-    if (!CurrentProcessOwnsGameLoop() || y < static_cast<int>(BGE_RENDER_TOP_INSET)) {
+    if (!CurrentProcessOwnsGameLoop() || y < static_cast<int>(BgeRenderTopInset())) {
         return false;
     }
 
@@ -1200,7 +1400,7 @@ void ClampObjectToClientLocked(BgeObjectSlotState& slot)
     float width = static_cast<float>((std::max)(client.right - client.left, 1L));
     float height = static_cast<float>((std::max)(client.bottom - client.top, 1L));
     slot.x = ClampFloat(slot.x, slot.radius, (std::max)(slot.radius, width - slot.radius));
-    slot.y = ClampFloat(slot.y, BGE_RENDER_TOP_INSET + slot.radius, (std::max)(BGE_RENDER_TOP_INSET + slot.radius, height - slot.radius));
+    slot.y = ClampFloat(slot.y, BgeRenderTopInset() + slot.radius, (std::max)(BgeRenderTopInset() + slot.radius, height - slot.radius));
 }
 
 BgeGameViewport CurrentGameViewport()
@@ -1210,7 +1410,7 @@ BgeGameViewport CurrentGameViewport()
     BgeGameViewport viewport;
     viewport.width = static_cast<float>((std::max)(client.right - client.left, 1L));
     viewport.height = static_cast<float>((std::max)(client.bottom - client.top, 1L));
-    viewport.playTop = BGE_RENDER_TOP_INSET;
+    viewport.playTop = BgeRenderTopInset();
     viewport.playHeight = (std::max)(1.0f, viewport.height - viewport.playTop);
     return viewport;
 }
@@ -1279,6 +1479,2227 @@ bool TickAsteroidGameMode(double deltaMilliseconds)
 {
     BgeGameRuntime runtime = CreateGameRuntime();
     return BgeAsteroidGameModule().OnTick(runtime, deltaMilliseconds);
+}
+
+bool TryGetCommandOptionValue(const std::vector<std::wstring>& tokens, const std::wstring& optionName, std::wstring& value)
+{
+    std::wstring optionPrefix = optionName + L"=";
+    for (size_t tokenIndex = 0; tokenIndex < tokens.size(); ++tokenIndex) {
+        if (tokens[tokenIndex] == optionName && tokenIndex + 1 < tokens.size()) {
+            value = tokens[tokenIndex + 1];
+            return true;
+        }
+        if (tokens[tokenIndex].rfind(optionPrefix, 0) == 0) {
+            value = tokens[tokenIndex].substr(optionPrefix.size());
+            return true;
+        }
+    }
+    return false;
+}
+
+bool HasCommandFlag(const std::vector<std::wstring>& tokens, const std::wstring& flagName)
+{
+    return std::any_of(tokens.begin(), tokens.end(), [&flagName](const std::wstring& token) {
+        return token == flagName;
+    });
+}
+
+std::wstring NormalizeTitleScreenText(std::wstring value)
+{
+    std::wstring normalized;
+    for (wchar_t ch : value) {
+        if (ch == L'_') {
+            normalized += L' ';
+        }
+        else if (ch == L'|') {
+            normalized += L"   ";
+        }
+        else {
+            normalized += ch;
+        }
+    }
+    return normalized;
+}
+
+std::wstring TitleScreenStatusText(const BgeTitleScreenState& titleScreen)
+{
+    if (!titleScreen.visible) {
+        return L"Title screen hidden";
+    }
+    return L"Title screen: " + titleScreen.text + L" | " + titleScreen.subtitle + L" | start " + titleScreen.start + L" -> " + titleScreen.next + (titleScreen.blinkPrompt ? L" | blink" : L"");
+}
+
+void AppendTitleScreenOverlay(std::vector<BgeSceneOverlayText>& overlays, const std::wstring& text, float x, float y, float scale, float r, float g, float b, float a, bool centered)
+{
+    if (text.empty()) {
+        return;
+    }
+    BgeSceneOverlayText overlay;
+    overlay.text = text;
+    overlay.x = x;
+    overlay.y = y;
+    overlay.scale = scale;
+    overlay.r = r;
+    overlay.g = g;
+    overlay.b = b;
+    overlay.a = a;
+    overlay.centered = centered;
+    overlays.push_back(overlay);
+}
+
+std::vector<BgeSceneOverlayText> BuildTitleScreenOverlays(const BgeTitleScreenState& titleScreen, const BgeGameViewport& viewport)
+{
+    std::vector<BgeSceneOverlayText> overlays;
+    if (!titleScreen.visible || viewport.width <= 1.0f || viewport.playHeight <= 1.0f) {
+        return overlays;
+    }
+
+    float centerX = viewport.width * 0.5f;
+    float titleScale = ClampFloat(viewport.width / 150.0f, 4.0f, 9.0f);
+    float subtitleScale = ClampFloat(titleScale * 0.48f, 2.0f, 4.0f);
+    float smallScale = ClampFloat(subtitleScale * 0.72f, 1.4f, 2.8f);
+    float titleY = viewport.playTop + viewport.playHeight * 0.24f;
+    float subtitleY = titleY + titleScale * 9.5f;
+
+    AppendTitleScreenOverlay(overlays, titleScreen.text, centerX, titleY, titleScale, 0.82f, 0.92f, 1.0f, 1.0f, titleScreen.centered);
+    AppendTitleScreenOverlay(overlays, titleScreen.subtitle, centerX, subtitleY, subtitleScale, 0.98f, 0.84f, 0.42f, 0.95f, titleScreen.centered);
+
+    float legendY = subtitleY + subtitleScale * 9.5f;
+    if (titleScreen.showLegend) {
+        AppendTitleScreenOverlay(overlays, titleScreen.legend, centerX, legendY, smallScale, 0.62f, 0.82f, 1.0f, 0.86f, titleScreen.centered);
+    }
+
+    bool promptVisible = !titleScreen.blinkPrompt || ((GetTickCount64() / 520) % 2 == 0);
+    if (promptVisible) {
+        AppendTitleScreenOverlay(overlays, L"START " + titleScreen.start + L" -> " + titleScreen.next, centerX, legendY + smallScale * 9.5f, smallScale, 0.74f, 0.92f, 0.72f, 0.94f, titleScreen.centered);
+    }
+
+    if (titleScreen.showCredit) {
+        AppendTitleScreenOverlay(overlays, titleScreen.credit, centerX, viewport.playTop + viewport.playHeight - smallScale * 10.0f, smallScale, 0.48f, 0.62f, 0.78f, 0.9f, titleScreen.centered);
+    }
+
+    return overlays;
+}
+
+void ApplySceneOverlayTextToRenderer(const std::vector<BgeSceneOverlayText>& overlays)
+{
+    if (g_directX11Renderer) {
+        g_directX11Renderer->SetSceneOverlayText(overlays);
+    }
+    if (g_directX12Renderer) {
+        g_directX12Renderer->SetSceneOverlayText(overlays);
+    }
+}
+
+bool ExecuteBgeTitleScreenCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"title-screen commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"status") {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        statusText = TitleScreenStatusText(g_titleScreenState);
+        return true;
+    }
+
+    if (subcommand == L"hide" || subcommand == L"clear") {
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            g_titleScreenState.visible = false;
+            g_titleScreenActive = false;
+            g_rendererStateDirty = true;
+        }
+        SetGameHudStatus(L"Title screen hidden");
+        InvalidateGameRenderer();
+        statusText = L"Title screen hidden";
+        return true;
+    }
+
+    if (subcommand != L"create" && subcommand != L"show") {
+        statusText = L"Use: title-screen create --text ASTEROIDS --subtitle PRESS_ENTER --start Enter --next playing";
+        return false;
+    }
+
+    if (!BgePluginAlreadyImported(L"bge.piece.title-screen")) {
+        statusText = L"Import title-screen first: plugin import bge.piece.title-screen";
+        return false;
+    }
+
+    BgeTitleScreenState titleScreen;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        titleScreen = g_titleScreenState;
+    }
+    titleScreen.visible = true;
+    titleScreen.centered = true;
+
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--text", value)) {
+        titleScreen.text = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--subtitle", value)) {
+        titleScreen.subtitle = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--start", value)) {
+        titleScreen.start = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--next", value)) {
+        titleScreen.next = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--font", value)) {
+        titleScreen.font = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--legend", value)) {
+        titleScreen.legend = NormalizeTitleScreenText(value);
+        titleScreen.showLegend = !titleScreen.legend.empty();
+    }
+    if (TryGetCommandOptionValue(tokens, L"--credit", value)) {
+        titleScreen.credit = NormalizeTitleScreenText(value);
+        titleScreen.showCredit = !titleScreen.credit.empty();
+    }
+    if (HasCommandFlag(tokens, L"--left")) {
+        titleScreen.centered = false;
+    }
+    if (HasCommandFlag(tokens, L"--center")) {
+        titleScreen.centered = true;
+    }
+    if (HasCommandFlag(tokens, L"--no-legend")) {
+        titleScreen.showLegend = false;
+    }
+    if (HasCommandFlag(tokens, L"--no-credit")) {
+        titleScreen.showCredit = false;
+    }
+    if (HasCommandFlag(tokens, L"--blink")) {
+        titleScreen.blinkPrompt = true;
+    }
+    if (HasCommandFlag(tokens, L"--no-blink")) {
+        titleScreen.blinkPrompt = false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        g_titleScreenState = titleScreen;
+        g_titleScreenActive = true;
+        g_rendererStateDirty = true;
+    }
+
+    SetGameHudStatus(TitleScreenStatusText(titleScreen));
+    InvalidateGameRenderer();
+    statusText = TitleScreenStatusText(titleScreen);
+    LogRendererMessage("[BgeTitleScreenPlugin] screen-defined text=\"" + Narrow(titleScreen.text) + "\" subtitle=\"" + Narrow(titleScreen.subtitle) + "\"");
+    return true;
+}
+
+bool TryParseIntArg(const std::wstring& text, int& value)
+{
+    wchar_t* parseEnd = nullptr;
+    long parsed = std::wcstol(text.c_str(), &parseEnd, 10);
+    if (parseEnd == text.c_str() || *parseEnd != L'\0') {
+        return false;
+    }
+    value = static_cast<int>(parsed);
+    return true;
+}
+
+std::vector<std::wstring> SplitBgeListText(std::wstring text)
+{
+    std::replace(text.begin(), text.end(), L',', L'|');
+    std::vector<std::wstring> values;
+    std::wstringstream stream(text);
+    std::wstring item;
+    while (std::getline(stream, item, L'|')) {
+        item = TrimText(item);
+        if (!item.empty()) {
+            values.push_back(item);
+        }
+    }
+    return values;
+}
+
+BgeCounterState* FindBgeCounterMutable(const std::wstring& name)
+{
+    std::wstring requested = LowerArg(name);
+    for (auto& counter : g_bgeCounters) {
+        if (LowerArg(counter.name) == requested) {
+            return &counter;
+        }
+    }
+    return nullptr;
+}
+
+const BgeCounterState* FindBgeCounter(const std::vector<BgeCounterState>& counters, const std::wstring& name)
+{
+    std::wstring requested = LowerArg(name);
+    for (const auto& counter : counters) {
+        if (LowerArg(counter.name) == requested) {
+            return &counter;
+        }
+    }
+    return nullptr;
+}
+
+int ClampCounterValue(const BgeCounterState& counter, int value)
+{
+    if (counter.hasMin) {
+        value = (std::max)(counter.minValue, value);
+    }
+    if (counter.hasMax) {
+        value = (std::min)(counter.maxValue, value);
+    }
+    return value;
+}
+
+void EnsureBgeCounterLocked(const std::wstring& name)
+{
+    if (name.empty() || FindBgeCounterMutable(name)) {
+        return;
+    }
+    BgeCounterState counter;
+    counter.name = name;
+    g_bgeCounters.push_back(counter);
+}
+
+bool AddBgeCounterValueLocked(const std::wstring& name, int delta)
+{
+    if (name.empty()) {
+        return false;
+    }
+    EnsureBgeCounterLocked(name);
+    BgeCounterState* counter = FindBgeCounterMutable(name);
+    if (!counter) {
+        return false;
+    }
+    counter->value = ClampCounterValue(*counter, counter->value + delta);
+    return true;
+}
+
+std::wstring BgeCountersStatusText(const std::vector<BgeCounterState>& counters)
+{
+    if (counters.empty()) {
+        return L"Counters: none";
+    }
+
+    std::wstring text = L"Counters:";
+    for (const auto& counter : counters) {
+        text += L" " + counter.name + L"=" + std::to_wstring(counter.value);
+    }
+    return text;
+}
+
+std::wstring ReplaceAllText(std::wstring text, const std::wstring& from, const std::wstring& to)
+{
+    if (from.empty()) {
+        return text;
+    }
+    size_t offset = 0;
+    while ((offset = text.find(from, offset)) != std::wstring::npos) {
+        text.replace(offset, from.size(), to);
+        offset += to.size();
+    }
+    return text;
+}
+
+std::wstring FormatScoreboardOverlayText(const BgeScoreboardState& scoreboard, const std::vector<BgeCounterState>& counters)
+{
+    std::wstring formatted = scoreboard.format.empty() ? L"SCORE:{score}|HIGH:{high-score}|LIVES:{lives}|WAVE:{wave}" : scoreboard.format;
+    for (const auto& counter : counters) {
+        formatted = ReplaceAllText(formatted, L"{" + counter.name + L"}", std::to_wstring(counter.value));
+    }
+    return NormalizeTitleScreenText(formatted);
+}
+
+std::vector<std::wstring> FormatScoreboardOverlayRows(const BgeScoreboardState& scoreboard, const std::vector<BgeCounterState>& counters)
+{
+    std::wstring formatted = scoreboard.format.empty() ? L"SCORE:{score}|HIGH:{high-score}|LIVES:{lives}|WAVE:{wave}" : scoreboard.format;
+    for (const auto& counter : counters) {
+        formatted = ReplaceAllText(formatted, L"{" + counter.name + L"}", std::to_wstring(counter.value));
+    }
+
+    std::vector<std::wstring> rows = SplitBgeListText(formatted);
+    if (rows.empty()) {
+        rows.push_back(formatted);
+    }
+    for (std::wstring& row : rows) {
+        row = NormalizeTitleScreenText(row);
+    }
+    return rows;
+}
+
+std::wstring ScoreboardStatusText(const BgeScoreboardState& scoreboard, const std::vector<BgeCounterState>& counters)
+{
+    if (!scoreboard.visible) {
+        return L"Scoreboard hidden";
+    }
+    return L"Scoreboard: " + FormatScoreboardOverlayText(scoreboard, counters);
+}
+
+std::vector<BgeSceneOverlayText> BuildScoreboardOverlays(const BgeScoreboardState& scoreboard, const std::vector<BgeCounterState>& counters, const BgeGameViewport& viewport)
+{
+    std::vector<BgeSceneOverlayText> overlays;
+    if (!scoreboard.visible || viewport.width <= 1.0f || viewport.playHeight <= 1.0f) {
+        return overlays;
+    }
+
+    std::wstring anchor = LowerArg(scoreboard.anchor);
+    bool centered = anchor == L"top-center" || anchor == L"center-top";
+    float scale = ClampFloat(scoreboard.scale, 1.2f, g_playerRuntimeMode ? 5.0f : 4.0f);
+    float x = 18.0f;
+    float y = viewport.playTop + 12.0f;
+    if (centered) {
+        x = viewport.width * 0.5f;
+    }
+    else if (anchor == L"top-right" || anchor == L"right") {
+        x = (std::max)(18.0f, viewport.width - 380.0f);
+    }
+
+    std::vector<std::wstring> rows = FormatScoreboardOverlayRows(scoreboard, counters);
+    for (size_t rowIndex = 0; rowIndex < rows.size(); ++rowIndex) {
+        const std::wstring& row = rows[rowIndex];
+        bool rightAlignedWave = !centered && LowerArg(row).rfind(L"wave", 0) == 0;
+        float rowX = rightAlignedWave ? (std::max)(18.0f, viewport.width - 210.0f) : x;
+        float rowY = rightAlignedWave ? y : y + static_cast<float>(rowIndex) * scale * 8.8f;
+        AppendTitleScreenOverlay(overlays, row, rowX, rowY, scale, 0.82f, 0.92f, 1.0f, 0.96f, centered);
+    }
+    if (!scoreboard.iconRow.empty()) {
+        AppendTitleScreenOverlay(overlays, NormalizeTitleScreenText(scoreboard.iconRow), x, y + static_cast<float>(rows.size()) * scale * 8.8f, ClampFloat(scale * 0.7f, 1.0f, 2.4f), 0.55f, 0.72f, 0.88f, 0.82f, centered);
+    }
+    return overlays;
+}
+
+bool ExecuteBgeCounterCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"counter commands run in bge.game-loop";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.2d.arcade")) {
+        statusText = L"Import arcade counters first: plugin import bge.2d.arcade";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"status" || subcommand == L"list") {
+        std::vector<BgeCounterState> counters;
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            counters = g_bgeCounters;
+        }
+        statusText = BgeCountersStatusText(counters);
+        return true;
+    }
+
+    if (tokens.size() < 4 || (subcommand != L"define" && subcommand != L"set" && subcommand != L"add" && subcommand != L"increment")) {
+        statusText = L"Use: counter define <name> <value> [min n] [max n] [persist session] | counter set <name> <value> | counter add <name> <delta>";
+        return false;
+    }
+
+    int value = 0;
+    if (!TryParseIntArg(tokens[3], value)) {
+        statusText = L"Counter value must be an integer";
+        return false;
+    }
+
+    std::wstring counterName = tokens[2];
+    std::wstring action;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        EnsureBgeCounterLocked(counterName);
+        BgeCounterState* counter = FindBgeCounterMutable(counterName);
+        if (!counter) {
+            statusText = L"Counter unavailable";
+            return false;
+        }
+
+        if (subcommand == L"define") {
+            counter->value = value;
+            for (size_t index = 4; index + 1 < tokens.size(); ++index) {
+                std::wstring key = LowerArg(tokens[index]);
+                int parsed = 0;
+                if (key == L"min" && TryParseIntArg(tokens[index + 1], parsed)) {
+                    counter->minValue = parsed;
+                    counter->hasMin = true;
+                    ++index;
+                }
+                else if (key == L"max" && TryParseIntArg(tokens[index + 1], parsed)) {
+                    counter->maxValue = parsed;
+                    counter->hasMax = true;
+                    ++index;
+                }
+                else if (key == L"persist" && LowerArg(tokens[index + 1]) == L"session") {
+                    counter->persistSession = true;
+                    ++index;
+                }
+            }
+            action = L"defined";
+        }
+        else if (subcommand == L"set") {
+            counter->value = value;
+            action = L"set";
+        }
+        else {
+            counter->value += value;
+            action = L"changed";
+        }
+        counter->value = ClampCounterValue(*counter, counter->value);
+        g_rendererStateDirty = true;
+        statusText = L"Counter " + action + L": " + counter->name + L"=" + std::to_wstring(counter->value);
+    }
+
+    InvalidateGameRenderer();
+    LogRendererMessage("[BgeCounter] " + Narrow(action) + " name=\"" + Narrow(counterName) + "\" value=" + Narrow(std::to_wstring(value)));
+    return true;
+}
+
+bool ExecuteBgeScoreboardCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"scoreboard commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"status") {
+        BgeScoreboardState scoreboard;
+        std::vector<BgeCounterState> counters;
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            scoreboard = g_scoreboardState;
+            counters = g_bgeCounters;
+        }
+        statusText = ScoreboardStatusText(scoreboard, counters);
+        return true;
+    }
+
+    if (subcommand == L"hide" || subcommand == L"clear") {
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            g_scoreboardState.visible = false;
+            g_scoreboardActive = false;
+            g_rendererStateDirty = true;
+        }
+        InvalidateGameRenderer();
+        statusText = L"Scoreboard hidden";
+        return true;
+    }
+
+    if (subcommand != L"create" && subcommand != L"show") {
+        statusText = L"Use: scoreboard create --counters score|high-score|lives|wave --anchor top-left --format SCORE:{score}|HIGH:{high-score}|LIVES:{lives}|WAVE:{wave}";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.piece.scoreboard")) {
+        statusText = L"Import scoreboard first: plugin import bge.piece.scoreboard";
+        return false;
+    }
+
+    BgeScoreboardState scoreboard;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        scoreboard = g_scoreboardState;
+    }
+    scoreboard.visible = true;
+
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--counters", value)) {
+        scoreboard.counters = SplitBgeListText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--anchor", value)) {
+        scoreboard.anchor = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--format", value)) {
+        scoreboard.format = value;
+    }
+    if (TryGetCommandOptionValue(tokens, L"--font", value)) {
+        scoreboard.font = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--color", value)) {
+        scoreboard.color = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--icon-row", value)) {
+        scoreboard.iconRow = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--scale", value)) {
+        float parsedScale = 0.0f;
+        if (TryParseFloatArg(value, parsedScale)) {
+            scoreboard.scale = parsedScale;
+        }
+    }
+
+    std::vector<BgeCounterState> counters;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        for (const auto& counterName : scoreboard.counters) {
+            EnsureBgeCounterLocked(counterName);
+        }
+        g_scoreboardState = scoreboard;
+        g_scoreboardActive = true;
+        g_rendererStateDirty = true;
+        counters = g_bgeCounters;
+    }
+
+    InvalidateGameRenderer();
+    statusText = ScoreboardStatusText(scoreboard, counters);
+    LogRendererMessage("[BgeScoreboardPlugin] overlay-defined text=\"" + Narrow(FormatScoreboardOverlayText(scoreboard, counters)) + "\"");
+    return true;
+}
+
+std::wstring JoinBgeListText(const std::vector<std::wstring>& values)
+{
+    std::wstring text;
+    for (size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) {
+            text += L"|";
+        }
+        text += values[index];
+    }
+    return text;
+}
+
+float BgeRockRadiusForSize(const std::wstring& size)
+{
+    std::wstring lower = LowerArg(size);
+    if (lower == L"small") {
+        return 22.0f;
+    }
+    if (lower == L"medium") {
+        return 38.0f;
+    }
+    return 58.0f;
+}
+
+int BgeRockSizeIndexForRadius(const BgeBreakableRockFieldState& field, float radius)
+{
+    if (field.sizes.empty()) {
+        return 0;
+    }
+
+    int bestIndex = 0;
+    float bestDistance = std::fabs(radius - BgeRockRadiusForSize(field.sizes.front()));
+    for (int index = 1; index < static_cast<int>(field.sizes.size()); ++index) {
+        float distance = std::fabs(radius - BgeRockRadiusForSize(field.sizes[index]));
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = index;
+        }
+    }
+    return bestIndex;
+}
+
+bool TryParseBgeRockScoreRule(const BgeBreakableRockFieldState& field, std::wstring& counterName, std::vector<int>& scoreValues)
+{
+    counterName = L"score";
+    scoreValues.clear();
+
+    std::wstring scoreText = TrimText(field.score);
+    size_t separator = scoreText.find(L':');
+    if (separator != std::wstring::npos) {
+        counterName = TrimText(scoreText.substr(0, separator));
+        scoreText = scoreText.substr(separator + 1);
+    }
+
+    for (const std::wstring& part : SplitBgeListText(scoreText)) {
+        int value = 0;
+        if (TryParseIntArg(part, value)) {
+            scoreValues.push_back(value);
+        }
+    }
+    return !counterName.empty() && !scoreValues.empty();
+}
+
+int BgeRockScoreForSizeIndex(const BgeBreakableRockFieldState& field, int sizeIndex, std::wstring& counterName)
+{
+    std::vector<int> scoreValues;
+    if (!TryParseBgeRockScoreRule(field, counterName, scoreValues)) {
+        return 0;
+    }
+    int clampedIndex = (std::max)(0, (std::min)(sizeIndex, static_cast<int>(scoreValues.size()) - 1));
+    return scoreValues[clampedIndex];
+}
+
+bool TryParseBgeRange(const std::wstring& text, float& minimumValue, float& maximumValue)
+{
+    size_t separator = text.find(L"..");
+    if (separator == std::wstring::npos) {
+        return false;
+    }
+    float first = 0.0f;
+    float second = 0.0f;
+    if (!TryParseFloatArg(text.substr(0, separator), first) || !TryParseFloatArg(text.substr(separator + 2), second)) {
+        return false;
+    }
+    minimumValue = (std::min)(first, second);
+    maximumValue = (std::max)(first, second);
+    return true;
+}
+
+bool TryParseBgeAvoidSpec(const std::wstring& text, std::wstring& avoidId, float& avoidRadius)
+{
+    size_t separator = text.find(L':');
+    if (separator == std::wstring::npos) {
+        avoidId = NormalizeTitleScreenText(text);
+        return !avoidId.empty();
+    }
+
+    float parsedRadius = 0.0f;
+    if (!TryParseFloatArg(text.substr(separator + 1), parsedRadius)) {
+        return false;
+    }
+    avoidId = NormalizeTitleScreenText(text.substr(0, separator));
+    avoidRadius = ClampFloat(parsedRadius, 0.0f, 1000.0f);
+    return !avoidId.empty();
+}
+
+std::wstring BreakableRockFieldStatusText(const BgeBreakableRockFieldState& field)
+{
+    if (!field.active) {
+        return L"Rock field hidden";
+    }
+    return L"Rock field: " + std::to_wstring(field.count)
+        + L" rocks sizes=" + JoinBgeListText(field.sizes)
+        + L" split=" + std::to_wstring(field.splitCount)
+        + L" score=" + field.score
+        + L" speed=" + std::to_wstring(static_cast<int>(field.speedMin)) + L".." + std::to_wstring(static_cast<int>(field.speedMax))
+        + L" wave=" + field.waveCounter
+        + L" avoid=" + field.avoid + L":" + std::to_wstring(static_cast<int>(field.avoidRadius));
+}
+
+int FindReusableBgeRockSlotLocked(int reservedProjectileSlots = 1)
+{
+    int availableFreeSlots = 0;
+    int candidateSlot = -1;
+    for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+        if (g_mainPlayerGroupIndex == g_activeObjectGroupIndex && index == g_mainPlayerSlot) {
+            continue;
+        }
+        if (!g_objectSlots[index].visible || g_objectSlots[index].isDeleted) {
+            ++availableFreeSlots;
+            if (candidateSlot < 0) {
+                candidateSlot = index;
+            }
+        }
+    }
+    return availableFreeSlots > reservedProjectileSlots ? candidateSlot : -1;
+}
+
+void ConfigureBgeSplitRockSlotLocked(int slotIndex, const BgeBreakableRockFieldState& field, const BgeObjectSlotState& sourceRock, const std::wstring& size, int splitIndex, int splitTotal)
+{
+    float sourceSpeed = std::sqrt(sourceRock.velocityX * sourceRock.velocityX + sourceRock.velocityY * sourceRock.velocityY);
+    float baseSpeed = ClampFloat((std::max)(sourceSpeed, field.speedMin) * 1.08f, field.speedMin, field.speedMax + 80.0f);
+    float sourceAngle = std::atan2(sourceRock.velocityY, sourceRock.velocityX);
+    float spread = splitTotal <= 1 ? 0.0f : (static_cast<float>(splitIndex) - (static_cast<float>(splitTotal - 1) * 0.5f)) * 0.72f;
+    float angle = sourceAngle + spread + 0.38f;
+
+    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
+    slot = sourceRock;
+    slot.visible = true;
+    slot.deleteMarked = false;
+    slot.isDeleted = false;
+    slot.collisionDetected = false;
+    slot.radius = BgeRockRadiusForSize(size);
+    slot.x = sourceRock.x + std::cos(angle) * (slot.radius + 6.0f);
+    slot.y = sourceRock.y + std::sin(angle) * (slot.radius + 6.0f);
+    slot.velocityX = std::cos(angle) * baseSpeed;
+    slot.velocityY = std::sin(angle) * baseSpeed;
+    slot.colorA = 0.90f;
+    slot.shape = BgeObjectShape::Asteroid;
+    slot.kind = BgeObjectKind::Asteroid;
+}
+
+void ConfigureBgeRockSlotLocked(int slotIndex, const BgeBreakableRockFieldState& field, int rockIndex, const BgeGameViewport& viewport)
+{
+    float radius = field.sizes.empty() ? 58.0f : BgeRockRadiusForSize(field.sizes.front());
+    float width = (std::max)(viewport.width, radius * 4.0f);
+    float height = (std::max)(viewport.playHeight, radius * 4.0f);
+    float phase = static_cast<float>(rockIndex) * 2.39996323f;
+    float unitX = 0.5f + std::cos(phase) * 0.34f;
+    float unitY = 0.5f + std::sin(phase) * 0.34f;
+    float x = ClampFloat(width * unitX, radius, (std::max)(radius, width - radius));
+    float y = ClampFloat(viewport.playTop + height * unitY, viewport.playTop + radius, (std::max)(viewport.playTop + radius, viewport.playTop + height - radius));
+
+    if (VectorShipPlayerAliveLocked()) {
+        const BgeObjectSlotState& player = g_objectSlots[g_vectorShipState.slotIndex];
+        float dx = x - player.x;
+        float dy = y - player.y;
+        float avoidDistance = field.avoidRadius + radius;
+        if (dx * dx + dy * dy < avoidDistance * avoidDistance) {
+            x = width - x;
+            y = viewport.playTop + height - (y - viewport.playTop);
+        }
+    }
+
+    float speedSpan = (std::max)(0.0f, field.speedMax - field.speedMin);
+    float speed = field.speedMin + speedSpan * (static_cast<float>((rockIndex * 37) % 100) / 99.0f);
+    float angle = 0.73f + static_cast<float>(rockIndex) * 1.41f;
+
+    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
+    slot = BgeObjectSlotState{};
+    slot.visible = true;
+    slot.x = x;
+    slot.y = y;
+    slot.radius = radius;
+    slot.velocityX = std::cos(angle) * speed;
+    slot.velocityY = std::sin(angle) * speed;
+    slot.colorR = 0.74f;
+    slot.colorG = 0.78f;
+    slot.colorB = 0.82f;
+    slot.colorA = 0.90f;
+    slot.shape = BgeObjectShape::Asteroid;
+    slot.kind = BgeObjectKind::Asteroid;
+    slot.renderStyle = field.renderStyle;
+    slot.outlineThickness = field.outlineThickness;
+}
+
+bool ExecuteBgeBreakableRockFieldCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"rock-field commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"status") {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        statusText = BreakableRockFieldStatusText(g_breakableRockFieldState);
+        return true;
+    }
+
+    if (subcommand == L"hide" || subcommand == L"clear") {
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            for (BgeObjectSlotState& slot : g_objectSlots) {
+                if (slot.kind == BgeObjectKind::Asteroid) {
+                    slot.visible = false;
+                    slot.kind = BgeObjectKind::Generic;
+                }
+            }
+            g_breakableRockFieldState.active = false;
+            g_breakableRockFieldActive = false;
+            g_rendererStateDirty = true;
+            PersistActiveObjectGroupLocked();
+        }
+        InvalidateGameRenderer();
+        statusText = L"Rock field hidden";
+        return true;
+    }
+
+    if (subcommand != L"create" && subcommand != L"show") {
+        statusText = L"Use: rock-field create --sizes large|medium|small --count 4 --split 2 --score score:20|50|100 --speed-range 30..180 --wave-counter wave --avoid player_ship:160";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.piece.breakable-rock-field")) {
+        statusText = L"Import breakable rock field first: plugin import bge.piece.breakable-rock-field";
+        return false;
+    }
+
+    BgeBreakableRockFieldState field;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        field = g_breakableRockFieldState;
+    }
+    field.active = true;
+
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--sizes", value)) {
+        std::vector<std::wstring> sizes = SplitBgeListText(value);
+        if (!sizes.empty()) {
+            field.sizes = sizes;
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--count", value)) {
+        int parsedCount = 0;
+        if (TryParseIntArg(value, parsedCount)) {
+            field.count = (std::max)(0, (std::min)(parsedCount, BGE_OBJECT_SLOT_COUNT - 1));
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--split", value)) {
+        int parsedSplit = 0;
+        if (TryParseIntArg(value, parsedSplit)) {
+            field.splitCount = (std::max)(0, (std::min)(parsedSplit, 8));
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--score", value)) {
+        field.score = TrimText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--speed-range", value)) {
+        float minimumSpeed = 0.0f;
+        float maximumSpeed = 0.0f;
+        if (TryParseBgeRange(value, minimumSpeed, maximumSpeed)) {
+            field.speedMin = ClampFloat(minimumSpeed, 0.0f, 1000.0f);
+            field.speedMax = ClampFloat(maximumSpeed, field.speedMin, 1200.0f);
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--wave-counter", value)) {
+        field.waveCounter = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--avoid", value)) {
+        TryParseBgeAvoidSpec(value, field.avoid, field.avoidRadius);
+    }
+    // Recipe-driven render style for the spawned rocks; see the
+    // matching block on player-ship create.
+    if (TryGetCommandOptionValue(tokens, L"--style", value)) {
+        BgeObjectRenderStyle parsedStyle = BgeObjectRenderStyle::Filled;
+        if (BgeTryParseObjectRenderStyle(LowerArg(value), parsedStyle)) {
+            field.renderStyle = parsedStyle;
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--outline-thickness", value)) {
+        float parsedThickness = 0.0f;
+        if (TryParseFloatArg(value, parsedThickness)) {
+            field.outlineThickness = ClampFloat(parsedThickness, 0.5f, 16.0f);
+        }
+    }
+
+    int spawned = 0;
+    BgeGameViewport viewport = CurrentGameViewport();
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        for (BgeObjectSlotState& slot : g_objectSlots) {
+            if (slot.kind == BgeObjectKind::Asteroid) {
+                slot.visible = false;
+                slot.kind = BgeObjectKind::Generic;
+            }
+        }
+        for (int rockIndex = 0; rockIndex < field.count; ++rockIndex) {
+            int slotIndex = FindReusableBgeRockSlotLocked();
+            if (slotIndex < 0) {
+                break;
+            }
+            ConfigureBgeRockSlotLocked(slotIndex, field, rockIndex, viewport);
+            ++spawned;
+        }
+        field.count = spawned;
+        g_breakableRockFieldState = field;
+        g_breakableRockFieldActive = spawned > 0;
+        g_ballAnimationRunning = true;
+        g_rendererStateDirty = true;
+        BgeSetCurrentEdgePolicy(BgeEdgePolicy::Wrap);
+        BgeUpdateCollisionFlags(g_objectSlots);
+        PersistActiveObjectGroupLocked();
+    }
+
+    InvalidateGameRenderer();
+    statusText = BreakableRockFieldStatusText(field);
+    LogRendererMessage("[BgeBreakableRockFieldPlugin] rock-field-spawned count=" + std::to_string(spawned) + " sizes=\"" + Narrow(JoinBgeListText(field.sizes)) + "\"");
+    return spawned > 0;
+}
+
+BgeProjectileDefinition* FindBgeProjectileDefinitionMutable(const std::wstring& id)
+{
+    std::wstring requested = LowerArg(id);
+    for (auto& definition : g_projectileDefinitions) {
+        if (LowerArg(definition.id) == requested) {
+            return &definition;
+        }
+    }
+    return nullptr;
+}
+
+const BgeProjectileDefinition* FindBgeProjectileDefinition(const std::wstring& id)
+{
+    std::wstring requested = LowerArg(id);
+    for (const auto& definition : g_projectileDefinitions) {
+        if (LowerArg(definition.id) == requested) {
+            return &definition;
+        }
+    }
+    return nullptr;
+}
+
+std::wstring ProjectileDefinitionStatusText(const std::vector<BgeProjectileDefinition>& definitions)
+{
+    if (definitions.empty()) {
+        return L"Projectiles: none";
+    }
+
+    std::wstring text = L"Projectiles:";
+    for (const auto& definition : definitions) {
+        text += L" " + definition.id
+            + L" owner=" + definition.owner
+            + L" shape=" + BgeObjectShapeName(definition.shape)
+            + L" speed=" + std::to_wstring(static_cast<int>(definition.speed))
+            + L" ttl=" + std::to_wstring(definition.ttlSeconds);
+    }
+    return text;
+}
+
+int FindReusableBgeProjectileSlotLocked()
+{
+    for (int index = BGE_OBJECT_SLOT_COUNT - 1; index >= 0; --index) {
+        if (g_mainPlayerGroupIndex == g_activeObjectGroupIndex && index == g_mainPlayerSlot) {
+            continue;
+        }
+        if (!g_objectSlots[index].visible || g_objectSlots[index].isDeleted || (g_objectSlots[index].kind == BgeObjectKind::Bullet && g_bgeProjectileLifeSeconds[index] <= 0.0f)) {
+            return index;
+        }
+    }
+
+    int oldestProjectileSlot = -1;
+    float shortestLife = 1000000.0f;
+    for (int index = BGE_OBJECT_SLOT_COUNT - 1; index >= 0; --index) {
+        if (g_mainPlayerGroupIndex == g_activeObjectGroupIndex && index == g_mainPlayerSlot) {
+            continue;
+        }
+        if (g_objectSlots[index].kind == BgeObjectKind::Bullet && g_bgeProjectileLifeSeconds[index] < shortestLife) {
+            shortestLife = g_bgeProjectileLifeSeconds[index];
+            oldestProjectileSlot = index;
+        }
+    }
+    return oldestProjectileSlot;
+}
+
+bool SpawnBgeProjectileLocked(const BgeProjectileDefinition& definition, const BgeObjectSlotState& source, int& projectileSlot)
+{
+    projectileSlot = FindReusableBgeProjectileSlotLocked();
+    if (projectileSlot < 0) {
+        return false;
+    }
+
+    // Fire along the ship's authored heading so projectiles follow the nose
+    // even when the ship is drifting sideways or stationary. Fall back to
+    // velocity (legacy behavior) for sources that never set a heading.
+    float directionX = source.headingX;
+    float directionY = source.headingY;
+    float headingLength = std::sqrt(directionX * directionX + directionY * directionY);
+    if (headingLength < 0.001f) {
+        directionX = source.velocityX;
+        directionY = source.velocityY;
+        headingLength = std::sqrt(directionX * directionX + directionY * directionY);
+    }
+    if (headingLength < 1.0f) {
+        directionX = 1.0f;
+        directionY = 0.0f;
+        headingLength = 1.0f;
+    }
+    directionX /= headingLength;
+    directionY /= headingLength;
+
+    BgeObjectSlotState& projectile = g_objectSlots[projectileSlot];
+    projectile = BgeObjectSlotState{};
+    projectile.visible = true;
+    projectile.x = source.x + directionX * (source.radius + 14.0f);
+    projectile.y = source.y + directionY * (source.radius + 14.0f);
+    projectile.radius = definition.shape == BgeObjectShape::Line ? 4.0f : 5.0f;
+    // Asteroids bullets fly at a fixed speed in the firing direction; they do
+    // NOT inherit the ship's drift. This keeps shots predictable.
+    projectile.velocityX = directionX * definition.speed;
+    projectile.velocityY = directionY * definition.speed;
+    projectile.headingX = directionX;
+    projectile.headingY = directionY;
+    projectile.colorR = 1.0f;
+    projectile.colorG = 0.92f;
+    projectile.colorB = 0.18f;
+    projectile.colorA = 1.0f;
+    projectile.shape = definition.shape;
+    projectile.kind = BgeObjectKind::Bullet;
+    g_bgeProjectileLifeSeconds[projectileSlot] = (std::max)(0.05f, definition.ttlSeconds);
+    if (definition.wrap) {
+        BgeSetCurrentEdgePolicy(BgeEdgePolicy::Wrap);
+    }
+    return true;
+}
+
+bool FireBgeProjectileFromVectorShipLocked(std::wstring& statusText)
+{
+    if (!BgePluginAlreadyImported(L"bge.piece.projectile")) {
+        statusText = L"Player ship: import projectile first: plugin import bge.piece.projectile";
+        return false;
+    }
+    if (g_vectorShipState.fire.empty()) {
+        statusText = L"Player ship: fire unbound";
+        return false;
+    }
+
+    const BgeProjectileDefinition* definition = FindBgeProjectileDefinition(g_vectorShipState.fire);
+    if (!definition) {
+        statusText = L"Player ship: projectile " + g_vectorShipState.fire + L" not defined";
+        return false;
+    }
+    if (!VectorShipPlayerAliveLocked()) {
+        statusText = L"Player ship unavailable";
+        return false;
+    }
+
+    int projectileSlot = -1;
+    // Freshen the ship slot's heading from the authoritative
+    // g_vectorShipState.headingDegrees before firing. The slot.headingX/Y
+    // can lag by one frame because the renderer round-trips slots through
+    // SyncObjectSlotsFromRenderer, and projectiles fire from the OS keyboard
+    // thread (HandleBgeVectorShipKeyDown -> here) outside the game tick.
+    // Without this refresh, bullets fired immediately after a turn fly along
+    // the previous heading - the "turret" symptom Marc reported.
+    {
+        BgeObjectSlotState& shipSlot = g_objectSlots[g_vectorShipState.slotIndex];
+        float headingRadians = g_vectorShipState.headingDegrees * 3.14159265358979323846f / 180.0f;
+        shipSlot.headingX = std::cos(headingRadians);
+        shipSlot.headingY = std::sin(headingRadians);
+    }
+    if (!SpawnBgeProjectileLocked(*definition, g_objectSlots[g_vectorShipState.slotIndex], projectileSlot)) {
+        statusText = L"Player ship: no projectile slot";
+        return false;
+    }
+
+    statusText = L"Player ship: fire " + definition->id + L" object " + std::to_wstring(projectileSlot + 1);
+    return true;
+}
+
+// ============================================================
+// bge.piece.audio plugin (engine-neutral)
+// Attributes contributed by BgeAudioPluginOperation: plugin.bge.piece.audio
+// trace-id: lane.asteroids-arcade-fidelity.audio-plugin-skeleton
+// ============================================================
+
+struct BgeSoundDefinition {
+    std::wstring id;
+    std::wstring kind = L"tone";      // tone | noise (future)
+    float freq = 440.0f;              // Hz
+    float duration = 0.1f;            // seconds
+    float volume = 0.6f;              // 0..1
+    std::vector<unsigned char> wav;   // synthesized WAV file bytes, ready for SND_MEMORY
+};
+
+static std::vector<BgeSoundDefinition> g_soundDefinitions;
+
+void SynthesizeBgeSoundWavLocked(BgeSoundDefinition& def)
+{
+    // Compose a minimal 16-bit mono PCM RIFF/WAVE file in memory and
+    // hand it to PlaySoundW(..., SND_MEMORY | SND_ASYNC). Cheap,
+    // dependency-free, audible. Replace with XAudio2 later if mixing
+    // becomes a quality blocker.
+    const int sampleRate = 22050;
+    const int channels = 1;
+    const int bitsPerSample = 16;
+    const float dur = ClampFloat(def.duration, 0.005f, 4.0f);
+    const float vol = ClampFloat(def.volume, 0.0f, 1.0f);
+    const int totalSamples = (std::max)(1, static_cast<int>(sampleRate * dur));
+    const int byteRate = sampleRate * channels * bitsPerSample / 8;
+    const int blockAlign = channels * bitsPerSample / 8;
+    const int dataSize = totalSamples * blockAlign;
+    const int fmtChunkSize = 16;
+    const int riffSize = 4 + (8 + fmtChunkSize) + (8 + dataSize);
+
+    def.wav.clear();
+    def.wav.reserve(8 + riffSize);
+
+    auto put32 = [&](unsigned int v) {
+        def.wav.push_back(static_cast<unsigned char>(v & 0xFF));
+        def.wav.push_back(static_cast<unsigned char>((v >> 8) & 0xFF));
+        def.wav.push_back(static_cast<unsigned char>((v >> 16) & 0xFF));
+        def.wav.push_back(static_cast<unsigned char>((v >> 24) & 0xFF));
+    };
+    auto put16 = [&](unsigned short v) {
+        def.wav.push_back(static_cast<unsigned char>(v & 0xFF));
+        def.wav.push_back(static_cast<unsigned char>((v >> 8) & 0xFF));
+    };
+    auto putTag = [&](const char* t) {
+        def.wav.push_back(static_cast<unsigned char>(t[0]));
+        def.wav.push_back(static_cast<unsigned char>(t[1]));
+        def.wav.push_back(static_cast<unsigned char>(t[2]));
+        def.wav.push_back(static_cast<unsigned char>(t[3]));
+    };
+
+    putTag("RIFF");
+    put32(static_cast<unsigned int>(riffSize));
+    putTag("WAVE");
+    putTag("fmt ");
+    put32(static_cast<unsigned int>(fmtChunkSize));
+    put16(1);                                       // PCM
+    put16(static_cast<unsigned short>(channels));
+    put32(static_cast<unsigned int>(sampleRate));
+    put32(static_cast<unsigned int>(byteRate));
+    put16(static_cast<unsigned short>(blockAlign));
+    put16(static_cast<unsigned short>(bitsPerSample));
+    putTag("data");
+    put32(static_cast<unsigned int>(dataSize));
+
+    const double pi2 = 6.283185307179586;
+    const double freq = (std::max)(20.0f, def.freq);
+    // Tiny fade-in/out to suppress click artifacts.
+    const int fadeSamples = (std::min)(totalSamples / 4, static_cast<int>(sampleRate * 0.005));
+    for (int i = 0; i < totalSamples; ++i) {
+        double t = static_cast<double>(i) / sampleRate;
+        double envelope = 1.0;
+        if (fadeSamples > 0) {
+            if (i < fadeSamples) envelope = static_cast<double>(i) / fadeSamples;
+            else if (i > totalSamples - fadeSamples) envelope = static_cast<double>(totalSamples - i) / fadeSamples;
+        }
+        double sample = sin(pi2 * freq * t) * envelope * vol;
+        int s = static_cast<int>(sample * 32760.0);
+        if (s > 32767) s = 32767;
+        if (s < -32768) s = -32768;
+        put16(static_cast<unsigned short>(static_cast<short>(s)));
+    }
+}
+
+const BgeSoundDefinition* FindBgeSoundDefinitionLocked(const std::wstring& id)
+{
+    for (const auto& def : g_soundDefinitions) {
+        if (def.id == id) return &def;
+    }
+    return nullptr;
+}
+
+bool ExecuteBgeSoundCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"sound commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+
+    if (subcommand == L"status" || subcommand == L"list") {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        statusText = L"Sounds defined: " + std::to_wstring(static_cast<int>(g_soundDefinitions.size()));
+        return true;
+    }
+
+    if (subcommand == L"play") {
+        if (!BgePluginAlreadyImported(L"bge.piece.audio")) {
+            statusText = L"Import audio first: plugin import bge.piece.audio";
+            return false;
+        }
+        if (tokens.size() < 3) {
+            statusText = L"Use: sound play <id>";
+            return false;
+        }
+        std::wstring id = NormalizeTitleScreenText(tokens[2]);
+        std::vector<unsigned char> wavCopy;
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            const BgeSoundDefinition* def = FindBgeSoundDefinitionLocked(id);
+            if (!def || def->wav.empty()) {
+                statusText = L"Sound not defined: " + id;
+                return false;
+            }
+            wavCopy = def->wav;
+        }
+        // PlaySoundW with SND_MEMORY|SND_ASYNC reads from the buffer
+        // immediately; safe to let wavCopy fall out of scope after the
+        // call. Use SND_NOSTOP=0 so consecutive plays interrupt prior.
+        PlaySoundW(reinterpret_cast<LPCWSTR>(wavCopy.data()), nullptr, SND_MEMORY | SND_ASYNC);
+        statusText = L"Sound played: " + id;
+        return true;
+    }
+
+    if (subcommand != L"define" && subcommand != L"create") {
+        statusText = L"Use: sound define --id shot --kind tone --freq 880 --duration 0.08 --volume 0.6";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.piece.audio")) {
+        statusText = L"Import audio first: plugin import bge.piece.audio";
+        return false;
+    }
+
+    BgeSoundDefinition def;
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--id", value)) {
+        def.id = NormalizeTitleScreenText(value);
+    }
+    if (def.id.empty()) {
+        statusText = L"sound define: --id required";
+        return false;
+    }
+    if (TryGetCommandOptionValue(tokens, L"--kind", value)) {
+        def.kind = LowerArg(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--freq", value)) {
+        float parsed = 0.0f;
+        if (TryParseFloatArg(value, parsed)) def.freq = ClampFloat(parsed, 20.0f, 8000.0f);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--duration", value)) {
+        float parsed = 0.0f;
+        if (TryParseFloatArg(value, parsed)) def.duration = ClampFloat(parsed, 0.005f, 4.0f);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--volume", value)) {
+        float parsed = 0.0f;
+        if (TryParseFloatArg(value, parsed)) def.volume = ClampFloat(parsed, 0.0f, 1.0f);
+    }
+
+    SynthesizeBgeSoundWavLocked(def);
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        // Idempotent: replace existing definition with same id.
+        bool replaced = false;
+        for (auto& existing : g_soundDefinitions) {
+            if (existing.id == def.id) { existing = def; replaced = true; break; }
+        }
+        if (!replaced) g_soundDefinitions.push_back(def);
+    }
+
+    statusText = L"Sound defined: " + def.id;
+    return true;
+}
+
+bool ExecuteBgeProjectileCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"projectile commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"status" || subcommand == L"list") {
+        std::vector<BgeProjectileDefinition> definitions;
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            definitions = g_projectileDefinitions;
+        }
+        statusText = ProjectileDefinitionStatusText(definitions);
+        return true;
+    }
+
+    if (subcommand != L"create" && subcommand != L"define") {
+        statusText = L"Use: projectile create --id shot --owner player --shape line --speed 620 --ttl 1.1 --wrap --collision-tag player-shot";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.piece.projectile")) {
+        statusText = L"Import projectile first: plugin import bge.piece.projectile";
+        return false;
+    }
+
+    BgeProjectileDefinition definition;
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--id", value)) {
+        definition.id = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--owner", value)) {
+        definition.owner = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--shape", value)) {
+        BgeObjectShape parsedShape = BgeObjectShape::Line;
+        if (BgeTryParseObjectShape(LowerArg(value), parsedShape)) {
+            definition.shape = parsedShape;
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--speed", value)) {
+        float parsedSpeed = 0.0f;
+        if (TryParseFloatArg(value, parsedSpeed)) {
+            definition.speed = ClampFloat(parsedSpeed, 1.0f, 2400.0f);
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--ttl", value)) {
+        float parsedTtl = 0.0f;
+        if (TryParseFloatArg(value, parsedTtl)) {
+            definition.ttlSeconds = ClampFloat(parsedTtl, 0.05f, 30.0f);
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--collision-tag", value)) {
+        definition.collisionTag = NormalizeTitleScreenText(value);
+    }
+    definition.wrap = HasCommandFlag(tokens, L"--wrap") || !HasCommandFlag(tokens, L"--no-wrap");
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        BgeProjectileDefinition* existing = FindBgeProjectileDefinitionMutable(definition.id);
+        if (existing) {
+            *existing = definition;
+        }
+        else {
+            g_projectileDefinitions.push_back(definition);
+        }
+        if (definition.wrap) {
+            BgeSetCurrentEdgePolicy(BgeEdgePolicy::Wrap);
+        }
+        g_rendererStateDirty = true;
+    }
+
+    statusText = L"Projectile defined: " + definition.id
+        + L" owner=" + definition.owner
+        + L" shape=" + BgeObjectShapeName(definition.shape)
+        + L" speed=" + std::to_wstring(static_cast<int>(definition.speed))
+        + L" ttl=" + std::to_wstring(definition.ttlSeconds);
+    LogRendererMessage("[BgeProjectilePlugin] grammar-extended id=\"" + Narrow(definition.id) + "\" owner=\"" + Narrow(definition.owner) + "\" shape=\"" + Narrow(BgeObjectShapeName(definition.shape)) + "\"");
+    return true;
+}
+
+bool TickBgeProjectiles(double deltaMilliseconds)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    bool dirty = false;
+    int hitCount = 0;
+    int scoreDelta = 0;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        float deltaSeconds = static_cast<float>((std::max)(0.0, deltaMilliseconds) / 1000.0);
+        for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+            BgeObjectSlotState& slot = g_objectSlots[index];
+            if (slot.kind != BgeObjectKind::Bullet || g_bgeProjectileLifeSeconds[index] <= 0.0f) {
+                continue;
+            }
+            g_bgeProjectileLifeSeconds[index] = (std::max)(0.0f, g_bgeProjectileLifeSeconds[index] - deltaSeconds);
+            if (g_bgeProjectileLifeSeconds[index] <= 0.0f) {
+                slot.visible = false;
+                slot.deleteMarked = false;
+                slot.isDeleted = false;
+                slot.collisionDetected = false;
+                slot.kind = BgeObjectKind::Generic;
+                dirty = true;
+            }
+        }
+
+        if (g_breakableRockFieldActive) {
+            for (int projectileIndex = 0; projectileIndex < BGE_OBJECT_SLOT_COUNT; ++projectileIndex) {
+                BgeObjectSlotState& projectile = g_objectSlots[projectileIndex];
+                if (!projectile.visible || projectile.kind != BgeObjectKind::Bullet || g_bgeProjectileLifeSeconds[projectileIndex] <= 0.0f) {
+                    continue;
+                }
+
+                for (int rockIndex = 0; rockIndex < BGE_OBJECT_SLOT_COUNT; ++rockIndex) {
+                    BgeObjectSlotState& rock = g_objectSlots[rockIndex];
+                    if (!rock.visible || rock.kind != BgeObjectKind::Asteroid || !BgeObjectSlotsOverlap(projectile, rock)) {
+                        continue;
+                    }
+
+                    BgeObjectSlotState sourceRock = rock;
+                    int sizeIndex = BgeRockSizeIndexForRadius(g_breakableRockFieldState, sourceRock.radius);
+                    std::wstring scoreCounter;
+                    int points = BgeRockScoreForSizeIndex(g_breakableRockFieldState, sizeIndex, scoreCounter);
+                    if (points != 0 && AddBgeCounterValueLocked(scoreCounter, points)) {
+                        scoreDelta += points;
+                    }
+
+                    projectile.visible = false;
+                    projectile.deleteMarked = false;
+                    projectile.isDeleted = false;
+                    projectile.collisionDetected = false;
+                    projectile.kind = BgeObjectKind::Generic;
+                    g_bgeProjectileLifeSeconds[projectileIndex] = 0.0f;
+
+                    rock.visible = false;
+                    rock.deleteMarked = false;
+                    rock.isDeleted = false;
+                    rock.collisionDetected = false;
+                    rock.kind = BgeObjectKind::Generic;
+
+                    int nextSizeIndex = sizeIndex + 1;
+                    if (g_breakableRockFieldState.splitCount > 0 && nextSizeIndex < static_cast<int>(g_breakableRockFieldState.sizes.size())) {
+                        int splitTotal = (std::max)(1, g_breakableRockFieldState.splitCount);
+                        for (int splitIndex = 0; splitIndex < splitTotal; ++splitIndex) {
+                            int splitSlot = splitIndex == 0 ? rockIndex : FindReusableBgeRockSlotLocked();
+                            if (splitSlot < 0) {
+                                break;
+                            }
+                            ConfigureBgeSplitRockSlotLocked(splitSlot, g_breakableRockFieldState, sourceRock, g_breakableRockFieldState.sizes[nextSizeIndex], splitIndex, splitTotal);
+                        }
+                    }
+
+                    ++hitCount;
+                    dirty = true;
+                    break;
+                }
+            }
+        }
+
+        if (dirty && g_breakableRockFieldActive) {
+            int remainingRocks = 0;
+            for (const BgeObjectSlotState& slot : g_objectSlots) {
+                if (slot.visible && slot.kind == BgeObjectKind::Asteroid) {
+                    ++remainingRocks;
+                }
+            }
+            g_breakableRockFieldState.count = remainingRocks;
+            if (remainingRocks == 0) {
+                g_breakableRockFieldActive = false;
+                g_breakableRockFieldState.active = false;
+                int nextWave = 2;
+                if (!g_breakableRockFieldState.waveCounter.empty()) {
+                    AddBgeCounterValueLocked(g_breakableRockFieldState.waveCounter, 1);
+                    if (const BgeCounterState* waveCounter = FindBgeCounterMutable(g_breakableRockFieldState.waveCounter)) {
+                        nextWave = (std::max)(1, waveCounter->value);
+                    }
+                }
+                // Keep the game alive: respawn the next wave so the player
+                // doesn't end up on an empty board with nothing to do.
+                SpawnSpaceRocksWaveLocked(nextWave);
+                SendWorkerTelemetry(L"game-event", L"wave-cleared", L"next wave spawned");
+            }
+        }
+
+        if (dirty) {
+            BgeUpdateCollisionFlags(g_objectSlots);
+            PersistActiveObjectGroupLocked();
+            g_rendererStateDirty = true;
+        }
+    }
+    if (hitCount > 0) {
+        std::wstring statusText = L"Rock hit: " + std::to_wstring(hitCount) + L" score +" + std::to_wstring(scoreDelta);
+        SendWorkerTelemetry(L"game-event", L"rock-field collision", statusText);
+        LogRendererMessage("[BgeBreakableRockFieldPlugin] projectile-hit hits=" + std::to_string(hitCount) + " scoreDelta=" + std::to_string(scoreDelta));
+    }
+    return dirty;
+}
+
+float VectorShipLength(float x, float y)
+{
+    return std::sqrt(x * x + y * y);
+}
+
+void NormalizeVectorShipDirection(float x, float y, float& outX, float& outY)
+{
+    float length = VectorShipLength(x, y);
+    if (length < 1.0f) {
+        outX = 1.0f;
+        outY = 0.0f;
+        return;
+    }
+    outX = x / length;
+    outY = y / length;
+}
+
+void ClampVectorShipVelocity(BgeObjectSlotState& slot, float maxSpeed)
+{
+    float speed = VectorShipLength(slot.velocityX, slot.velocityY);
+    if (speed > maxSpeed && speed > 0.0f) {
+        float scale = maxSpeed / speed;
+        slot.velocityX *= scale;
+        slot.velocityY *= scale;
+    }
+}
+
+bool VectorShipPlayerAliveLocked()
+{
+    return g_vectorShipActive
+        && g_vectorShipState.active
+        && g_vectorShipState.slotIndex >= 0
+        && g_vectorShipState.slotIndex < BGE_OBJECT_SLOT_COUNT
+        && g_mainPlayerGroupIndex == g_activeObjectGroupIndex
+        && g_mainPlayerSlot == g_vectorShipState.slotIndex
+        && g_objectSlots[g_vectorShipState.slotIndex].visible
+        && !g_objectSlots[g_vectorShipState.slotIndex].isDeleted
+        && g_objectSlots[g_vectorShipState.slotIndex].kind == BgeObjectKind::Player;
+}
+
+std::wstring VectorShipStatusText(const BgeVectorShipState& ship)
+{
+    if (!ship.active) {
+        return L"Player ship hidden";
+    }
+    return L"Player ship: " + ship.id
+        + L" | object " + std::to_wstring(ship.slotIndex + 1)
+        + L" | shape " + BgeObjectShapeName(ship.shape)
+        + L" | icon " + std::to_wstring(BgeNormalizePlayerIconVisibilityModeIndex(ship.playerIconVisibilityMode))
+        + L" " + BgePlayerIconVisibilityModeName(ship.playerIconVisibilityMode)
+        + L" | lives " + ship.lives
+        + L" | fire " + ship.fire
+        + L" | input " + ship.inputProfile;
+}
+
+void ConfigureVectorShipSlotLocked(const BgeVectorShipState& ship, const BgeGameViewport& viewport)
+{
+    BgeObjectSlotState& slot = g_objectSlots[ship.slotIndex];
+    slot = BgeObjectSlotState{};
+    slot.visible = true;
+    slot.x = viewport.width * 0.50f;
+    slot.y = viewport.playTop + viewport.playHeight * 0.50f;
+    slot.radius = 14.0f;
+    // Asteroids feel: ship spawns stationary, pointing straight up.
+    slot.velocityX = 0.0f;
+    slot.velocityY = 0.0f;
+    float headingRadians = ship.headingDegrees * 3.14159265358979323846f / 180.0f;
+    slot.headingX = std::cos(headingRadians);
+    slot.headingY = std::sin(headingRadians);
+    // Monochrome white vector ship matches the original arcade look.
+    slot.colorR = 1.0f;
+    slot.colorG = 1.0f;
+    slot.colorB = 1.0f;
+    slot.colorA = ship.invulnerableRemainingSeconds > 0.0f ? 0.54f : 1.0f;
+    slot.shape = ship.shape;
+    slot.kind = BgeObjectKind::Player;
+    slot.renderStyle = ship.renderStyle;
+    slot.outlineThickness = ship.outlineThickness;
+    BgeApplyPlayerIconVisibilityMode(slot, ship.playerIconVisibilityMode, ship.invulnerableRemainingSeconds > 0.0f);
+}
+
+bool ExecuteBgeVectorShipCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"player-ship commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"status") {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        statusText = VectorShipStatusText(g_vectorShipState);
+        return true;
+    }
+
+    if (subcommand == L"hide" || subcommand == L"clear") {
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            if (g_vectorShipState.slotIndex >= 0 && g_vectorShipState.slotIndex < BGE_OBJECT_SLOT_COUNT) {
+                BgeObjectSlotState& slot = g_objectSlots[g_vectorShipState.slotIndex];
+                slot.visible = false;
+                slot.kind = BgeObjectKind::Generic;
+            }
+            g_vectorShipState.active = false;
+            g_vectorShipActive = false;
+            g_vectorShipInputState = BgeVectorShipInputState{};
+            g_rendererStateDirty = true;
+            PersistActiveObjectGroupLocked();
+        }
+        SyncBallControls();
+        InvalidateGameRenderer();
+        statusText = L"Player ship hidden";
+        return true;
+    }
+
+    if (subcommand == L"select" || subcommand == L"focus") {
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            if (!VectorShipPlayerAliveLocked()) {
+                statusText = L"Player ship unavailable";
+                return false;
+            }
+            g_selectedObjectSlot = g_vectorShipState.slotIndex;
+            g_objectSelectionActive = true;
+            SetGameObjectKeyboardFocusLocked();
+            RefreshSelectedObjectGlobalsLocked();
+            PersistActiveObjectGroupLocked();
+        }
+        SyncBallControls();
+        statusText = L"Player ship selected";
+        return true;
+    }
+
+    if (subcommand != L"create" && subcommand != L"show") {
+        statusText = L"Use: player-ship create --id player_ship --shape vector-ship --lives lives --input-profile arrows-space --fire shot --hyperspace H --respawn 1.5 --invulnerable 2.0";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.piece.vector-ship")) {
+        statusText = L"Import vector-ship first: plugin import bge.piece.vector-ship";
+        return false;
+    }
+
+    BgeVectorShipState ship;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        ship = g_vectorShipState;
+    }
+    ship.active = true;
+    ship.slotIndex = 0;
+    ship.shape = BgeObjectShape::VectorShip;
+    ship.playerIconVisibilityMode = BgeNormalizePlayerIconVisibilityModeIndex(ship.playerIconVisibilityMode);
+
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--id", value)) {
+        ship.id = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--shape", value)) {
+        BgeObjectShape parsedShape = BgeObjectShape::VectorShip;
+        if (BgeTryParseObjectShape(LowerArg(value), parsedShape)) {
+            ship.shape = parsedShape;
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--lives", value)) {
+        ship.lives = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--input-profile", value)) {
+        ship.inputProfile = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--fire", value)) {
+        ship.fire = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--hyperspace", value)) {
+        ship.hyperspace = NormalizeTitleScreenText(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--respawn", value)) {
+        float parsedRespawn = 0.0f;
+        if (TryParseFloatArg(value, parsedRespawn)) {
+            ship.respawnSeconds = ClampFloat(parsedRespawn, 0.0f, 12.0f);
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--invulnerable", value)) {
+        float parsedInvulnerable = 0.0f;
+        if (TryParseFloatArg(value, parsedInvulnerable)) {
+            ship.invulnerableSeconds = ClampFloat(parsedInvulnerable, 0.0f, 12.0f);
+        }
+    }
+    // Recipe-driven render style. Default Filled keeps legacy look;
+    // classic-Asteroids witness recipes opt in with --style outline.
+    // Engine-neutral: any plugin authoring a slot can read this.
+    if (TryGetCommandOptionValue(tokens, L"--style", value)) {
+        BgeObjectRenderStyle parsedStyle = BgeObjectRenderStyle::Filled;
+        if (BgeTryParseObjectRenderStyle(LowerArg(value), parsedStyle)) {
+            ship.renderStyle = parsedStyle;
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--outline-thickness", value)) {
+        float parsedThickness = 0.0f;
+        if (TryParseFloatArg(value, parsedThickness)) {
+            ship.outlineThickness = ClampFloat(parsedThickness, 0.5f, 16.0f);
+        }
+    }
+    ship.invulnerableRemainingSeconds = ship.invulnerableSeconds;
+
+    BgeGameViewport viewport = CurrentGameViewport();
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        g_vectorShipState = ship;
+        g_vectorShipActive = true;
+        g_vectorShipInputState = BgeVectorShipInputState{};
+        g_mainPlayerGroupIndex = g_activeObjectGroupIndex;
+        g_mainPlayerSlot = ship.slotIndex;
+        g_selectedObjectSlot = ship.slotIndex;
+        g_objectSelectionActive = true;
+        ConfigureVectorShipSlotLocked(g_vectorShipState, viewport);
+        // Make sure the player starts with 3 lives even if the author
+        // forgot to declare the counter. Idempotent: existing value wins.
+        std::wstring livesName = g_vectorShipState.lives.empty() ? L"lives" : g_vectorShipState.lives;
+        EnsureBgeCounterLocked(livesName);
+        if (const BgeCounterState* livesCounter = FindBgeCounterMutable(livesName)) {
+            if (livesCounter->value <= 0) {
+                AddBgeCounterValueLocked(livesName, 3 - livesCounter->value);
+            }
+        }
+        SetGameObjectKeyboardFocusLocked();
+        RefreshSelectedObjectGlobalsLocked();
+        BgeUpdateCollisionFlags(g_objectSlots);
+        PersistActiveObjectGroupLocked();
+        g_ballAnimationRunning = true;
+        g_rendererStateDirty = true;
+    }
+
+    SyncBallControls();
+    InvalidateGameRenderer();
+    statusText = VectorShipStatusText(ship);
+    LogRendererMessage("[BgeVectorShipPlugin] entity-spawned id=\"" + Narrow(ship.id) + "\" slot=" + std::to_string(ship.slotIndex + 1) + " input=\"" + Narrow(ship.inputProfile) + "\"");
+    return true;
+}
+
+bool HandleBgeVectorShipKeyDown(WPARAM key)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    int visibilityMode = BgePlayerIconVisibilityModeIndexFromKey(static_cast<unsigned int>(key));
+    bool shipKey = visibilityMode >= 0 || key == L'A' || key == L'D' || key == L'W' || key == L'S' || key == L'H' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_SPACE;
+    if (!shipKey) {
+        return false;
+    }
+
+    if (visibilityMode >= 0) {
+        std::wstring statusText;
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            if (!VectorShipPlayerAliveLocked()) {
+                return false;
+            }
+            g_vectorShipState.playerIconVisibilityMode = BgeNormalizePlayerIconVisibilityModeIndex(visibilityMode);
+            BgeObjectSlotState& shipSlot = g_objectSlots[g_vectorShipState.slotIndex];
+            BgeApplyPlayerIconVisibilityMode(shipSlot, g_vectorShipState.playerIconVisibilityMode, g_vectorShipState.invulnerableRemainingSeconds > 0.0f);
+            g_selectedObjectSlot = g_vectorShipState.slotIndex;
+            g_objectSelectionActive = true;
+            g_ballColorR = shipSlot.colorR;
+            g_ballColorG = shipSlot.colorG;
+            g_ballColorB = shipSlot.colorB;
+            g_ballColorA = shipSlot.colorA;
+            g_rendererStateDirty = true;
+            RefreshSelectedObjectGlobalsLocked();
+            PersistActiveObjectGroupLocked();
+            statusText = L"Player ship: icon mode " + std::to_wstring(g_vectorShipState.playerIconVisibilityMode)
+                + L" (" + BgePlayerIconVisibilityModeName(g_vectorShipState.playerIconVisibilityMode) + L")";
+        }
+        SyncBallControls();
+        InvalidateGameRenderer();
+        SetCommandStatus(statusText);
+        SendWorkerTelemetry(L"player-icon-mode", L"player-ship visibility", statusText);
+        LogRendererMessage("[BgeVectorShipPlugin] player-icon-mode status=\"" + Narrow(statusText) + "\"");
+        return true;
+    }
+
+    bool heldInputKey = key == L'A' || key == L'D' || key == L'W' || key == L'S' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN;
+    if (heldInputKey) {
+        bool changed = false;
+        std::wstring statusText;
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            if (!VectorShipPlayerAliveLocked()) {
+                return false;
+            }
+            auto setPressed = [&changed](bool& flag) {
+                if (!flag) {
+                    flag = true;
+                    changed = true;
+                }
+            };
+            if (key == L'A' || key == VK_LEFT) {
+                setPressed(g_vectorShipInputState.turnLeft);
+                statusText = L"Player ship: turn left held";
+            }
+            else if (key == L'D' || key == VK_RIGHT) {
+                setPressed(g_vectorShipInputState.turnRight);
+                statusText = L"Player ship: turn right held";
+            }
+            else if (key == L'W' || key == VK_UP) {
+                setPressed(g_vectorShipInputState.thrust);
+                statusText = L"Player ship: thrust held";
+            }
+            else {
+                setPressed(g_vectorShipInputState.reverse);
+                statusText = L"Player ship: reverse held";
+            }
+            g_ballAnimationRunning = true;
+        }
+        if (changed) {
+            SetCommandStatus(statusText);
+            SendWorkerTelemetry(L"player-input-down", L"player-ship input", statusText);
+            // DIAGNOSTIC: prove key transitions reach the worker's ship-input state.
+            LogRendererMessage("[ShipInput] DOWN key=" + std::to_string(static_cast<int>(key))
+                + " turnLeft=" + std::to_string(g_vectorShipInputState.turnLeft ? 1 : 0)
+                + " turnRight=" + std::to_string(g_vectorShipInputState.turnRight ? 1 : 0)
+                + " thrust=" + std::to_string(g_vectorShipInputState.thrust ? 1 : 0));
+        }
+        return true;
+    }
+
+    bool handled = false;
+    bool dirty = false;
+    std::wstring statusText;
+    BgeGameViewport viewport = CurrentGameViewport();
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (!VectorShipPlayerAliveLocked()) {
+            return false;
+        }
+
+        BgeObjectSlotState& shipSlot = g_objectSlots[g_vectorShipState.slotIndex];
+
+        if (key == L'H') {
+            float minX = shipSlot.radius;
+            float maxX = (std::max)(minX, viewport.width - shipSlot.radius);
+            float minY = viewport.playTop + shipSlot.radius;
+            float maxY = (std::max)(minY, viewport.playTop + viewport.playHeight - shipSlot.radius);
+            float unitX = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+            float unitY = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+            shipSlot.x = minX + (maxX - minX) * unitX;
+            shipSlot.y = minY + (maxY - minY) * unitY;
+            g_vectorShipState.invulnerableRemainingSeconds = g_vectorShipState.invulnerableSeconds;
+            shipSlot.colorA = g_vectorShipState.invulnerableRemainingSeconds > 0.0f ? 0.54f : 1.0f;
+            statusText = L"Player ship: hyperspace";
+            handled = true;
+            dirty = true;
+        }
+        else if (key == VK_SPACE) {
+            dirty = FireBgeProjectileFromVectorShipLocked(statusText);
+            handled = true;
+        }
+
+        if (dirty) {
+            g_ballVelocityX = shipSlot.velocityX;
+            g_ballVelocityY = shipSlot.velocityY;
+            g_ballAnimationRunning = true;
+            g_rendererStateDirty = true;
+            BgeUpdateCollisionFlags(g_objectSlots);
+            RefreshSelectedObjectGlobalsLocked();
+            PersistActiveObjectGroupLocked();
+        }
+    }
+
+    if (!handled) {
+        return false;
+    }
+    if (dirty) {
+        SyncBallControls();
+        InvalidateGameRenderer();
+    }
+    SetCommandStatus(statusText);
+    SendWorkerTelemetry(L"player-input", L"player-ship input", statusText);
+    LogRendererMessage("[BgeVectorShipPlugin] input-bound status=\"" + Narrow(statusText) + "\"");
+    return true;
+}
+
+bool HandleBgeVectorShipKeyUp(WPARAM key)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    bool heldInputKey = key == L'A' || key == L'D' || key == L'W' || key == L'S' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN;
+    if (!heldInputKey) {
+        return false;
+    }
+
+    bool changed = false;
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        auto setReleased = [&changed](bool& flag) {
+            if (flag) {
+                flag = false;
+                changed = true;
+            }
+        };
+        if (key == L'A' || key == VK_LEFT) {
+            setReleased(g_vectorShipInputState.turnLeft);
+            statusText = L"Player ship: turn left released";
+        }
+        else if (key == L'D' || key == VK_RIGHT) {
+            setReleased(g_vectorShipInputState.turnRight);
+            statusText = L"Player ship: turn right released";
+        }
+        else if (key == L'W' || key == VK_UP) {
+            setReleased(g_vectorShipInputState.thrust);
+            statusText = L"Player ship: thrust released";
+        }
+        else {
+            setReleased(g_vectorShipInputState.reverse);
+            statusText = L"Player ship: reverse released";
+        }
+    }
+    if (changed) {
+        SetCommandStatus(statusText);
+        SendWorkerTelemetry(L"player-input-up", L"player-ship input", statusText);
+    }
+    return true;
+}
+
+void ClearBgeVectorShipInputState()
+{
+    std::lock_guard<std::mutex> lock(ballConfigMutex);
+    g_vectorShipInputState = BgeVectorShipInputState{};
+}
+
+// ---------------------------------------------------------------------------
+// Space Rocks lifecycle helpers (ship death / respawn / restart).
+// All "*Locked" helpers below assume the caller already holds ballConfigMutex.
+// ---------------------------------------------------------------------------
+
+void SetBgeCounterValueLocked(const std::wstring& name, int value)
+{
+    if (name.empty()) {
+        return;
+    }
+    EnsureBgeCounterLocked(name);
+    if (BgeCounterState* counter = FindBgeCounterMutable(name)) {
+        counter->value = ClampCounterValue(*counter, value);
+    }
+}
+
+void RespawnVectorShipLocked()
+{
+    BgeGameViewport viewport = CurrentGameViewport();
+    g_vectorShipState.awaitingRespawn = false;
+    g_vectorShipState.respawnRemainingSeconds = 0.0f;
+    g_vectorShipState.headingDegrees = -90.0f;
+    g_vectorShipState.invulnerableRemainingSeconds = g_vectorShipState.invulnerableSeconds;
+    g_vectorShipActive = true;
+    g_vectorShipState.active = true;
+    ConfigureVectorShipSlotLocked(g_vectorShipState, viewport);
+    BgeUpdateCollisionFlags(g_objectSlots);
+    g_ballAnimationRunning = true;
+    g_rendererStateDirty = true;
+}
+
+void ShowSpaceRocksTitleScreenLocked()
+{
+    g_titleScreenState.visible = true;
+    g_titleScreenState.text = L"ASTEROIDS";
+    g_titleScreenState.subtitle = L"PRESS ENTER";
+    g_titleScreenActive = true;
+    g_rendererStateDirty = true;
+}
+
+void ShowSpaceRocksGameOverScreenLocked()
+{
+    g_titleScreenState.visible = true;
+    g_titleScreenState.text = L"GAME OVER";
+    g_titleScreenState.subtitle = L"PRESS ENTER";
+    g_titleScreenActive = true;
+    g_vectorShipState.gameOver = true;
+    g_rendererStateDirty = true;
+}
+
+bool SpawnSpaceRocksWaveLocked(int waveIndex)
+{
+    // DIAGNOSTIC: trace every wave-spawn so the renderer log shows how
+    // many waves were forced. Pairs with StartOrRestartSpaceRocksGameLocked.
+    static std::atomic<int> s_waveSpawnCount{0};
+    int n = ++s_waveSpawnCount;
+    LogRendererMessage("[SpaceRocks] SpawnSpaceRocksWaveLocked wave=" + std::to_string(waveIndex) + " call#" + std::to_string(n));
+    SendWorkerTelemetry(L"game-event", L"wave-spawn", L"wave=" + std::to_wstring(waveIndex) + L" call=" + std::to_wstring(n));
+
+    BgeBreakableRockFieldState field = g_breakableRockFieldState;
+    // First wave: ensure a baseline count if author never spawned rocks.
+    if (field.count <= 0) {
+        field.count = 4;
+    }
+    // Light progression: each subsequent wave adds two rocks (Asteroids-ish).
+    int rockCount = (std::max)(2, field.count + (std::max)(0, waveIndex - 1) * 2);
+    BgeGameViewport viewport = CurrentGameViewport();
+
+    for (BgeObjectSlotState& slot : g_objectSlots) {
+        if (slot.kind == BgeObjectKind::Asteroid) {
+            slot.visible = false;
+            slot.kind = BgeObjectKind::Generic;
+        }
+    }
+
+    int spawned = 0;
+    for (int rockIndex = 0; rockIndex < rockCount; ++rockIndex) {
+        int slotIndex = FindReusableBgeRockSlotLocked();
+        if (slotIndex < 0) break;
+        ConfigureBgeRockSlotLocked(slotIndex, field, rockIndex, viewport);
+        ++spawned;
+    }
+    field.count = spawned;
+    g_breakableRockFieldState = field;
+    g_breakableRockFieldActive = spawned > 0;
+    BgeUpdateCollisionFlags(g_objectSlots);
+    g_rendererStateDirty = true;
+    return spawned > 0;
+}
+
+void StartOrRestartSpaceRocksGameLocked()
+{
+    // DIAGNOSTIC: count how many times this gets called per session so
+    // we can confirm whether the "game resets every few seconds" bug is
+    // a re-entrant restart or something else (collision, wave-spawn, ...).
+    static std::atomic<int> s_restartCount{0};
+    int n = ++s_restartCount;
+    LogRendererMessage("[SpaceRocks] StartOrRestartSpaceRocksGameLocked count=" + std::to_string(n));
+    SendWorkerTelemetry(L"game-event", L"start-or-restart", L"count=" + std::to_wstring(n));
+
+    // Reset counters used by the scoreboard overlay.
+    SetBgeCounterValueLocked(L"score", 0);
+    SetBgeCounterValueLocked(g_vectorShipState.lives.empty() ? L"lives" : g_vectorShipState.lives, 3);
+    SetBgeCounterValueLocked(L"wave", 1);
+
+    // Clear bullets so the field starts empty.
+    for (BgeObjectSlotState& slot : g_objectSlots) {
+        if (slot.kind == BgeObjectKind::Bullet) {
+            slot.visible = false;
+            slot.kind = BgeObjectKind::Generic;
+        }
+    }
+
+    g_vectorShipState.gameOver = false;
+    g_vectorShipState.awaitingRespawn = false;
+    g_vectorShipState.respawnRemainingSeconds = 0.0f;
+
+    // Hide title / game-over screen.
+    g_titleScreenState.visible = false;
+    g_titleScreenActive = false;
+
+    // Reset ship at centre, pointing up, briefly invulnerable.
+    RespawnVectorShipLocked();
+
+    // Spawn wave 1.
+    SpawnSpaceRocksWaveLocked(1);
+
+    PersistActiveObjectGroupLocked();
+}
+
+void ResolveBgeShipRockCollisionsLocked()
+{
+    if (!VectorShipPlayerAliveLocked()) return;
+    if (g_vectorShipState.invulnerableRemainingSeconds > 0.0f) return;
+    if (g_vectorShipState.awaitingRespawn) return;
+
+    BgeObjectSlotState& shipSlot = g_objectSlots[g_vectorShipState.slotIndex];
+    for (int i = 0; i < BGE_OBJECT_SLOT_COUNT; ++i) {
+        BgeObjectSlotState& other = g_objectSlots[i];
+        if (i == g_vectorShipState.slotIndex) continue;
+        if (!other.visible) continue;
+        if (other.kind != BgeObjectKind::Asteroid) continue;
+        if (!BgeObjectSlotsOverlap(shipSlot, other)) continue;
+
+        // Hit! Hide ship, decrement lives, schedule respawn or game-over.
+        shipSlot.visible = false;
+        std::wstring livesName = g_vectorShipState.lives.empty() ? L"lives" : g_vectorShipState.lives;
+        AddBgeCounterValueLocked(livesName, -1);
+        const BgeCounterState* livesCounter = FindBgeCounterMutable(livesName);
+        int remainingLives = livesCounter ? livesCounter->value : 0;
+
+        g_vectorShipState.awaitingRespawn = true;
+        g_vectorShipState.respawnRemainingSeconds = g_vectorShipState.respawnSeconds;
+        g_vectorShipState.invulnerableRemainingSeconds = 0.0f;
+
+        if (remainingLives <= 0) {
+            g_vectorShipState.gameOver = true;
+            SendWorkerTelemetry(L"game-event", L"game-over", L"lives=0");
+        } else {
+            SendWorkerTelemetry(L"game-event", L"life-lost", L"ship destroyed by asteroid");
+        }
+        BgeUpdateCollisionFlags(g_objectSlots);
+        return;
+    }
+}
+
+bool TickBgeVectorShip(double deltaMilliseconds)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(ballConfigMutex);
+
+    if (!g_vectorShipActive || !g_vectorShipState.active) {
+        // Do NOT wipe input here. Keys held down should remain pressed across
+        // brief inactive windows (recipe load, plugin reload, etc.); wiping
+        // every frame caused turn-only input to be eaten because the OS
+        // auto-repeat couldn't keep up with the 60Hz tick. The tick simply
+        // skips its work in this state; held flags resume effect on return.
+        return false;
+    }
+
+    float deltaSeconds = static_cast<float>((std::max)(0.0, deltaMilliseconds) / 1000.0);
+    bool dirty = false;
+
+    // Ship is dead and waiting to respawn (lives still remaining).
+    if (g_vectorShipState.awaitingRespawn) {
+        // Keep held-key input intact across the respawn window. If the player
+        // is holding LEFT/RIGHT when the new ship spawns, classic Asteroids
+        // resumes rotating immediately - wiping every frame here was the
+        // bug that ate turn-only input between OS auto-repeats.
+        if (g_vectorShipState.respawnRemainingSeconds > 0.0f) {
+            g_vectorShipState.respawnRemainingSeconds = (std::max)(0.0f, g_vectorShipState.respawnRemainingSeconds - deltaSeconds);
+            dirty = true;
+        }
+        if (g_vectorShipState.respawnRemainingSeconds <= 0.0f && !g_vectorShipState.gameOver) {
+            RespawnVectorShipLocked();
+            dirty = true;
+        }
+        if (dirty) {
+            g_rendererStateDirty = true;
+            PersistActiveObjectGroupLocked();
+        }
+        return dirty;
+    }
+
+    if (!VectorShipPlayerAliveLocked()) {
+        if (g_vectorShipInputState.turnLeft || g_vectorShipInputState.turnRight || g_vectorShipInputState.thrust) {
+            const auto& s = g_objectSlots[g_vectorShipState.slotIndex >= 0 && g_vectorShipState.slotIndex < BGE_OBJECT_SLOT_COUNT ? g_vectorShipState.slotIndex : 0];
+            LogRendererMessage(std::string("[ShipSkip] !PlayerAlive (input kept)")
+                + " vsAct=" + std::to_string(g_vectorShipActive ? 1 : 0)
+                + " stAct=" + std::to_string(g_vectorShipState.active ? 1 : 0)
+                + " slotIdx=" + std::to_string(g_vectorShipState.slotIndex)
+                + " mainGrp=" + std::to_string(g_mainPlayerGroupIndex)
+                + " actGrp=" + std::to_string(g_activeObjectGroupIndex)
+                + " mainSlot=" + std::to_string(g_mainPlayerSlot)
+                + " vis=" + std::to_string(s.visible ? 1 : 0)
+                + " del=" + std::to_string(s.isDeleted ? 1 : 0)
+                + " kind=" + std::to_string(static_cast<int>(s.kind)));
+        }
+        // Ship slot got cleared by something else (hide/select/etc).
+        // Do NOT wipe input - see comments above.
+        return false;
+    }
+
+    // Ship-vs-rock contact may flip the ship to awaitingRespawn or gameOver.
+    ResolveBgeShipRockCollisionsLocked();
+    if (g_vectorShipState.awaitingRespawn || !VectorShipPlayerAliveLocked()) {
+        if (g_vectorShipState.gameOver) {
+            ShowSpaceRocksGameOverScreenLocked();
+        }
+        g_rendererStateDirty = true;
+        PersistActiveObjectGroupLocked();
+        return true;
+    }
+
+    BgeObjectSlotState& slot = g_objectSlots[g_vectorShipState.slotIndex];
+
+    // --- Rotation: turn heading independent of velocity (real Asteroids feel) ---
+    int turnDirection = (g_vectorShipInputState.turnRight ? 1 : 0) - (g_vectorShipInputState.turnLeft ? 1 : 0);
+    // DIAGNOSTIC: log input + heading once per ~60 frames so we can see whether
+    // turn input actually reaches the tick and whether heading is updating.
+    {
+        static int s_tickLogCounter = 0;
+        if ((++s_tickLogCounter % 60) == 0) {
+            LogRendererMessage("[ShipTick] turnL=" + std::to_string(g_vectorShipInputState.turnLeft ? 1 : 0)
+                + " turnR=" + std::to_string(g_vectorShipInputState.turnRight ? 1 : 0)
+                + " thrust=" + std::to_string(g_vectorShipInputState.thrust ? 1 : 0)
+                + " heading=" + std::to_string(g_vectorShipState.headingDegrees)
+                + " dt=" + std::to_string(deltaSeconds));
+        }
+    }
+    if (turnDirection != 0 && deltaSeconds > 0.0f) {
+        float deltaDegrees = static_cast<float>(turnDirection) * g_vectorShipState.turnDegrees * deltaSeconds;
+        g_vectorShipState.headingDegrees += deltaDegrees;
+        // Normalize to [-180, 180].
+        while (g_vectorShipState.headingDegrees > 180.0f)  g_vectorShipState.headingDegrees -= 360.0f;
+        while (g_vectorShipState.headingDegrees < -180.0f) g_vectorShipState.headingDegrees += 360.0f;
+        float headingRadians = g_vectorShipState.headingDegrees * 3.14159265358979323846f / 180.0f;
+        slot.headingX = std::cos(headingRadians);
+        slot.headingY = std::sin(headingRadians);
+        dirty = true;
+    }
+    else {
+        // Keep slot heading in sync (e.g. after respawn).
+        float headingRadians = g_vectorShipState.headingDegrees * 3.14159265358979323846f / 180.0f;
+        slot.headingX = std::cos(headingRadians);
+        slot.headingY = std::sin(headingRadians);
+    }
+
+    // --- Thrust: apply along heading (NOT along velocity). ---
+    if (g_vectorShipInputState.thrust && deltaSeconds > 0.0f) {
+        float thrustImpulse = g_vectorShipState.thrustStep * deltaSeconds;
+        slot.velocityX += slot.headingX * thrustImpulse;
+        slot.velocityY += slot.headingY * thrustImpulse;
+        ClampVectorShipVelocity(slot, g_vectorShipState.maxSpeed);
+        dirty = true;
+    }
+    if (g_vectorShipInputState.reverse && g_vectorShipState.reverseThrustStep > 0.0f && deltaSeconds > 0.0f) {
+        float thrustImpulse = g_vectorShipState.reverseThrustStep * deltaSeconds;
+        slot.velocityX -= slot.headingX * thrustImpulse;
+        slot.velocityY -= slot.headingY * thrustImpulse;
+        ClampVectorShipVelocity(slot, g_vectorShipState.maxSpeed);
+        dirty = true;
+    }
+
+    // --- Drag (Asteroids has a tiny long-tail drag so the ship eventually slows). ---
+    if (g_vectorShipState.drag > 0.0f && deltaSeconds > 0.0f) {
+        float dragFactor = (std::max)(0.0f, 1.0f - g_vectorShipState.drag * deltaSeconds * 60.0f);
+        if (dragFactor < 1.0f && VectorShipLength(slot.velocityX, slot.velocityY) > 0.001f) {
+            slot.velocityX *= dragFactor;
+            slot.velocityY *= dragFactor;
+            dirty = true;
+        }
+    }
+
+    // --- Invulnerability countdown / classic-Asteroids on/off blink ---
+    // Real Asteroids flashes the ship ON/OFF (~5 Hz) during the post-respawn
+    // grace period so the player can SEE the ship clearly while still being
+    // signalled "you are temporarily safe". The previous flat 0.54 alpha made
+    // the ship hard to spot against the asteroid field — engine-neutral fix:
+    // a square-wave alpha. Any slot can be flashed by writing colorA per tick.
+    if (g_vectorShipState.invulnerableRemainingSeconds > 0.0f) {
+        g_vectorShipState.invulnerableRemainingSeconds = (std::max)(0.0f, g_vectorShipState.invulnerableRemainingSeconds - deltaSeconds);
+        if (g_vectorShipState.invulnerableRemainingSeconds > 0.0f) {
+            // 5 Hz blink. Visibility modes keep the low phase readable when
+            // we are testing whether the player icon can be seen during play.
+            float phase = std::fmod(g_vectorShipState.invulnerableRemainingSeconds * 10.0f, 2.0f);
+            slot.colorA = BgePlayerIconVisibilityModeAlpha(g_vectorShipState.playerIconVisibilityMode, true, phase >= 1.0f);
+        }
+        else {
+            slot.colorA = BgePlayerIconVisibilityModeAlpha(g_vectorShipState.playerIconVisibilityMode, false, false);
+        }
+        dirty = true;
+    }
+    else if (slot.colorA != BgePlayerIconVisibilityModeAlpha(g_vectorShipState.playerIconVisibilityMode, false, false)) {
+        // Defensive: if some other path left the ship dim, restore the active
+        // visibility mode's normal alpha.
+        slot.colorA = BgePlayerIconVisibilityModeAlpha(g_vectorShipState.playerIconVisibilityMode, false, false);
+        dirty = true;
+    }
+
+    if (dirty) {
+        g_ballVelocityX = slot.velocityX;
+        g_ballVelocityY = slot.velocityY;
+        g_ballAnimationRunning = true;
+        g_rendererStateDirty = true;
+        BgeUpdateCollisionFlags(g_objectSlots);
+        RefreshSelectedObjectGlobalsLocked();
+        PersistActiveObjectGroupLocked();
+    }
+    return dirty;
 }
 
 std::wstring EditModeName(BgeEditMode mode)
@@ -1518,6 +3939,184 @@ std::wstring LowerArg(std::wstring value)
     return value;
 }
 
+const BgePluginDescriptor* FindBgePluginDescriptor(const std::wstring& pluginId)
+{
+    std::wstring requested = LowerArg(pluginId);
+    for (const auto& descriptor : kBgePluginRegistry) {
+        if (LowerArg(descriptor.id) == requested) {
+            return &descriptor;
+        }
+    }
+    return nullptr;
+}
+
+bool BgePluginAlreadyImported(const std::wstring& pluginId)
+{
+    std::wstring requested = LowerArg(pluginId);
+    return std::any_of(g_importedBgePlugins.begin(), g_importedBgePlugins.end(), [&requested](const std::wstring& imported) {
+        return LowerArg(imported) == requested;
+    });
+}
+
+void ImportBgePluginDescriptor(const BgePluginDescriptor& descriptor)
+{
+    if (!BgePluginAlreadyImported(descriptor.id)) {
+        g_importedBgePlugins.push_back(descriptor.id);
+    }
+}
+
+std::wstring BgePluginDescriptorLine(const BgePluginDescriptor& descriptor)
+{
+    return std::wstring(descriptor.id) + L" [" + descriptor.kind + L"] " + descriptor.command + L" " + descriptor.flags;
+}
+
+std::wstring BgePluginListText()
+{
+    std::wstring text = L"BGE plugins:";
+    for (const auto& descriptor : kBgePluginRegistry) {
+        text += L"\r\n  " + BgePluginDescriptorLine(descriptor);
+    }
+    return text;
+}
+
+std::wstring BgePluginCommandSignatureText()
+{
+    std::wstring text = L"BGE plugin command signatures:";
+    for (const auto& descriptor : kBgePluginRegistry) {
+        text += L"\r\n  " + std::wstring(descriptor.command) + L" " + descriptor.flags + L" <= " + descriptor.id;
+    }
+    return text;
+}
+
+std::wstring BgeImportedPluginText()
+{
+    if (g_importedBgePlugins.empty()) {
+        return L"Imported plugins: none";
+    }
+
+    std::wstring text = L"Imported plugins:";
+    for (const auto& pluginId : g_importedBgePlugins) {
+        text += L" " + pluginId;
+    }
+    return text;
+}
+
+std::wstring BgePluginExplainText(const BgePluginDescriptor& descriptor)
+{
+    std::wstring text = L"Plugin: " + std::wstring(descriptor.id);
+    text += L"\r\nKind: " + std::wstring(descriptor.kind);
+    text += L"\r\nSummary: " + std::wstring(descriptor.summary);
+    text += L"\r\nCommand: " + std::wstring(descriptor.command);
+    text += L"\r\nFlags: " + std::wstring(descriptor.flags);
+    text += L"\r\nEmits: " + std::wstring(descriptor.emits);
+    return text;
+}
+
+void AddBgePluginRegistryAttributesToOpNode(const std::shared_ptr<OpNode>& root)
+{
+    if (!root) {
+        return;
+    }
+
+    root->SetAttribute("plugin.registry", "enabled");
+    root->SetAttribute("plugin.registry.source", "bge.static.command-signatures");
+    for (const auto& descriptor : kBgePluginRegistry) {
+        std::string key = std::string("plugin.") + Narrow(descriptor.id);
+        root->SetAttribute(key, "available");
+        root->SetAttribute(key + ".kind", Narrow(descriptor.kind));
+        root->SetAttribute(key + ".command", Narrow(descriptor.command));
+        root->SetAttribute(key + ".flags", Narrow(descriptor.flags));
+        root->SetAttribute(key + ".emits", Narrow(descriptor.emits));
+    }
+}
+
+bool ExecuteBgePluginCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"list";
+
+    if (subcommand == L"list" || subcommand == L"status") {
+        statusText = BgePluginListText() + L"\r\n" + BgeImportedPluginText();
+        return true;
+    }
+
+    if (subcommand == L"commands" || subcommand == L"signatures") {
+        statusText = BgePluginCommandSignatureText();
+        return true;
+    }
+
+    if (subcommand == L"import" || subcommand == L"require" || subcommand == L"use" || subcommand == L"load") {
+        if (tokens.size() < 3) {
+            statusText = L"Use: plugin import <plugin-id>";
+            return false;
+        }
+
+        const BgePluginDescriptor* descriptor = FindBgePluginDescriptor(tokens[2]);
+        if (!descriptor) {
+            statusText = L"BGE plugin not found: " + tokens[2];
+            return false;
+        }
+
+        ImportBgePluginDescriptor(*descriptor);
+
+        statusText = L"Plugin imported: " + BgePluginDescriptorLine(*descriptor);
+        return true;
+    }
+
+    if (subcommand == L"import-set" || subcommand == L"require-set" || subcommand == L"import-bundle" || subcommand == L"require-bundle" || subcommand == L"bundle" || subcommand == L"load-set") {
+        if (tokens.size() < 3) {
+            statusText = L"Use: plugin import-set asteroids";
+            return false;
+        }
+
+        std::wstring setName = LowerArg(tokens[2]);
+        if (setName != L"asteroids" && setName != L"space-rocks") {
+            statusText = L"BGE plugin set not found: " + tokens[2];
+            return false;
+        }
+
+        for (const auto* pluginId : kBgeAsteroidsPluginSet) {
+            const BgePluginDescriptor* descriptor = FindBgePluginDescriptor(pluginId);
+            if (descriptor) {
+                ImportBgePluginDescriptor(*descriptor);
+            }
+        }
+
+        statusText = L"Plugin set imported: asteroids -> " + BgeImportedPluginText();
+        return true;
+    }
+
+    if (subcommand == L"explain" || subcommand == L"show") {
+        if (tokens.size() < 3) {
+            statusText = L"Use: plugin explain <plugin-id>";
+            return false;
+        }
+
+        const BgePluginDescriptor* descriptor = FindBgePluginDescriptor(tokens[2]);
+        if (!descriptor) {
+            statusText = L"BGE plugin not found: " + tokens[2];
+            return false;
+        }
+
+        statusText = BgePluginExplainText(*descriptor);
+        return true;
+    }
+
+    statusText = L"Use: plugin list | plugin import <plugin-id> | plugin import-set asteroids | plugin explain <plugin-id> | plugin commands";
+    return false;
+}
+
+bool ExecuteBgeInspectCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"commands";
+    if (subcommand == L"commands" || subcommand == L"plugins" || subcommand == L"signatures") {
+        statusText = BgePluginCommandSignatureText();
+        return true;
+    }
+
+    statusText = L"Use: inspect commands";
+    return false;
+}
+
 bool TryParseFloatArg(const std::wstring& text, float& value)
 {
     wchar_t* parseEnd = nullptr;
@@ -1602,6 +4201,11 @@ bool ReadNextArg(LPWSTR* argv, int argc, int& index, std::wstring& value)
     return true;
 }
 
+bool HasEmbeddedGameScriptResource()
+{
+    return FindResourceW(nullptr, kBgeEmbeddedGameScriptResourceName, RT_RCDATA) != nullptr;
+}
+
 void ParseRuntimeArgs()
 {
     int argc = 0;
@@ -1612,7 +4216,19 @@ void ParseRuntimeArgs()
 
     for (int i = 1; i < argc; ++i) {
         std::wstring arg = argv[i];
-        if ((arg == L"--worker" || arg == L"--role") && i + 1 < argc) {
+        if (arg == L"--player" || arg == L"--game-only" || arg == L"--arcade-runtime") {
+            g_playerRuntimeMode = true;
+        }
+        else if ((arg == L"--game-title" || arg == L"--player-title") && i + 1 < argc) {
+            g_playerRuntimeTitle = argv[++i];
+        }
+        else if (arg.rfind(L"--game-title=", 0) == 0) {
+            g_playerRuntimeTitle = arg.substr(13);
+        }
+        else if (arg.rfind(L"--player-title=", 0) == 0) {
+            g_playerRuntimeTitle = arg.substr(15);
+        }
+        else if ((arg == L"--worker" || arg == L"--role") && i + 1 < argc) {
             g_workerName = argv[++i];
             g_workerRoleRequested = true;
         }
@@ -1705,8 +4321,20 @@ void ParseRuntimeArgs()
         else if ((arg == L"--game-file" || arg == L"--construction-file" || arg == L"--command-file") && i + 1 < argc) {
             g_cliConstructionArtifactPaths.push_back(argv[++i]);
         }
+        else if ((arg == L"--game-script" || arg == L"--commands") && i + 1 < argc) {
+            g_playerRuntimeMode = true;
+            g_cliConstructionArtifactPaths.push_back(argv[++i]);
+        }
         else if (arg.rfind(L"--game-file=", 0) == 0) {
             g_cliConstructionArtifactPaths.push_back(arg.substr(12));
+        }
+        else if (arg.rfind(L"--game-script=", 0) == 0) {
+            g_playerRuntimeMode = true;
+            g_cliConstructionArtifactPaths.push_back(arg.substr(14));
+        }
+        else if (arg.rfind(L"--commands=", 0) == 0) {
+            g_playerRuntimeMode = true;
+            g_cliConstructionArtifactPaths.push_back(arg.substr(11));
         }
         else if (arg.rfind(L"--construction-file=", 0) == 0) {
             g_cliConstructionArtifactPaths.push_back(arg.substr(20));
@@ -1902,6 +4530,23 @@ void ParseRuntimeArgs()
         }
     }
 
+    if (!g_playerRuntimeMode && argc == 1 && HasEmbeddedGameScriptResource()) {
+        g_playerRuntimeMode = true;
+        if (g_playerRuntimeTitle.empty()) {
+            g_playerRuntimeTitle = std::filesystem::path(argv[0]).stem().wstring();
+        }
+    }
+
+    if (g_playerRuntimeMode) {
+        g_workerName = L"bge.game-loop";
+        g_workerRoleRequested = true;
+        g_launchBasicGameStack = false;
+        BgeSetRenderTopInset(0.0f);
+    }
+    else {
+        BgeSetRenderTopInset(BGE_RENDER_TOP_INSET);
+    }
+
     LocalFree(argv);
 }
 
@@ -1988,6 +4633,34 @@ std::wstring QuoteArg(const std::wstring& value)
     }
     escaped += L"\"";
     return escaped;
+}
+
+std::wstring CommandFileArg(const std::wstring& value)
+{
+    if (value.empty()) {
+        return L"\"\"";
+    }
+    if (value.find_first_of(L" \t\r\n\"") != std::wstring::npos) {
+        return QuoteArg(value);
+    }
+    return value;
+}
+
+void RecordWorkerCommandHistory(const std::wstring& commandText)
+{
+    if (g_isController || g_playerRuntimeMode) {
+        return;
+    }
+
+    std::vector<std::wstring> tokens = TokenizeCommandText(commandText);
+    if (!tokens.empty() && LowerArg(tokens[0]) == L"export") {
+        return;
+    }
+
+    g_workerCommandHistory.push_back(commandText);
+    if (g_workerCommandHistory.size() > BGE_CONTROLLER_HISTORY_LIMIT) {
+        g_workerCommandHistory.erase(g_workerCommandHistory.begin());
+    }
 }
 
 std::wstring ControllerBaseCli()
@@ -2135,6 +4808,11 @@ void AddControllerMenu(HWND hWnd)
 
 void UpdateRoleWindowTitle(HWND hWnd)
 {
+    if (g_playerRuntimeMode) {
+        SetWindowTextW(hWnd, g_playerRuntimeTitle.empty() ? L"Arcade Runtime" : g_playerRuntimeTitle.c_str());
+        return;
+    }
+
     std::wstring title = L"BasicGameEngine - ";
     if (g_isController) {
         title += L"Controller";
@@ -2162,9 +4840,16 @@ void BootstrapRoleOpNode()
     root->SetAttribute("plugin.images", (role == "bge.images") ? "enabled" : "available");
     root->SetAttribute("plugin.sound", (role == "bge.sound") ? "enabled" : "available");
     root->SetAttribute("plugin.sample-game", (role == "bge.sample-game-one" || role == "bge.sample-game-two") ? "enabled" : "available");
+    AddBgePluginRegistryAttributesToOpNode(root);
     root->SetAttribute("environment", "basic-3d");
     if (role == "bge.game-loop") {
         root->AddOperation(std::make_shared<DirectX11BouncingBallOperation>());
+        root->AddOperation(std::make_shared<BgeAudioPluginOperation>());
+        root->AddOperation(std::make_shared<BgeBreakableRockFieldPluginOperation>());
+        root->AddOperation(std::make_shared<BgeProjectilePluginOperation>());
+        root->AddOperation(std::make_shared<BgeScoreboardPluginOperation>());
+        root->AddOperation(std::make_shared<BgeTitleScreenPluginOperation>());
+        root->AddOperation(std::make_shared<BgeVectorShipPluginOperation>());
     }
     root->AddOperation(std::make_shared<BasicGameRoleOperation>());
     root->PerformOperations();
@@ -2720,6 +5405,498 @@ bool QueueConstructionArtifactCommandsFromFile(const std::wstring& path, std::ws
     return true;
 }
 
+std::wstring StripLocalWorkerTargetPrefix(const std::wstring& commandText)
+{
+    size_t colon = commandText.find(L':');
+    if (colon == std::wstring::npos) {
+        return commandText;
+    }
+
+    std::wstring selector = LowerArg(TrimText(commandText.substr(0, colon)));
+    if (selector == L"game-loop" || selector == L"bge.game-loop" || selector == L"worker" || selector == L"scene and render") {
+        return TrimText(commandText.substr(colon + 1));
+    }
+    return commandText;
+}
+
+bool ExecuteConstructionCommandsLocally(const std::vector<std::wstring>& commands, const std::wstring& sourceLabel, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"Construction artifacts need the game-loop runtime";
+        return false;
+    }
+
+    size_t executedCount = 0;
+    size_t skippedCount = 0;
+    size_t failedCount = 0;
+    for (const std::wstring& command : commands) {
+        std::wstring localCommand = StripLocalWorkerTargetPrefix(command);
+        std::vector<std::wstring> tokens = TokenizeCommandText(localCommand);
+        if (tokens.empty()) {
+            ++skippedCount;
+            continue;
+        }
+        if (LowerArg(tokens[0]) == L"export") {
+            ++skippedCount;
+            continue;
+        }
+
+        std::wstring commandStatus;
+        if (ExecuteCommandText(localCommand, commandStatus)) {
+            ++executedCount;
+            SendWorkerTelemetry(L"script-command", localCommand, commandStatus);
+        }
+        else {
+            ++failedCount;
+            SendWorkerTelemetry(L"script-command-failed", localCommand, commandStatus);
+            LogRendererMessage("[BgePlayerRuntime] command-failed command=\"" + Narrow(localCommand) + "\" status=\"" + Narrow(commandStatus) + "\"");
+        }
+    }
+
+    statusText = L"Player runtime loaded " + std::to_wstring(executedCount) + L" commands from " + sourceLabel;
+    if (skippedCount > 0) {
+        statusText += L", skipped " + std::to_wstring(skippedCount);
+    }
+    if (failedCount > 0) {
+        statusText += L", failed " + std::to_wstring(failedCount);
+    }
+    return executedCount > 0 || failedCount == 0;
+}
+
+bool ExecuteConstructionArtifactCommandsLocally(const std::wstring& path, std::wstring& statusText)
+{
+    std::vector<std::wstring> commands;
+    std::wstring errorText;
+    if (!LoadConstructionArtifactCommands(path, commands, errorText)) {
+        statusText = errorText;
+        return false;
+    }
+    return ExecuteConstructionCommandsLocally(commands, path, statusText);
+}
+
+bool LoadEmbeddedGameScriptCommands(std::vector<std::wstring>& commands, std::wstring& errorText)
+{
+    HRSRC resource = FindResourceW(nullptr, kBgeEmbeddedGameScriptResourceName, RT_RCDATA);
+    if (!resource) {
+        errorText = L"No embedded BGE game script";
+        return false;
+    }
+
+    DWORD size = SizeofResource(nullptr, resource);
+    HGLOBAL handle = LoadResource(nullptr, resource);
+    const char* bytes = handle ? static_cast<const char*>(LockResource(handle)) : nullptr;
+    if (!bytes || size == 0) {
+        errorText = L"Embedded BGE game script is empty";
+        return false;
+    }
+
+    std::wstring scriptText = WidenUtf8(std::string(bytes, bytes + size));
+    if (!ExtractLineConstructionCommands(scriptText, commands)) {
+        errorText = L"Embedded BGE game script has no commands";
+        return false;
+    }
+    return true;
+}
+
+void ProcessPlayerRuntimeAutomation()
+{
+    if (!g_playerRuntimeMode || g_playerRuntimeCommandsProcessed || !CurrentProcessOwnsGameLoop()) {
+        return;
+    }
+
+    g_playerRuntimeCommandsProcessed = true;
+    if (g_cliConstructionArtifactPaths.empty()) {
+        std::vector<std::wstring> embeddedCommands;
+        std::wstring statusText;
+        if (LoadEmbeddedGameScriptCommands(embeddedCommands, statusText)) {
+            ExecuteConstructionCommandsLocally(embeddedCommands, L"embedded resource", statusText);
+        }
+        SetCommandStatus(statusText);
+        LogRendererMessage("[BgePlayerRuntime] embedded-script status=\"" + Narrow(statusText) + "\"");
+        return;
+    }
+
+    for (const std::wstring& artifactPath : g_cliConstructionArtifactPaths) {
+        std::wstring statusText;
+        ExecuteConstructionArtifactCommandsLocally(artifactPath, statusText);
+        SetCommandStatus(statusText);
+        LogRendererMessage("[BgePlayerRuntime] script=\"" + Narrow(artifactPath) + "\" status=\"" + Narrow(statusText) + "\"");
+    }
+}
+
+std::wstring SafeExportFileStem(std::wstring value)
+{
+    value = TrimText(value);
+    if (value.empty()) {
+        return L"space-rocks";
+    }
+
+    for (wchar_t& ch : value) {
+        if (ch == L' ' || ch == L'\t') {
+            ch = L'-';
+        }
+        else if (ch == L'<' || ch == L'>' || ch == L':' || ch == L'"' || ch == L'/' || ch == L'\\' || ch == L'|' || ch == L'?' || ch == L'*') {
+            ch = L'-';
+        }
+    }
+    return value;
+}
+
+bool WriteUtf8TextFile(const std::filesystem::path& path, const std::wstring& text, std::wstring& errorText)
+{
+    std::ofstream output(path, std::ios::binary);
+    if (!output) {
+        errorText = L"Could not write " + path.wstring();
+        return false;
+    }
+    std::string bytes = Narrow(text);
+    output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!output) {
+        errorText = L"Could not finish writing " + path.wstring();
+        return false;
+    }
+    return true;
+}
+
+bool EmbedUtf8TextResourceInExecutable(const std::filesystem::path& executablePath, const wchar_t* resourceName, const std::wstring& text, std::wstring& errorText)
+{
+    HANDLE update = BeginUpdateResourceW(executablePath.c_str(), FALSE);
+    if (!update) {
+        errorText = L"Could not open executable resources: " + executablePath.wstring();
+        return false;
+    }
+
+    std::string bytes = Narrow(text);
+    BOOL updated = UpdateResourceW(update, RT_RCDATA, resourceName, MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), bytes.empty() ? nullptr : bytes.data(), static_cast<DWORD>(bytes.size()));
+    if (!updated) {
+        EndUpdateResourceW(update, TRUE);
+        errorText = L"Could not embed BGE resource in " + executablePath.wstring();
+        return false;
+    }
+
+    if (!EndUpdateResourceW(update, FALSE)) {
+        errorText = L"Could not finish executable resource update: " + executablePath.wstring();
+        return false;
+    }
+    return true;
+}
+
+void AddExportFeatureSet(std::vector<std::wstring>& features, const std::wstring& featureId)
+{
+    if (featureId.empty()) {
+        return;
+    }
+    std::wstring lowerFeature = LowerArg(featureId);
+    if (std::any_of(features.begin(), features.end(), [&lowerFeature](const std::wstring& existing) { return LowerArg(existing) == lowerFeature; })) {
+        return;
+    }
+    features.push_back(featureId);
+}
+
+std::vector<std::wstring> BuildExportFeatureSetLedger(const std::vector<std::wstring>& commands)
+{
+    std::vector<std::wstring> features;
+    for (const std::wstring& command : commands) {
+        std::vector<std::wstring> tokens = TokenizeCommandText(StripLocalWorkerTargetPrefix(command));
+        if (tokens.empty()) {
+            continue;
+        }
+
+        std::wstring verb = LowerArg(tokens[0]);
+        if ((verb == L"plugin" || verb == L"capability") && tokens.size() >= 3 && LowerArg(tokens[1]) == L"import") {
+            std::wstring pluginId = LowerArg(tokens[2]);
+            if (pluginId.rfind(L"bge.piece.", 0) == 0) {
+                AddExportFeatureSet(features, pluginId);
+            }
+        }
+        else if (verb == L"player-ship" || verb == L"vector-ship") {
+            AddExportFeatureSet(features, L"bge.piece.vector-ship");
+        }
+        else if (verb == L"projectile") {
+            AddExportFeatureSet(features, L"bge.piece.projectile");
+        }
+        else if (verb == L"rock-field" || verb == L"breakable-rock-field") {
+            AddExportFeatureSet(features, L"bge.piece.breakable-rock-field");
+        }
+        else if (verb == L"ufo") {
+            AddExportFeatureSet(features, L"bge.piece.ufo");
+        }
+        else if (verb == L"scoreboard") {
+            AddExportFeatureSet(features, L"bge.piece.scoreboard");
+        }
+        else if (verb == L"title-screen") {
+            AddExportFeatureSet(features, L"bge.piece.title-screen");
+        }
+    }
+    return features;
+}
+
+std::wstring BuildExportFeatureVersion(const std::vector<std::wstring>& features)
+{
+    return L"0." + std::to_wstring(features.size()) + L".0";
+}
+
+std::wstring BuildExportFeatureLedgerText(const std::wstring& exportName, const std::vector<std::wstring>& features)
+{
+    std::wstring text = L"name=" + exportName + L"\r\n";
+    text += L"version=" + BuildExportFeatureVersion(features) + L"\r\n";
+    text += L"version-policy=major runtime/save break, minor feature set, patch fix\r\n";
+    text += L"feature-count=" + std::to_wstring(features.size()) + L"\r\n";
+    for (size_t index = 0; index < features.size(); ++index) {
+        text += L"feature." + std::to_wstring(index + 1) + L"=" + features[index] + L"\r\n";
+    }
+    return text;
+}
+
+std::vector<std::wstring> BuildExportCommandsFromCurrentState()
+{
+    std::vector<std::wstring> commands;
+
+    for (const std::wstring& pluginId : g_importedBgePlugins) {
+        commands.push_back(L"plugin import " + CommandFileArg(pluginId));
+    }
+
+    BgeTitleScreenState titleScreen;
+    BgeScoreboardState scoreboard;
+    BgeBreakableRockFieldState rockField;
+    std::vector<BgeCounterState> counters;
+    std::vector<BgeProjectileDefinition> projectiles;
+    BgeVectorShipState vectorShip;
+    bool titleScreenActive = false;
+    bool scoreboardActive = false;
+    bool rockFieldActive = false;
+    bool vectorShipActive = false;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        titleScreen = g_titleScreenState;
+        scoreboard = g_scoreboardState;
+        rockField = g_breakableRockFieldState;
+        counters = g_bgeCounters;
+        projectiles = g_projectileDefinitions;
+        vectorShip = g_vectorShipState;
+        titleScreenActive = g_titleScreenActive && g_titleScreenState.visible;
+        scoreboardActive = g_scoreboardActive && g_scoreboardState.visible;
+        rockFieldActive = g_breakableRockFieldActive && g_breakableRockFieldState.active;
+        vectorShipActive = g_vectorShipActive && g_vectorShipState.active;
+    }
+
+    for (const BgeCounterState& counter : counters) {
+        std::wstring command = L"counter define " + CommandFileArg(counter.name) + L" " + std::to_wstring(counter.value);
+        if (counter.hasMin) {
+            command += L" min " + std::to_wstring(counter.minValue);
+        }
+        if (counter.hasMax) {
+            command += L" max " + std::to_wstring(counter.maxValue);
+        }
+        if (counter.persistSession) {
+            command += L" persist session";
+        }
+        commands.push_back(command);
+    }
+
+    for (const BgeProjectileDefinition& projectile : projectiles) {
+        std::wstring command = L"projectile create --id " + CommandFileArg(projectile.id)
+            + L" --owner " + CommandFileArg(projectile.owner)
+            + L" --shape " + CommandFileArg(BgeObjectShapeName(projectile.shape))
+            + L" --speed " + std::to_wstring(static_cast<int>(projectile.speed))
+            + L" --ttl " + std::to_wstring(projectile.ttlSeconds)
+            + L" --collision-tag " + CommandFileArg(projectile.collisionTag);
+        command += projectile.wrap ? L" --wrap" : L" --no-wrap";
+        commands.push_back(command);
+    }
+
+    if (vectorShipActive) {
+        commands.push_back(L"player-ship create --id " + CommandFileArg(vectorShip.id)
+            + L" --shape " + CommandFileArg(BgeObjectShapeName(vectorShip.shape))
+            + L" --lives " + CommandFileArg(vectorShip.lives)
+            + L" --input-profile " + CommandFileArg(vectorShip.inputProfile)
+            + L" --fire " + CommandFileArg(vectorShip.fire)
+            + L" --hyperspace " + CommandFileArg(vectorShip.hyperspace)
+            + L" --respawn " + std::to_wstring(vectorShip.respawnSeconds)
+            + L" --invulnerable " + std::to_wstring(vectorShip.invulnerableSeconds));
+    }
+
+    if (rockFieldActive) {
+        commands.push_back(L"rock-field create --sizes " + CommandFileArg(JoinBgeListText(rockField.sizes))
+            + L" --count " + std::to_wstring(rockField.count)
+            + L" --split " + std::to_wstring(rockField.splitCount)
+            + L" --score " + CommandFileArg(rockField.score)
+            + L" --speed-range " + std::to_wstring(static_cast<int>(rockField.speedMin)) + L".." + std::to_wstring(static_cast<int>(rockField.speedMax))
+            + L" --wave-counter " + CommandFileArg(rockField.waveCounter)
+            + L" --avoid " + CommandFileArg(rockField.avoid + L":" + std::to_wstring(static_cast<int>(rockField.avoidRadius))));
+    }
+
+    if (scoreboardActive) {
+        std::wstring countersValue;
+        for (size_t index = 0; index < scoreboard.counters.size(); ++index) {
+            if (index > 0) {
+                countersValue += L"|";
+            }
+            countersValue += scoreboard.counters[index];
+        }
+        commands.push_back(L"scoreboard create --counters " + CommandFileArg(countersValue)
+            + L" --anchor " + CommandFileArg(scoreboard.anchor)
+            + L" --format " + CommandFileArg(scoreboard.format)
+            + L" --font " + CommandFileArg(scoreboard.font)
+            + L" --color " + CommandFileArg(scoreboard.color)
+            + L" --scale " + std::to_wstring(scoreboard.scale));
+    }
+
+    if (titleScreenActive) {
+        std::wstring command = L"title-screen create --text " + CommandFileArg(titleScreen.text)
+            + L" --subtitle " + CommandFileArg(titleScreen.subtitle)
+            + L" --start " + CommandFileArg(titleScreen.start)
+            + L" --next " + CommandFileArg(titleScreen.next)
+            + L" --font " + CommandFileArg(titleScreen.font);
+        if (titleScreen.showLegend) {
+            command += L" --legend " + CommandFileArg(titleScreen.legend);
+        }
+        else {
+            command += L" --no-legend";
+        }
+        if (titleScreen.showCredit) {
+            command += L" --credit " + CommandFileArg(titleScreen.credit);
+        }
+        else {
+            command += L" --no-credit";
+        }
+        command += titleScreen.centered ? L" --center" : L" --left";
+        command += titleScreen.blinkPrompt ? L" --blink" : L" --no-blink";
+        commands.push_back(command);
+    }
+
+    return commands;
+}
+
+std::vector<std::wstring> BuildExportCommandScript(const std::wstring& fromMode)
+{
+    if ((fromMode.empty() || fromMode == L"history") && !g_workerCommandHistory.empty()) {
+        return g_workerCommandHistory;
+    }
+    return BuildExportCommandsFromCurrentState();
+}
+
+bool ExecuteBgeExportCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"export commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"enable") {
+        statusText = L"Executable export enabled for game-loop history";
+        return true;
+    }
+    if (subcommand != L"executable") {
+        statusText = L"Use: export executable --target windows-x64 --name space-rocks --from history";
+        return false;
+    }
+
+    std::wstring target = L"windows-x64";
+    std::wstring exportName = L"space-rocks";
+    std::wstring fromMode = L"history";
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--target", value)) {
+        target = LowerArg(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--name", value)) {
+        exportName = SafeExportFileStem(value);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--from", value)) {
+        fromMode = LowerArg(value);
+    }
+    if (target != L"windows-x64") {
+        statusText = L"Only windows-x64 executable export is available";
+        return false;
+    }
+
+    std::vector<std::wstring> commands = BuildExportCommandScript(fromMode);
+    if (commands.empty()) {
+        statusText = L"No game commands available to export";
+        return false;
+    }
+
+    std::filesystem::path packageDir = std::filesystem::current_path() / "exports" / Narrow(exportName);
+    std::error_code fsError;
+    std::filesystem::create_directories(packageDir, fsError);
+    if (fsError) {
+        statusText = L"Could not create export directory: " + packageDir.wstring();
+        return false;
+    }
+
+    std::filesystem::path sourceExe = ExePath();
+    std::filesystem::path exportedExe = packageDir / (Narrow(exportName) + ".exe");
+    fsError.clear();
+    if (!std::filesystem::equivalent(sourceExe, exportedExe, fsError)) {
+        fsError.clear();
+        std::filesystem::copy_file(sourceExe, exportedExe, std::filesystem::copy_options::overwrite_existing, fsError);
+        if (fsError) {
+            statusText = L"Could not copy executable to " + exportedExe.wstring();
+            return false;
+        }
+    }
+
+    std::filesystem::path scriptPath = packageDir / (Narrow(exportName) + ".commands");
+    std::wstring scriptText = L"# Generated by BasicGameEngine export executable\r\n";
+    for (const std::wstring& command : commands) {
+        scriptText += command + L"\r\n";
+    }
+
+    std::vector<std::wstring> featureSets = BuildExportFeatureSetLedger(commands);
+    std::wstring featureVersion = BuildExportFeatureVersion(featureSets);
+    std::wstring featureLedgerText = BuildExportFeatureLedgerText(exportName, featureSets);
+
+    std::wstring errorText;
+    if (!WriteUtf8TextFile(scriptPath, scriptText, errorText)) {
+        statusText = errorText;
+        return false;
+    }
+
+    std::filesystem::path featureLedgerPath = packageDir / (Narrow(exportName) + ".features.txt");
+    if (!WriteUtf8TextFile(featureLedgerPath, featureLedgerText, errorText)) {
+        statusText = errorText;
+        return false;
+    }
+
+    if (!EmbedUtf8TextResourceInExecutable(exportedExe, kBgeEmbeddedGameScriptResourceName, scriptText, errorText)) {
+        statusText = errorText;
+        return false;
+    }
+    if (!EmbedUtf8TextResourceInExecutable(exportedExe, kBgeEmbeddedFeatureLedgerResourceName, featureLedgerText, errorText)) {
+        statusText = errorText;
+        return false;
+    }
+
+    std::filesystem::path launcherPath = packageDir / (std::wstring(L"launch-") + exportName + L".cmd");
+    std::wstring launcherText = L"@echo off\r\nstart \"\" \"%~dp0" + exportedExe.filename().wstring() + L"\"\r\n";
+    if (!WriteUtf8TextFile(launcherPath, launcherText, errorText)) {
+        statusText = errorText;
+        return false;
+    }
+
+    std::filesystem::path manifestPath = packageDir / (Narrow(exportName) + ".export.txt");
+    std::wstring manifestText = L"name=" + exportName + L"\r\n"
+        + L"version=" + featureVersion + L"\r\n"
+        + L"feature-count=" + std::to_wstring(featureSets.size()) + L"\r\n"
+        + L"target=" + target + L"\r\n"
+        + L"runtime=player\r\n"
+        + L"executable=" + exportedExe.filename().wstring() + L"\r\n"
+        + L"commands=" + scriptPath.filename().wstring() + L"\r\n"
+        + L"features=" + featureLedgerPath.filename().wstring() + L"\r\n"
+        + L"embedded-commands=" + std::wstring(kBgeEmbeddedGameScriptResourceName) + L"\r\n"
+        + L"embedded-features=" + std::wstring(kBgeEmbeddedFeatureLedgerResourceName) + L"\r\n"
+        + L"launch=" + launcherPath.filename().wstring() + L"\r\n";
+    if (!WriteUtf8TextFile(manifestPath, manifestText, errorText)) {
+        statusText = errorText;
+        return false;
+    }
+
+    statusText = L"Exported " + exportName + L" " + featureVersion + L" executable package: " + exportedExe.wstring();
+    LogRendererMessage("[BgeExport] executable package=\"" + Narrow(packageDir.wstring()) + "\" name=\"" + Narrow(exportName) + "\" version=\"" + Narrow(featureVersion) + "\" commands=" + std::to_string(commands.size()));
+    return true;
+}
+
 void PlaceWorkerWindow(HWND workerWindow, const std::wstring& role)
 {
     RECT workArea{};
@@ -2843,6 +6020,80 @@ bool SendControllerCommandToWorker(const std::wstring& role, const std::wstring&
     return executed;
 }
 
+std::vector<std::wstring> SplitWorkerTelemetryPayload(const std::wstring& payload)
+{
+    std::vector<std::wstring> parts;
+    std::wstring part;
+    std::wstringstream stream(payload);
+    while (std::getline(stream, part, L'\t')) {
+        parts.push_back(part);
+    }
+    while (parts.size() < 4) {
+        parts.push_back(L"");
+    }
+    return parts;
+}
+
+void SendWorkerTelemetry(const std::wstring& kind, const std::wstring& commandText, const std::wstring& statusText)
+{
+    if (g_isController || !g_sharedData || !EnsureCoordMutex()) {
+        return;
+    }
+
+    DWORD controllerPid = 0;
+    {
+        CoordLock lock(g_coordMutex);
+        if (!lock.locked()) {
+            return;
+        }
+        controllerPid = g_sharedData->controllerPid;
+    }
+
+    if (controllerPid == 0 || controllerPid == g_currentPid || !IsProcessAlive(controllerPid)) {
+        return;
+    }
+
+    HWND controllerWindow = FindWindowForProcess(controllerPid);
+    if (!controllerWindow) {
+        return;
+    }
+
+    std::wstring payload = g_workerName + L"\t" + kind + L"\t" + commandText + L"\t" + statusText;
+    COPYDATASTRUCT copyData{};
+    copyData.dwData = BGE_COPYDATA_WORKER_TELEMETRY;
+    copyData.cbData = static_cast<DWORD>((payload.size() + 1) * sizeof(wchar_t));
+    copyData.lpData = const_cast<wchar_t*>(payload.c_str());
+
+    DWORD_PTR telemetryResult = 0;
+    SendMessageTimeoutW(controllerWindow, WM_COPYDATA, reinterpret_cast<WPARAM>(g_hWnd), reinterpret_cast<LPARAM>(&copyData), SMTO_ABORTIFHUNG, 250, &telemetryResult);
+}
+
+bool HandleControllerTelemetryCopyData(COPYDATASTRUCT* copyData)
+{
+    if (!g_isController || !copyData || copyData->dwData != BGE_COPYDATA_WORKER_TELEMETRY || !copyData->lpData || copyData->cbData < sizeof(wchar_t)) {
+        return false;
+    }
+
+    const wchar_t* payloadBuffer = static_cast<const wchar_t*>(copyData->lpData);
+    std::vector<std::wstring> parts = SplitWorkerTelemetryPayload(payloadBuffer);
+    std::wstring role = parts[0].empty() ? L"worker" : parts[0];
+    std::wstring kind = parts[1].empty() ? L"event" : parts[1];
+    std::wstring commandText = parts[2];
+    std::wstring statusText = parts[3];
+
+    std::wstring history = L"Telemetry <- " + role + L": " + kind;
+    if (!commandText.empty()) {
+        history += L" | " + commandText;
+    }
+    std::wstring detail = L"Worker telemetry\r\n  role: " + role
+        + L"\r\n  kind: " + kind
+        + L"\r\n  command: " + commandText
+        + L"\r\n  status: " + statusText;
+    AddControllerHistory(history, detail);
+    SetCommandStatus(L"Telemetry: " + role + L" " + kind);
+    return true;
+}
+
 void LogRuntimeSceneState()
 {
     if (CurrentProcessOwnsGameLoop()) {
@@ -2901,6 +6152,27 @@ void ApplyBallStateToRenderer()
         }
     }
 
+    // Player runtime is the published-game shell. Authoring UI
+    // (selection ring, vector arrow, slot labels) is for composing
+    // the game in the controller and would be noise in the final
+    // exe. Keep the underlying state intact; just hide the overlays.
+    if (g_playerRuntimeMode) {
+        objectSelectionActive = false;
+    }
+    // Also hide authoring overlays whenever the vector-ship game is live
+    // (in-engine play). The selection ring + velocity-arrow obscure the
+    // ship triangle and the arrow tracks velocity rather than heading,
+    // so it doesn't rotate when the stationary ship turns - the exact
+    // symptom Marc reported as "turn does nothing visually". Engine-neutral
+    // rule: if a vector-ship player owns the selected slot, the player is
+    // playing, not authoring - so the authoring chrome should get out of
+    // the way.
+    if (g_vectorShipActive && g_vectorShipState.active
+        && g_vectorShipState.slotIndex >= 0
+        && g_vectorShipState.slotIndex < BGE_OBJECT_SLOT_COUNT) {
+        objectSelectionActive = false;
+    }
+
     if (g_directX11Renderer) {
         for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
             g_directX11Renderer->SetObjectSlotState(index, objectSlots[index]);
@@ -2919,6 +6191,24 @@ void ApplyBallStateToRenderer()
         g_directX12Renderer->SetObjectSelectionActive(objectSelectionActive);
         g_directX12Renderer->SetAnimationRunning(animationRunning);
     }
+
+    BgeTitleScreenState titleScreen;
+    BgeScoreboardState scoreboard;
+    std::vector<BgeCounterState> counters;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        titleScreen = g_titleScreenState;
+        titleScreen.visible = titleScreen.visible && g_titleScreenActive;
+        scoreboard = g_scoreboardState;
+        scoreboard.visible = scoreboard.visible && g_scoreboardActive;
+        counters = g_bgeCounters;
+    }
+
+    BgeGameViewport viewport = CurrentGameViewport();
+    std::vector<BgeSceneOverlayText> overlays = BuildScoreboardOverlays(scoreboard, counters, viewport);
+    std::vector<BgeSceneOverlayText> titleOverlays = BuildTitleScreenOverlays(titleScreen, viewport);
+    overlays.insert(overlays.end(), titleOverlays.begin(), titleOverlays.end());
+    ApplySceneOverlayTextToRenderer(overlays);
 }
 
 void LoadBackgroundOnActiveRenderer(const std::wstring& path)
@@ -3014,7 +6304,20 @@ void TickActiveRenderer(double deltaMilliseconds)
         if (g_directX12Renderer) {
             g_directX12Renderer->Tick(deltaMilliseconds);
             SyncObjectSlotsFromRenderer(g_directX12Renderer->ObjectSlotStates());
-            if (TickAsteroidGameMode(deltaMilliseconds)) {
+            bool overlayActive = false;
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                overlayActive = g_titleScreenActive || g_scoreboardActive;
+            }
+            // Evaluate every tick unconditionally — short-circuit `||` was
+            // skipping TickBgeVectorShip whenever an earlier tick returned
+            // true (e.g. projectiles in flight), which froze ship rotation
+            // until bullets expired (perceived as "ship only turns when I
+            // thrust"). Bitwise OR forces all ticks to run.
+            bool asteroidDirty = TickAsteroidGameMode(deltaMilliseconds);
+            bool projectileDirty = TickBgeProjectiles(deltaMilliseconds);
+            bool shipDirty = TickBgeVectorShip(deltaMilliseconds);
+            if (asteroidDirty | projectileDirty | shipDirty | overlayActive) {
                 ApplyBallStateToRenderer();
             }
         }
@@ -3023,7 +6326,16 @@ void TickActiveRenderer(double deltaMilliseconds)
     if (g_directX11Renderer) {
         g_directX11Renderer->Tick(deltaMilliseconds);
         SyncObjectSlotsFromRenderer(g_directX11Renderer->ObjectSlotStates());
-        if (TickAsteroidGameMode(deltaMilliseconds)) {
+        bool overlayActive = false;
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            overlayActive = g_titleScreenActive || g_scoreboardActive;
+        }
+        // See DX12 branch above for the short-circuit explanation.
+        bool asteroidDirty = TickAsteroidGameMode(deltaMilliseconds);
+        bool projectileDirty = TickBgeProjectiles(deltaMilliseconds);
+        bool shipDirty = TickBgeVectorShip(deltaMilliseconds);
+        if (asteroidDirty | projectileDirty | shipDirty | overlayActive) {
             ApplyBallStateToRenderer();
         }
     }
@@ -3314,7 +6626,15 @@ bool ExecuteControllerCommandText(const std::wstring& commandText, std::wstring&
         return QueueConstructionArtifactCommandsFromFile(JoinCommandTokens(tokens, 2), statusText);
     }
 
-    if (command == L"asteroid-game" || command == L"asteroids" || command == L"game") {
+    if (command == L"asteroid-game" || command == L"asteroids") {
+        // NOTE: do NOT alias bare "game" here — that would collide with the
+        // recipe's first command "game define <id> title <name> version <n>"
+        // and trigger an infinite recipe re-queue loop (recipe pushes
+        // commands; first command "game define" matches "game" alias;
+        // LoadAsteroidGameFromController re-pushes the whole recipe;
+        // every tick the rock-field/title-screen/player-ship commands
+        // re-run, asteroids snap to starting positions, title overlay
+        // never dismisses).
         LoadAsteroidGameFromController();
         statusText = L"Asteroid Game queued";
         return true;
@@ -3407,7 +6727,12 @@ void ExecuteCommandBarInput()
     GetWindowTextW(g_commandEdit, commandText, static_cast<int>(std::size(commandText)));
     std::wstring statusText;
     if (ExecuteCommandText(commandText, statusText)) {
+        RecordWorkerCommandHistory(commandText);
+        SendWorkerTelemetry(L"command", commandText, statusText);
         SetWindowTextW(g_commandEdit, L"");
+    }
+    else {
+        SendWorkerTelemetry(L"command-failed", commandText, statusText);
     }
     SetCommandStatus(statusText);
 }
@@ -3430,9 +6755,111 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
     };
 
     if (command == L"help" || command == L"?") {
-        statusText = L"asteroid game | group/ghost/player | asteroid/edge | delete/undo | add/select | start/stop | mode/rate | mapping";
+        statusText = L"plugin import/import-set | player-ship create | projectile create | counter define/set | scoreboard create | title-screen create | export executable | inspect commands | mapping";
         logCommand("help");
         return true;
+    }
+
+    if (command == L"plugin" || command == L"capability") {
+        bool ok = ExecuteBgePluginCommand(tokens, statusText);
+        logCommand(ok ? "plugin" : "plugin failed");
+        return ok;
+    }
+
+    if (command == L"inspect") {
+        bool ok = ExecuteBgeInspectCommand(tokens, statusText);
+        logCommand(ok ? "inspect" : "inspect failed");
+        return ok;
+    }
+
+    if (command == L"export") {
+        bool ok = ExecuteBgeExportCommand(tokens, statusText);
+        logCommand(ok ? "export" : "export failed");
+        return ok;
+    }
+
+    if (command == L"viewport") {
+        if (!CurrentProcessOwnsGameLoop()) {
+            statusText = L"viewport commands run in bge.game-loop";
+            return false;
+        }
+        if (HasCommandFlag(tokens, L"--wrap-x") || HasCommandFlag(tokens, L"--wrap-y") || HasCommandFlag(tokens, L"--wrap")) {
+            BgeSetCurrentEdgePolicy(BgeEdgePolicy::Wrap);
+        }
+        statusText = g_playerRuntimeMode ? L"Viewport bound to player window" : L"Viewport configured for game-loop window";
+        logCommand("viewport");
+        return true;
+    }
+
+    if (command == L"screen") {
+        statusText = L"Screen shell command accepted";
+        logCommand("screen");
+        return true;
+    }
+
+    if (command == L"title-screen") {
+        bool ok = ExecuteBgeTitleScreenCommand(tokens, statusText);
+        logCommand(ok ? "title-screen" : "title-screen failed");
+        return ok;
+    }
+
+    if (command == L"counter" || command == L"counters") {
+        bool ok = ExecuteBgeCounterCommand(tokens, statusText);
+        logCommand(ok ? "counter" : "counter failed");
+        return ok;
+    }
+
+    if (command == L"scoreboard") {
+        bool ok = ExecuteBgeScoreboardCommand(tokens, statusText);
+        logCommand(ok ? "scoreboard" : "scoreboard failed");
+        return ok;
+    }
+
+    if (command == L"rock-field" || command == L"breakable-rock-field") {
+        bool ok = ExecuteBgeBreakableRockFieldCommand(tokens, statusText);
+        logCommand(ok ? "rock-field" : "rock-field failed");
+        return ok;
+    }
+
+    if (command == L"projectile") {
+        bool ok = ExecuteBgeProjectileCommand(tokens, statusText);
+        logCommand(ok ? "projectile" : "projectile failed");
+        return ok;
+    }
+
+    if (command == L"player-ship" || command == L"vector-ship") {
+        bool ok = ExecuteBgeVectorShipCommand(tokens, statusText);
+        logCommand(ok ? "player-ship" : "player-ship failed");
+        return ok;
+    }
+
+    if (command == L"sound") {
+        bool ok = ExecuteBgeSoundCommand(tokens, statusText);
+        logCommand(ok ? "sound" : "sound failed");
+        return ok;
+    }
+
+    if (command == L"game" && tokens.size() >= 2) {
+        std::wstring subcommand = LowerArg(tokens[1]);
+        if (subcommand == L"define" || subcommand == L"start" || subcommand == L"status") {
+            if (subcommand == L"define") {
+                std::wstring value;
+                if (TryGetCommandOptionValue(tokens, L"--name", value) && !value.empty()) {
+                    g_playerRuntimeTitle = NormalizeTitleScreenText(value);
+                    if (g_playerRuntimeMode && g_hWnd) {
+                        SetWindowTextW(g_hWnd, g_playerRuntimeTitle.c_str());
+                    }
+                }
+            }
+            if (subcommand == L"start") {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                g_ballAnimationRunning = true;
+                g_rendererStateDirty = true;
+            }
+            statusText = L"Game shell: " + subcommand;
+            logCommand("game-shell");
+            return true;
+        }
     }
 
     if (command == L"asteroid-game" || command == L"asteroids" || command == L"game") {
@@ -4261,6 +7688,13 @@ bool HandleWorkerCommandCopyData(COPYDATASTRUCT* copyData)
     std::wstring commandText(commandBuffer);
     std::wstring statusText;
     bool executed = ExecuteCommandText(commandText, statusText);
+    if (executed) {
+        RecordWorkerCommandHistory(commandText);
+        SendWorkerTelemetry(L"command", commandText, statusText);
+    }
+    else {
+        SendWorkerTelemetry(L"command-failed", commandText, statusText);
+    }
     SetCommandStatus(L"Controller: " + statusText);
 
     std::ostringstream message;
@@ -4328,7 +7762,7 @@ bool TrySelectObjectAtPoint(int x, int y)
     int selectedSlot = -1;
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
-        if (y < static_cast<int>(BGE_RENDER_TOP_INSET)) {
+        if (y < static_cast<int>(BgeRenderTopInset())) {
             return false;
         }
 
@@ -4749,6 +8183,39 @@ bool HandleRendererKeyDown(WPARAM key)
         return true;
     }
 
+    int playerIconVisibilityMode = BgePlayerIconVisibilityModeIndexFromKey(static_cast<unsigned int>(key));
+    if (playerIconVisibilityMode >= 0) {
+        if (HandleAsteroidGameKeyDown(key)) {
+            return true;
+        }
+        if (HandleBgeVectorShipKeyDown(key)) {
+            return true;
+        }
+    }
+
+    if (HandleAsteroidGameKeyDown(key)) {
+        return true;
+    }
+
+    // Enter starts a new run when the title or game-over screen is showing.
+    if (key == VK_RETURN) {
+        bool overlayActive = false;
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            overlayActive = g_titleScreenActive || g_vectorShipState.gameOver;
+        }
+        if (overlayActive) {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            StartOrRestartSpaceRocksGameLocked();
+            SendWorkerTelemetry(L"game-event", L"game-start", L"player pressed Enter");
+            return true;
+        }
+    }
+
+    if (HandleBgeVectorShipKeyDown(key)) {
+        return true;
+    }
+
     int keyboardSlot = ObjectSlotIndexFromNumberKey(key);
     if (keyboardSlot >= 0) {
         return SelectObjectSlotFromKeyboard(keyboardSlot);
@@ -4756,10 +8223,6 @@ bool HandleRendererKeyDown(WPARAM key)
 
     if (key == VK_OEM_3) {
         return FocusObjectGroupsFromKeyboard();
-    }
-
-    if (HandleAsteroidGameKeyDown(key)) {
-        return true;
     }
 
     bool arrowKey = key == VK_UP || key == VK_DOWN || key == VK_LEFT || key == VK_RIGHT;
@@ -4851,6 +8314,14 @@ bool HandleRendererKeyDown(WPARAM key)
         return true;
     }
     return false;
+}
+
+bool HandleRendererKeyUp(WPARAM key)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+    return HandleBgeVectorShipKeyUp(key);
 }
 
 HWND CreateControl(HWND parent, const wchar_t* className, const wchar_t* text, DWORD style, int controlId, int x, int y, int width, int height)
@@ -5079,6 +8550,16 @@ std::wstring MappingWindowText()
     text << L"  Rules: asteroid size controls score; ship collisions cost one life; zero lives or cleared asteroids stops the loop\r\n";
     text << L"  When object 1 is selected: A/D or Left/Right rotate, W/Up thrust, S/Down reverse, Space fires, H hyperspace, P pauses/resumes\r\n";
     text << L"  Bullets split large asteroids into smaller asteroids; edge policy switches to wrap\r\n\r\n";
+    text << L"Plugin registry\r\n";
+    text << L"  Worker command: plugin list | plugin import <plugin-id> | plugin import-set asteroids | plugin explain <plugin-id> | plugin commands\r\n";
+    text << L"  Worker command: inspect commands\r\n";
+    text << L"  Controller command: game-loop: plugin import bge.piece.vector-ship\r\n";
+    text << L"  Vector ship piece: plugin import bge.piece.vector-ship, then player-ship create --id player_ship --shape vector-ship --lives lives --input-profile arrows-space --fire shot --hyperspace H\r\n";
+    text << L"  Projectile piece: plugin import bge.piece.projectile, then projectile create --id shot --owner player --shape line --speed 620 --ttl 1.1 --wrap\r\n";
+    text << L"  Counter capability: counter define score 0 min 0 | counter set score 100 | counter add score 20\r\n";
+    text << L"  Scoreboard piece: plugin import bge.piece.scoreboard, then scoreboard create --counters score|high-score|lives|wave --anchor top-left --format SCORE:{score}|HIGH:{high-score}|LIVES:{lives}|WAVE:{wave}\r\n";
+    text << L"  Title screen piece: plugin import bge.piece.title-screen, then title-screen create --text ASTEROIDS --subtitle PRESS_ENTER --start Enter --next playing --blink\r\n";
+    text << L"  Current phase executes title-screen, scoreboard, vector-ship, projectile, and breakable-rock-field pieces and discovers the other piece signatures\r\n\r\n";
     text << L"Edge policy\r\n";
     text << L"  Worker command: edge bounce | edge wrap | edge clamp | edge status\r\n";
     text << L"  Controller command: game-loop: edge <bounce|wrap|clamp|status>\r\n";
@@ -5473,6 +8954,10 @@ void CreateControllerControls(HWND hWnd)
 
 void CreateBallControls(HWND hWnd)
 {
+    if (g_playerRuntimeMode) {
+        return;
+    }
+
     if (g_isController) {
         CreateControllerControls(hWnd);
         return;
@@ -5548,6 +9033,10 @@ void CreateBallControls(HWND hWnd)
 
 void LayoutBallControls(HWND hWnd)
 {
+    if (g_playerRuntimeMode) {
+        return;
+    }
+
     if (g_isController) {
         return;
     }
@@ -5678,6 +9167,44 @@ void LoadAsteroidGameFromController()
         SelectControllerArtifact(gameLoopIndex);
     }
 
+    // Prefer the composed Asteroids recipe (title screen, scoreboard,
+    // vector outlines, audio piece) over the legacy `asteroid game`
+    // hard-coded mode. This is the same recipe shipped in
+    // exports/space-rocks/space-rocks.commands and authored by the
+    // command-composed-asteroids contract under kicad_a usability.
+    std::wstring recipePath;
+    wchar_t exePathBuf[MAX_PATH]{};
+    if (GetModuleFileNameW(NULL, exePathBuf, MAX_PATH) > 0) {
+        std::filesystem::path exeDir = std::filesystem::path(exePathBuf).parent_path();
+        const wchar_t* candidates[] = {
+            L"exports\\space-rocks\\space-rocks.commands",
+            L"..\\..\\exports\\space-rocks\\space-rocks.commands",
+            L"..\\..\\..\\exports\\space-rocks\\space-rocks.commands",
+        };
+        for (const wchar_t* rel : candidates) {
+            std::filesystem::path candidate = exeDir / rel;
+            std::error_code ec;
+            if (std::filesystem::exists(candidate, ec)) {
+                recipePath = std::filesystem::weakly_canonical(candidate, ec).wstring();
+                if (recipePath.empty()) recipePath = candidate.wstring();
+                break;
+            }
+        }
+    }
+
+    if (!recipePath.empty()) {
+        std::wstring statusText;
+        if (QueueConstructionArtifactCommandsFromFile(recipePath, statusText)) {
+            SetCommandStatus(statusText);
+            AddControllerHistory(L"Load preset -> Asteroid Game (composed recipe)",
+                ControllerBaseCli() + L" --launch-basic-game --game-file " + QuoteArg(recipePath));
+            SyncControllerControls();
+            return;
+        }
+        // Fall through to legacy on failure (and surface the reason).
+        SetCommandStatus(statusText);
+    }
+
     WorkerSnapshot snapshot = GetWorkerSnapshot(L"bge.game-loop");
     if (!snapshot.running) {
         LaunchWorkerRole(L"bge.game-loop");
@@ -5685,8 +9212,9 @@ void LoadAsteroidGameFromController()
 
     g_pendingControllerCommands.push_back(L"game-loop: asteroid game");
 
-    SetCommandStatus(L"Asteroid Game queued");
-    AddControllerHistory(L"Load preset -> Asteroid Game", ControllerBaseCli() + L" --launch-basic-game --ui-command " + QuoteArg(L"asteroid-game"));
+    SetCommandStatus(L"Asteroid Game queued (legacy fallback; recipe not found)");
+    AddControllerHistory(L"Load preset -> Asteroid Game (legacy)",
+        ControllerBaseCli() + L" --launch-basic-game --ui-command " + QuoteArg(L"asteroid-game"));
     SyncControllerControls();
 }
 
@@ -5747,6 +9275,18 @@ void ProcessControllerUiAutomation()
         return;
     }
 
+    // Re-entrancy guard: ExecuteControllerCommandText can pump the
+    // message loop (IPC), which re-enters WM_TIMER and would invalidate
+    // the iterators we are walking over g_pendingControllerCommands /
+    // g_cliConstructionArtifactPaths / etc. Without this guard the
+    // inner erase() trips _STL_VERIFY in debug builds.
+    static bool s_processing = false;
+    if (s_processing) {
+        return;
+    }
+    s_processing = true;
+    struct Guard { ~Guard() { s_processing = false; } } guard;
+
     if (!g_cliControllerTarget.empty()) {
         int targetIndex = ResolveControllerArtifactIndex(g_cliControllerTarget);
         if (targetIndex >= 0) {
@@ -5755,11 +9295,18 @@ void ProcessControllerUiAutomation()
         g_cliControllerTarget.clear();
     }
 
-    for (auto artifactPath = g_cliConstructionArtifactPaths.begin(); artifactPath != g_cliConstructionArtifactPaths.end();) {
-        std::wstring statusText;
-        QueueConstructionArtifactCommandsFromFile(*artifactPath, statusText);
-        SetCommandStatus(statusText);
-        artifactPath = g_cliConstructionArtifactPaths.erase(artifactPath);
+    {
+        // Snapshot-and-clear: QueueConstructionArtifactCommandsFromFile
+        // may push into g_pendingControllerCommands which can reallocate
+        // unrelated vectors during message-loop pumping; also defends
+        // against the called code re-entering this list.
+        std::vector<std::wstring> pendingArtifactPaths;
+        pendingArtifactPaths.swap(g_cliConstructionArtifactPaths);
+        for (const auto& artifactPath : pendingArtifactPaths) {
+            std::wstring statusText;
+            QueueConstructionArtifactCommandsFromFile(artifactPath, statusText);
+            SetCommandStatus(statusText);
+        }
     }
 
     for (auto selector = g_cliInspectSelectors.begin(); selector != g_cliInspectSelectors.end();) {
@@ -5810,21 +9357,38 @@ void ProcessControllerUiAutomation()
         }
     }
 
-    for (auto command = g_pendingControllerCommands.begin(); command != g_pendingControllerCommands.end();) {
-        std::wstring targetRole = SelectedControllerRole();
-        if (targetRole.empty() || !GetWorkerSnapshot(targetRole).running) {
-            ++command;
-            continue;
+    {
+        // Snapshot-and-replace: ExecuteControllerCommandText runs user
+        // commands that may push more entries into g_pendingControllerCommands
+        // (e.g. the Asteroid Game button enqueues a whole recipe). A
+        // push_back can reallocate the vector and invalidate the iterator
+        // we are holding. Snapshot the queue, retain only the unexecuted
+        // tail (commands whose target worker is not yet running), and let
+        // any newly-pushed commands accumulate at the back for next tick.
+        std::vector<std::wstring> pending;
+        pending.swap(g_pendingControllerCommands);
+        std::vector<std::wstring> requeue;
+        requeue.reserve(pending.size());
+        for (const auto& cmd : pending) {
+            std::wstring targetRole = SelectedControllerRole();
+            if (targetRole.empty() || !GetWorkerSnapshot(targetRole).running) {
+                requeue.push_back(cmd);
+                continue;
+            }
+            std::wstring statusText;
+            bool executed = ExecuteControllerCommandText(cmd, statusText);
+            SetCommandStatus(statusText);
+            if (!executed && statusText.find(L"not running") != std::wstring::npos) {
+                requeue.push_back(cmd);
+            }
         }
-
-        std::wstring statusText;
-        bool executed = ExecuteControllerCommandText(*command, statusText);
-        SetCommandStatus(statusText);
-        if (executed || statusText.find(L"not running") == std::wstring::npos) {
-            command = g_pendingControllerCommands.erase(command);
-        }
-        else {
-            ++command;
+        // Re-prepend the unexecuted items so they retry before any newly
+        // pushed commands from this tick.
+        if (!requeue.empty()) {
+            requeue.insert(requeue.end(),
+                           g_pendingControllerCommands.begin(),
+                           g_pendingControllerCommands.end());
+            g_pendingControllerCommands.swap(requeue);
         }
     }
 }
@@ -6498,7 +10062,9 @@ void GameLoop()
             InvalidateRect(g_hWnd, &updateRect, FALSE);
         }
 
-        statusBarMgr.Update();
+        if (!g_playerRuntimeMode) {
+            statusBarMgr.Update();
+        }
 
         QueryPerformanceCounter(&currentTime);
         double frameTime = (double)(currentTime.QuadPart - previousTime.QuadPart) * 1000.0 / frequency.QuadPart;
@@ -6550,8 +10116,8 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     wcex.hInstance = hInstance;
     wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_BASICGAMEENGINE));
     wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_BASICGAMEENGINE);
+    wcex.hbrBackground = g_playerRuntimeMode ? static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)) : (HBRUSH)(COLOR_WINDOW + 1);
+    wcex.lpszMenuName = g_playerRuntimeMode ? nullptr : MAKEINTRESOURCEW(IDC_BASICGAMEENGINE);
     wcex.lpszClassName = szWindowClass;
     wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
@@ -6577,18 +10143,24 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     g_hWnd = hWnd; // Store the handle in a global variable
 
+    if (g_playerRuntimeMode) {
+        SetMenu(hWnd, nullptr);
+    }
+
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
 
     // Initialize the taskbar manager
     taskBarMgr.Initialize(hWnd, hInstance);
 
-    // Create the status bar
-    statusBarMgr.Create(hWnd, hInstance);
+    if (!g_playerRuntimeMode) {
+        // Create the status bar
+        statusBarMgr.Create(hWnd, hInstance);
 
-    // Update the status bar with the privilege status
-    std::wstring privilegeStatus = userPrivilegeMgr.GetUserPrivilege().GetPrivilegeStatus();
-    statusBarMgr.UpdatePrivilegeStatus(privilegeStatus);
+        // Update the status bar with the privilege status
+        std::wstring privilegeStatus = userPrivilegeMgr.GetUserPrivilege().GetPrivilegeStatus();
+        statusBarMgr.UpdatePrivilegeStatus(privilegeStatus);
+    }
 
     // Set a timer to update every 1000 milliseconds (1 second)
     SetTimer(hWnd, 1, 1000, NULL);
@@ -6655,6 +10227,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         return DefWindowProc(hWnd, message, wParam, lParam);
 
+    case WM_KEYUP:
+        if (HandleRendererKeyUp(wParam)) {
+            break;
+        }
+        return DefWindowProc(hWnd, message, wParam, lParam);
+
     case WM_SIZE:
     {
         // Handle resizing the window
@@ -6682,13 +10260,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     break;
     case WM_ACTIVATE:
         isFocused = (wParam != WA_INACTIVE);
+        if (!isFocused) {
+            ClearBgeVectorShipInputState();
+        }
 
         // Update instance count when window becomes active
-        if (isFocused)
+        if (isFocused && !g_playerRuntimeMode)
         {
             int instanceCount = g_sharedData ? g_sharedData->instanceCount : 0; // Get the updated count from shared memory or IPC
             statusBarMgr.UpdateInstanceCount(instanceCount); // Update the status bar with the new count
         }
+        break;
+
+    case WM_KILLFOCUS:
+        ClearBgeVectorShipInputState();
         break;
 
     case WM_TIMER:
@@ -6700,6 +10285,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
 
     case WM_COPYDATA:
+        if (g_isController) {
+            return HandleControllerTelemetryCopyData(reinterpret_cast<COPYDATASTRUCT*>(lParam)) ? TRUE : FALSE;
+        }
         return HandleWorkerCommandCopyData(reinterpret_cast<COPYDATASTRUCT*>(lParam)) ? TRUE : FALSE;
 
     case WM_PAINT:

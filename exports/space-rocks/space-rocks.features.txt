@@ -1,0 +1,9 @@
+name=space-rocks
+version=0.5.0
+version-policy=major runtime/save break, minor feature set, patch fix
+feature-count=5
+feature.1=bge.piece.projectile
+feature.2=bge.piece.vector-ship
+feature.3=bge.piece.breakable-rock-field
+feature.4=bge.piece.scoreboard
+feature.5=bge.piece.title-screen

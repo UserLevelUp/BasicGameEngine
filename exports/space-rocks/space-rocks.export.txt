@@ -1,0 +1,11 @@
+name=space-rocks
+version=0.5.0
+feature-count=5
+target=windows-x64
+runtime=player
+executable=space-rocks.exe
+commands=space-rocks.commands
+features=space-rocks.features.txt
+embedded-commands=BGE_GAME_SCRIPT
+embedded-features=BGE_FEATURE_LEDGER
+launch=launch-space-rocks.cmd

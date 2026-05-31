@@ -9,10 +9,10 @@ namespace {
 constexpr int kBallSegments = 48;
 constexpr int kBackgroundVertexCapacity = 48 * 27 * 6;
 constexpr int kArrowVertexCapacity = 9;
+constexpr int kOverlayTextVertexCapacity = 32000;
 constexpr int kBallVertexCount = kBallSegments * 3 * BGE_OBJECT_SLOT_COUNT;
 constexpr int kRingVertexCount = kBallSegments * 6 * ((BGE_OBJECT_SLOT_COUNT * 2) + 1);
-constexpr int kMaxVertexCount = kBackgroundVertexCapacity + (kBallVertexCount * 2) + kRingVertexCount + kArrowVertexCapacity;
-constexpr float kRenderTopInset = 140.0f;
+constexpr int kMaxVertexCount = kBackgroundVertexCapacity + (kBallVertexCount * 2) + kRingVertexCount + kArrowVertexCapacity + kOverlayTextVertexCapacity;
 constexpr float kPi = 3.14159265358979323846f;
 
 const char* kVertexShaderSource = R"(
@@ -144,8 +144,8 @@ void DirectX11BouncingBallRenderer::Tick(double deltaMilliseconds)
         BgeObjectExtent extent{
             slot.radius,
             (std::max)(slot.radius, static_cast<float>(width) - slot.radius),
-            kRenderTopInset + slot.radius,
-            (std::max)(slot.radius, static_cast<float>(height) - slot.radius),
+            BgeRenderTopInset() + slot.radius,
+            (std::max)(BgeRenderTopInset() + slot.radius, static_cast<float>(height) - slot.radius),
         };
 
         BgeApplyEdgePolicy(slot, extent, edgePolicy);
@@ -251,6 +251,11 @@ void DirectX11BouncingBallRenderer::SetGhostObjectSlotState(int slotIndex, const
         return;
     }
     ghostSlots_[slotIndex] = slot;
+}
+
+void DirectX11BouncingBallRenderer::SetSceneOverlayText(const std::vector<BgeSceneOverlayText>& overlays)
+{
+    sceneOverlayText_ = overlays;
 }
 
 bool DirectX11BouncingBallRenderer::LoadBackgroundImage(const std::wstring& path)
@@ -521,6 +526,24 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
 
         float radius = ghost ? slot.radius * 1.10f : slot.radius;
         float alpha = ghost ? (std::min)(0.38f, slot.colorA * 0.50f) : slot.colorA;
+
+        if (slot.renderStyle == BgeObjectRenderStyle::Outline) {
+            float xs[BGE_ASTEROID_POINT_COUNT];
+            float ys[BGE_ASTEROID_POINT_COUNT];
+            for (int i = 0; i < BGE_ASTEROID_POINT_COUNT; ++i) {
+                float angle = (static_cast<float>(i) / BGE_ASTEROID_POINT_COUNT) * 2.0f * kPi;
+                float r = radius * BGE_ASTEROID_RADIUS_PROFILE[static_cast<size_t>(i)];
+                xs[i] = slot.x + std::cos(angle) * r;
+                ys[i] = slot.y + std::sin(angle) * r;
+            }
+            BgeAppendStrokedPolygon(vertices, vertexCount, kMaxVertexCount,
+                                    xs, ys, BGE_ASTEROID_POINT_COUNT, true,
+                                    slot.outlineThickness,
+                                    slot.colorR, slot.colorG, slot.colorB, alpha,
+                                    static_cast<float>(width), static_cast<float>(height));
+            return;
+        }
+
         float centerRed = ghost ? 0.16f + slot.colorR * 0.16f : (std::min)(1.0f, slot.colorR + 0.18f);
         float centerGreen = ghost ? 0.16f + slot.colorG * 0.16f : (std::min)(1.0f, slot.colorG + 0.16f);
         float centerBlue = ghost ? 0.18f + slot.colorB * 0.18f : (std::min)(1.0f, slot.colorB + 0.12f);
@@ -561,8 +584,123 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
         }
     };
 
+    auto appendVectorShipSlot = [&](const BgeObjectSlotState& slot, bool ghost) {
+        if (!slot.visible || slot.isDeleted) {
+            return;
+        }
+
+        float radius = ghost ? slot.radius * 1.12f : slot.radius;
+        float alpha = ghost ? (std::min)(0.40f, slot.colorA * 0.52f) : slot.colorA;
+        // Prefer authored heading so the ship can rotate while stationary.
+        // Fall back to velocity for legacy slots that never set heading.
+        float directionX = slot.headingX;
+        float directionY = slot.headingY;
+        float length = std::sqrt(directionX * directionX + directionY * directionY);
+        if (length < 0.001f) {
+            directionX = slot.velocityX;
+            directionY = slot.velocityY;
+            length = std::sqrt(directionX * directionX + directionY * directionY);
+        }
+        if (length < 1.0f) {
+            directionX = 1.0f;
+            directionY = 0.0f;
+            length = 1.0f;
+        }
+        float unitX = directionX / length;
+        float unitY = directionY / length;
+        float perpendicularX = -unitY;
+        float perpendicularY = unitX;
+
+        float noseX = slot.x + unitX * radius * 1.45f;
+        float noseY = slot.y + unitY * radius * 1.45f;
+        float tailX = slot.x - unitX * radius * 0.78f;
+        float tailY = slot.y - unitY * radius * 0.78f;
+        float leftX = tailX + perpendicularX * radius * 0.72f;
+        float leftY = tailY + perpendicularY * radius * 0.72f;
+        float rightX = tailX - perpendicularX * radius * 0.72f;
+        float rightY = tailY - perpendicularY * radius * 0.72f;
+        float notchX = slot.x - unitX * radius * 0.10f;
+        float notchY = slot.y - unitY * radius * 0.10f;
+
+        if (slot.renderStyle == BgeObjectRenderStyle::Outline) {
+            // Classic-Asteroids 4-point perimeter: nose -> left -> notch -> right -> close.
+            float xs[4] = { noseX, leftX, notchX, rightX };
+            float ys[4] = { noseY, leftY, notchY, rightY };
+            BgeAppendStrokedPolygon(vertices, vertexCount, kMaxVertexCount,
+                                    xs, ys, 4, true,
+                                    slot.outlineThickness,
+                                    slot.colorR, slot.colorG, slot.colorB, alpha,
+                                    static_cast<float>(width), static_cast<float>(height));
+            return;
+        }
+
+        float red = ghost ? 0.12f + slot.colorR * 0.16f : slot.colorR;
+        float green = ghost ? 0.14f + slot.colorG * 0.18f : slot.colorG;
+        float blue = ghost ? 0.16f + slot.colorB * 0.20f : slot.colorB;
+        auto makeVertex = [&](float x, float y, float shade) {
+            return BgeColorVertex{ toNdcX(x), toNdcY(y), (std::min)(1.0f, red * shade), (std::min)(1.0f, green * shade), (std::min)(1.0f, blue * shade), alpha };
+        };
+
+        vertices[vertexCount++] = makeVertex(noseX, noseY, 1.22f);
+        vertices[vertexCount++] = makeVertex(leftX, leftY, 0.92f);
+        vertices[vertexCount++] = makeVertex(notchX, notchY, 0.62f);
+        vertices[vertexCount++] = makeVertex(noseX, noseY, 1.22f);
+        vertices[vertexCount++] = makeVertex(notchX, notchY, 0.62f);
+        vertices[vertexCount++] = makeVertex(rightX, rightY, 0.92f);
+    };
+
+    auto appendLineSlot = [&](const BgeObjectSlotState& slot, bool ghost) {
+        if (!slot.visible || slot.isDeleted) {
+            return;
+        }
+
+        float directionX = slot.velocityX;
+        float directionY = slot.velocityY;
+        float length = std::sqrt(directionX * directionX + directionY * directionY);
+        if (length < 1.0f) {
+            directionX = 1.0f;
+            directionY = 0.0f;
+            length = 1.0f;
+        }
+        float unitX = directionX / length;
+        float unitY = directionY / length;
+        float perpendicularX = -unitY;
+        float perpendicularY = unitX;
+        float halfLength = (std::max)(12.0f, slot.radius * 3.2f) * (ghost ? 1.15f : 1.0f);
+        float halfWidth = (std::max)(2.0f, slot.radius * 0.38f) * (ghost ? 1.2f : 1.0f);
+        float alpha = ghost ? (std::min)(0.34f, slot.colorA * 0.45f) : slot.colorA;
+        float red = ghost ? 0.18f + slot.colorR * 0.18f : slot.colorR;
+        float green = ghost ? 0.16f + slot.colorG * 0.18f : slot.colorG;
+        float blue = ghost ? 0.12f + slot.colorB * 0.16f : slot.colorB;
+        auto makeVertex = [&](float x, float y, float shade) {
+            return BgeColorVertex{ toNdcX(x), toNdcY(y), (std::min)(1.0f, red * shade), (std::min)(1.0f, green * shade), (std::min)(1.0f, blue * shade), alpha };
+        };
+
+        float headX = slot.x + unitX * halfLength;
+        float headY = slot.y + unitY * halfLength;
+        float tailX = slot.x - unitX * halfLength;
+        float tailY = slot.y - unitY * halfLength;
+        BgeColorVertex headLeft = makeVertex(headX + perpendicularX * halfWidth, headY + perpendicularY * halfWidth, 1.12f);
+        BgeColorVertex headRight = makeVertex(headX - perpendicularX * halfWidth, headY - perpendicularY * halfWidth, 1.12f);
+        BgeColorVertex tailLeft = makeVertex(tailX + perpendicularX * halfWidth, tailY + perpendicularY * halfWidth, 0.82f);
+        BgeColorVertex tailRight = makeVertex(tailX - perpendicularX * halfWidth, tailY - perpendicularY * halfWidth, 0.82f);
+
+        vertices[vertexCount++] = headLeft;
+        vertices[vertexCount++] = tailLeft;
+        vertices[vertexCount++] = tailRight;
+        vertices[vertexCount++] = headLeft;
+        vertices[vertexCount++] = tailRight;
+        vertices[vertexCount++] = headRight;
+    };
+
     auto appendObjectSlot = [&](const BgeObjectSlotState& slot, bool ghost) {
-        if (slot.shape == BgeObjectShape::Asteroid) {
+        if (slot.shape == BgeObjectShape::Line) {
+            appendLineSlot(slot, ghost);
+        }
+        else if (slot.shape == BgeObjectShape::VectorShip) {
+            appendVectorShipSlot(slot, ghost);
+        }
+        else if (slot.shape == BgeObjectShape::Asteroid) {
             appendAsteroidSlot(slot, ghost);
         }
         else {
@@ -616,6 +754,10 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
 
     if (objectSelectionActive_ && slots_[selectedSlot_].visible && !slots_[selectedSlot_].isDeleted) {
         AddVectorArrow(vertices, vertexCount, slots_[selectedSlot_]);
+    }
+
+    for (const auto& overlay : sceneOverlayText_) {
+        BgeAppendSceneOverlayText(vertices, vertexCount, kMaxVertexCount, overlay, static_cast<float>(width), static_cast<float>(height));
     }
 }
 
@@ -674,7 +816,7 @@ void DirectX11BouncingBallRenderer::ResetBallPosition(BgeObjectSlotState& slot)
     float height = static_cast<float>((std::max)(ClientHeight(), 1u));
     float slotOffset = static_cast<float>(selectedSlot_) * 24.0f;
     slot.x = (std::min)(width - slot.radius, (std::max)(slot.radius, width * 0.28f + slotOffset));
-    slot.y = (std::max)(kRenderTopInset + slot.radius, height * 0.45f);
+    slot.y = (std::max)(BgeRenderTopInset() + slot.radius, height * 0.45f);
 }
 
 UINT DirectX11BouncingBallRenderer::ClientWidth() const
