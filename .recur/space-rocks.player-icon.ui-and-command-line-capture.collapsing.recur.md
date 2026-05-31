@@ -1,6 +1,7 @@
-# space-rocks.player-icon.ui-and-command-line-capture.expanding
+# space-rocks.player-icon.ui-and-command-line-capture.collapsing
 
 Date: 2026-05-31
+State: collapsing
 Focus: only the Asteroids player icon, and only the command capture/test loop needed to prove it works during gameplay from both the UI version and the command-driven/exported game.
 
 ## Interesting Eventness
@@ -16,6 +17,24 @@ Related visibility tuning lane: use `space-rocks.player-icon.visibility-trials` 
 The same player-icon command sequence can be captured from the UI version and replayed through the command-driven asteroid game. Both paths show a visible classic vector player icon at gameplay start, then prove that rotate/thrust/fire commands affect that same icon during play.
 
 The completed behavior is recipe-backed, not hand-tuned: `exports/space-rocks/space-rocks.commands` creates `player_ship` with `--shape vector-ship --style outline`, and the UI/runtime path renders the same player-icon contract.
+
+## Collapse Record
+
+Collapsed on 2026-05-31.
+
+Saved outcome:
+
+- The UI Asteroids path and exported Space Rocks recipe both have a visible `player_ship` gameplay contract.
+- Runtime digit handling targets active gameplay trial groups before editor object-slot selection.
+- The player-icon state/render contract is covered by the BGE Julia behavior/source-contract suite.
+- The current implementation keeps command-driven and hosted behavior aligned through shared scene primitives and player-icon mode helpers.
+
+Verification saved with the collapse:
+
+- Full BGE Julia suite passed after the player, UFO, and grouped test-control changes.
+- Exported runtime smoke reached gameplay from the embedded recipe and verified the active test group path.
+
+Follow-up boundary: a more formal command-capture fixture can be opened later as a hardening lane; it is no longer blocking the player-icon visibility repair.
 
 ## Current Evidence
 

@@ -1,6 +1,7 @@
-# bge.eventness.sustainable-ownership.expanding
+# bge.eventness.sustainable-ownership.collapsing
 
 Date: 2026-05-31
+State: collapsing
 Priority: high
 Focus: make eventness shareable without giving away the user's livelihood, leverage, or private working lanes.
 
@@ -23,6 +24,24 @@ This lane treats eventness as something that can support:
 - Productized tools.
 - Client-specific lanes.
 - Cross-company interoperability.
+
+## Collapse Record
+
+Collapsed on 2026-05-31 as an ownership boundary, not as legal advice or a final license choice.
+
+Saved outcome:
+
+- Open the coordination layer; protect the livelihood layer.
+- Share schemas, lifecycle states, example envelopes, and interoperability rules when useful.
+- Keep private project memory, customer-specific lanes, sensitive strategy, preference history, and commercial implementation under deliberate control.
+- Require explicit agreement before turning private lanes, full methods, or polished tooling into someone else's reusable asset.
+
+Verification saved with the collapse:
+
+- The open/portable lane and this ownership lane now both carry collapse records.
+- The current project eventness was saved in repo-owned `.recur` files rather than left only in closed assistant memory.
+
+Follow-up boundary: choose concrete license, contribution terms, packaging, and product/commercial boundaries in a later lane before public release.
 
 ## Shareable Standard
 

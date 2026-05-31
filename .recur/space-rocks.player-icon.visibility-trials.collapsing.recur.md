@@ -1,6 +1,7 @@
-# space-rocks.player-icon.visibility-trials.expanding
+# space-rocks.player-icon.visibility-trials.collapsing
 
 Date: 2026-05-31
+State: collapsing
 Priority: critical
 Focus: whether the user can see the Asteroids player icon and whether its rendered nose, thrust, and bullets agree during play.
 
@@ -13,6 +14,26 @@ This lane exists so we can quickly try 10 player-icon settings by pressing `0` t
 Implementation status: the UI asteroid module and exported `player-ship` gameplay path now route active gameplay digit keys to player-icon trial modes before falling back to editor object-slot selection. Current user feedback: mode `1` was the best visible candidate for raw visibility, so all heading trials keep that filled-white-small look. The invulnerability alpha path stays visually steady for these modes. Heading feedback: visual heading and bullet direction can disagree, especially near 0 degrees / -90 degrees / about -10 degrees, so `0`-`9` test heading transforms instead of color/size. Latest result: mode `0` works best, meaning the current screen-coordinate heading transform is the winning candidate.
 
 Winning candidate: `0` heading current. Because `0` is already the default player-icon mode, no gameplay default change is needed unless a later replay or UI/command-line check contradicts this result.
+
+## Collapse Record
+
+Collapsed on 2026-05-31.
+
+Saved outcome:
+
+- Player icon visibility is restored for live play.
+- Mode `0` is the locked heading winner: current screen-coordinate heading transform.
+- The readable filled-white-small presentation from the visibility pass remains available through the shared player-icon mode helpers.
+- Invulnerability/trial presentation stays visually steady instead of blinking while the icon is under judgment.
+- `0`-`9` remains available for player-ship trials when the active test group is `ship`.
+- Page Up/Page Down can move focus away from or back to this ship group when other object groups, such as UFO, are being tested.
+
+Verification saved with the collapse:
+
+- Full BGE Julia suite passed after the grouped trial implementation.
+- Exported Space Rocks runtime smoke verified active group switching and digit trial behavior.
+
+Follow-up boundary: reopen this lane only if the player icon becomes invisible again, blinking returns during judgment, or the nose/thrust/bullet alignment regresses.
 
 ## Completed Reality
 

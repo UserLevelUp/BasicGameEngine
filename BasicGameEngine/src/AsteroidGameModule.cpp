@@ -177,6 +177,8 @@ public:
             lives_ = BGE_ASTEROID_GAME_STARTING_LIVES;
             respawnInvulnerableSeconds_ = 0.0f;
             ufoSlotIndex_ = -1;
+            ufoViewMode_ = 0;
+            trialGroupFocus_ = BgeTrialGroup::Ufo;
             ResetAsteroidGameUfoArrivalTimerLocked();
             gameOver_ = false;
             victory_ = false;
@@ -192,6 +194,8 @@ public:
             ConfigureAsteroidGameAsteroidLocked(runtime, 1, viewport.width * 0.22f, viewport.playTop + viewport.playHeight * 0.26f, 64.0f, 78.0f, 52.0f);
             ConfigureAsteroidGameAsteroidLocked(runtime, 2, viewport.width * 0.76f, viewport.playTop + viewport.playHeight * 0.30f, 58.0f, -72.0f, 64.0f);
             ConfigureAsteroidGameAsteroidLocked(runtime, 3, viewport.width * 0.54f, viewport.playTop + viewport.playHeight * 0.76f, 52.0f, 54.0f, -86.0f);
+            std::wstring ufoStatus;
+            ApplyAsteroidGameUfoViewModeLocked(runtime, ufoViewMode_, viewport, ufoStatus);
 
             BgeSetCurrentEdgePolicy(BgeEdgePolicy::Wrap);
             *runtime.animationRunning = true;
@@ -215,7 +219,7 @@ public:
         if (runtime.setHud) {
             runtime.setHud(hudText);
         }
-        statusText = L"Asteroid Game: score 0, lives " + std::to_wstring(lives_) + L"; W/Up thrust, S/Down reverse, A/D rotate, Space fire";
+        statusText = L"Asteroid Game: score 0, lives " + std::to_wstring(lives_) + L"; " + BuildAsteroidGameTrialStatusTextLocked();
         if (runtime.log) {
             runtime.log("[AsteroidGame] start module=AsteroidGameModule mode=asteroid-game asteroids=3 player-slot=1 edge=wrap");
         }
@@ -317,8 +321,9 @@ public:
             return false;
         }
 
-        int visibilityMode = BgePlayerIconVisibilityModeIndexFromKey(key);
-        bool isGameKey = visibilityMode >= 0 || key == L'A' || key == L'a' || key == L'D' || key == L'd' || key == L'W' || key == L'w' || key == L'S' || key == L's' || key == L'H' || key == L'h' || key == L'P' || key == L'p' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_SPACE;
+        int digitMode = BgeDigitModeIndexFromKey(key);
+        bool isTrialGroupKey = key == VK_PRIOR || key == VK_NEXT;
+        bool isGameKey = digitMode >= 0 || isTrialGroupKey || key == L'A' || key == L'a' || key == L'D' || key == L'd' || key == L'W' || key == L'w' || key == L'S' || key == L's' || key == L'H' || key == L'h' || key == L'P' || key == L'p' || key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_SPACE;
         if (!isGameKey || !RuntimeReady(runtime)) {
             return false;
         }
@@ -342,8 +347,19 @@ public:
                 handled = true;
                 statusText = BuildAsteroidGameStatusLocked(runtime);
             }
-            else if (visibilityMode >= 0) {
-                handled = ApplyAsteroidGamePlayerIconVisibilityModeLocked(runtime, visibilityMode, statusText);
+            else if (isTrialGroupKey) {
+                trialGroupFocus_ = BgeCycleTrialGroup(trialGroupFocus_, key == VK_PRIOR ? -1 : 1);
+                handled = true;
+                statusText = BuildAsteroidGameTrialStatusTextLocked();
+            }
+            else if (digitMode >= 0) {
+                if (trialGroupFocus_ == BgeTrialGroup::Ufo) {
+                    BgeGameViewport viewport = runtime.viewport ? runtime.viewport() : BgeGameViewport{};
+                    handled = ApplyAsteroidGameUfoViewModeLocked(runtime, digitMode, viewport, statusText);
+                }
+                else {
+                    handled = ApplyAsteroidGamePlayerIconVisibilityModeLocked(runtime, digitMode, statusText);
+                }
             }
             else if (!AsteroidGamePlayerAliveLocked(runtime, *runtime.mainPlayerSlot)) {
                 noPlayerSelected = true;
@@ -697,9 +713,26 @@ private:
                << L", lives " << lives_
                << L", asteroids " << asteroidCount
                << L", bullets " << bulletCount
-             << L", ufo " << ufoCount
-               << L", " << state;
+               << L", ufo " << ufoCount
+               << L", " << state
+               << L", " << BuildAsteroidGameTrialStatusTextLocked();
         return status.str();
+    }
+
+    std::wstring BuildAsteroidGameTrialStatusTextLocked() const
+    {
+        std::wstring status = L"test group ";
+        status += BgeTrialGroupName(trialGroupFocus_);
+        status += L" | PageUp/PageDown | 0-9 ";
+        if (trialGroupFocus_ == BgeTrialGroup::Ufo) {
+            status += L"UFO view " + std::to_wstring(BgeNormalizeUfoViewModeIndex(ufoViewMode_))
+                + L" " + BgeUfoViewModeName(ufoViewMode_);
+        }
+        else {
+            status += L"ship view " + std::to_wstring(BgeNormalizePlayerIconVisibilityModeIndex(playerIconVisibilityMode_))
+                + L" " + BgePlayerIconVisibilityModeName(playerIconVisibilityMode_);
+        }
+        return status;
     }
 
     std::wstring BuildAsteroidGameStateTextLocked(const BgeGameRuntime& runtime) const
@@ -731,6 +764,7 @@ private:
             << L" | AST " << CountKindLocked(runtime, BgeObjectKind::Asteroid)
             << L" | UFO " << CountKindLocked(runtime, BgeObjectKind::Ufo)
             << L" | BUL " << CountKindLocked(runtime, BgeObjectKind::Bullet)
+            << L" | TEST " << BgeTrialGroupName(trialGroupFocus_)
             << L" | " << BuildAsteroidGameStateTextLocked(runtime);
         if (gameOver_) {
             hud << L" | restart";
@@ -1465,6 +1499,40 @@ private:
         return true;
     }
 
+    bool ApplyAsteroidGameUfoViewModeLocked(BgeGameRuntime& runtime, int modeIndex, const BgeGameViewport& viewport, std::wstring& statusText)
+    {
+        int slotIndex = ActiveAsteroidGameUfoSlotLocked(runtime);
+        if (slotIndex < 0) {
+            slotIndex = FindReusableAsteroidGameUfoSlotLocked(runtime);
+        }
+        if (slotIndex < 0) {
+            statusText = L"Asteroid Game: UFO test group has no object slot";
+            return false;
+        }
+
+        ufoViewMode_ = BgeNormalizeUfoViewModeIndex(modeIndex);
+        BgeObjectSlotState& slot = (*runtime.objectSlots)[slotIndex];
+        BgeApplyUfoViewMode(slot, ufoViewMode_, viewport.width, viewport.playTop, viewport.playHeight);
+        ufoSlotIndex_ = slotIndex;
+        *runtime.selectedObjectSlot = slotIndex;
+        *runtime.objectSelectionActive = true;
+        BgeUpdateCollisionFlags(*runtime.objectSlots);
+        if (runtime.refreshSelectedObjectGlobalsLocked) {
+            runtime.refreshSelectedObjectGlobalsLocked();
+        }
+        if (runtime.persistActiveObjectGroupLocked) {
+            runtime.persistActiveObjectGroupLocked();
+        }
+        *runtime.rendererStateDirty = true;
+        statusText = L"Asteroid Game: " + BuildAsteroidGameTrialStatusTextLocked();
+        if (runtime.log) {
+            std::ostringstream message;
+            message << "[AsteroidGame] module-ufo-view mode=" << ufoViewMode_ << " slot=" << (slotIndex + 1);
+            runtime.log(message.str());
+        }
+        return true;
+    }
+
     void ConfigureAsteroidGameAsteroidLocked(BgeGameRuntime& runtime, int slotIndex, float x, float y, float radius, float velocityX, float velocityY)
     {
         if (slotIndex < 0 || slotIndex >= BGE_OBJECT_SLOT_COUNT) {
@@ -1554,13 +1622,15 @@ private:
         }
 
         playerIconVisibilityMode_ = BgeNormalizePlayerIconVisibilityModeIndex(modeIndex);
+        trialGroupFocus_ = BgeTrialGroup::PlayerShip;
         BgeObjectSlotState& player = (*runtime.objectSlots)[playerSlot];
         BgeApplyPlayerIconVisibilityMode(player, playerIconVisibilityMode_, respawnInvulnerableSeconds_ > 0.0f);
         ApplyAsteroidGamePlayerHeadingModeLocked(player);
         *runtime.selectedObjectSlot = playerSlot;
         *runtime.objectSelectionActive = true;
         statusText = L"Asteroid Game: player icon mode " + std::to_wstring(playerIconVisibilityMode_)
-            + L" (" + BgePlayerIconVisibilityModeName(playerIconVisibilityMode_) + L")";
+            + L" (" + BgePlayerIconVisibilityModeName(playerIconVisibilityMode_) + L") | "
+            + BuildAsteroidGameTrialStatusTextLocked();
         return true;
     }
 
@@ -1794,7 +1864,9 @@ private:
     float playerHeadingY_ = -1.0f;
     float respawnInvulnerableSeconds_ = 0.0f;
     float ufoArrivalSeconds_ = 0.0f;
+    int ufoViewMode_ = 0;
     int ufoSlotIndex_ = -1;
+    BgeTrialGroup trialGroupFocus_ = BgeTrialGroup::Ufo;
     bool gameOver_ = false;
     bool victory_ = false;
     std::array<float, BGE_OBJECT_SLOT_COUNT> bulletLifeSeconds_{};

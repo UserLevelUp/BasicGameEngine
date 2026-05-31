@@ -1,6 +1,7 @@
-# bge.rendering.high-framerate-multi-object-animation.expanding
+# bge.rendering.high-framerate-multi-object-animation.collapsing
 
 Date: 2026-05-31
+State: collapsing
 Priority: high
 Focus: keep multi-object animation readable at high framerate while preserving stable usability targets.
 
@@ -15,6 +16,24 @@ Asteroids, bullets, particles, score changes, invulnerability timers, and enviro
 The renderer can animate many objects across frames while the object under active usability judgment remains readable. Animation remains available for game feel and feedback, but the target object does not disappear, pulse away, or shift presentation rules while the user is trying to judge it.
 
 The concrete example is the Asteroids player icon: the ship can still have invulnerability gameplay state, and the rest of the scene can continue updating at high framerate, but player-icon trial modes use steady alpha so Marc can judge shape, heading, thrust, and bullet alignment.
+
+## Collapse Record
+
+Collapsed on 2026-05-31.
+
+Saved outcome:
+
+- Active usability targets stay visually stable while the rest of the scene can keep animating.
+- Player-icon trial modes use steady presentation during judgment instead of invulnerability blink noise.
+- The UFO can animate as a live moving object without disturbing the currently focused trial group.
+- Shared helpers keep the command-driven and hosted paths aligned.
+
+Verification saved with the collapse:
+
+- Full BGE Julia suite passed after the stable-target and grouped-object changes.
+- Runtime smoke verified live group switching while the game was running.
+
+Follow-up boundary: reopen only when a new animation channel interferes with human judgment, or when a target-specific animation is itself the candidate being tested.
 
 ## Technique
 

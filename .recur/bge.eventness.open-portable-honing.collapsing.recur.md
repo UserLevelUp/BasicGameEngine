@@ -1,6 +1,7 @@
-# bge.eventness.open-portable-honing.expanding
+# bge.eventness.open-portable-honing.collapsing
 
 Date: 2026-05-31
+State: collapsing
 Priority: high
 Focus: keep eventness and UI-honing methods portable, inspectable, and shareable across tools.
 
@@ -22,6 +23,24 @@ The eventness record should preserve:
 - The winning preference and rejected candidates.
 - The code/config/recipe path that implements the choice.
 - The checkpoint where the recorded preference is saved, committed, tagged, or versioned.
+
+## Collapse Record
+
+Collapsed on 2026-05-31 as a working principle and project memory record.
+
+Saved outcome:
+
+- Eventness should stay portable, inspectable, and readable outside any one assistant or vendor context.
+- `.recur` lanes are the project-owned place for honing records, winning candidates, verification, and collapse summaries.
+- Sharing should use scoped envelopes: enough context for a collaborator to act, without dumping private strategy or unrelated lanes.
+- The minimum standard shape is named: stable hierarchical name, lifecycle state, focus, current reality, desired completed reality, handoff boundary, verification, collapse record, and version checkpoint.
+
+Verification saved with the collapse:
+
+- This completed Space Rocks batch is stored in recur lanes, not only in chat history.
+- The lane filenames now advertise the `collapsing` state.
+
+Follow-up boundary: public standard packaging, examples, licensing, and implementation tooling should be opened as separate lanes when the user wants to productize the method.
 
 ## Portability Rules
 

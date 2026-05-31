@@ -297,6 +297,7 @@ struct BgeUfoState {
     bool edgeSpawn = true;
     BgeObjectRenderStyle renderStyle = BgeObjectRenderStyle::Outline;
     float outlineThickness = 2.0f;
+    int viewMode = 0;
 };
 
 struct BgeVectorShipState {
@@ -421,6 +422,7 @@ bool g_breakableRockFieldActive = false;
 BgeBreakableRockFieldState g_breakableRockFieldState;
 bool g_ufoActive = false;
 BgeUfoState g_ufoState;
+BgeTrialGroup g_trialGroupFocus = BgeTrialGroup::Ufo;
 std::vector<BgeProjectileDefinition> g_projectileDefinitions;
 std::array<float, BGE_OBJECT_SLOT_COUNT> g_bgeProjectileLifeSeconds{};
 bool g_vectorShipActive = false;
@@ -593,6 +595,10 @@ bool HandleBgeVectorShipKeyDown(WPARAM key);
 bool HandleBgeVectorShipKeyUp(WPARAM key);
 void ClearBgeVectorShipInputState();
 void ApplyVectorShipHeadingModeLocked(BgeObjectSlotState& slot, const BgeVectorShipState& ship);
+std::wstring BgeTrialGroupStatusTextLocked();
+bool ApplyBgeUfoViewModeLocked(int modeIndex, std::wstring& statusText);
+bool HandleBgeTrialGroupPageKeyDown(WPARAM key);
+bool HandleBgeTrialDigitKeyDown(WPARAM key);
 bool TickBgeProjectiles(double deltaMilliseconds);
 bool TickBgeUfo(double deltaMilliseconds);
 bool TickBgeVectorShip(double deltaMilliseconds);
@@ -2620,7 +2626,31 @@ std::wstring BgeUfoStatusText(const BgeUfoState& ufo)
         + L" score=" + ufo.score
         + L" weapon=" + ufo.weapon
         + L" arrival=" + std::to_wstring(static_cast<int>(ufo.arrivalMinSeconds)) + L".." + std::to_wstring(static_cast<int>(ufo.arrivalMaxSeconds))
-        + L" next=" + std::to_wstring(static_cast<int>(ufo.arrivalRemainingSeconds));
+        + L" next=" + std::to_wstring(static_cast<int>(ufo.arrivalRemainingSeconds))
+        + L" view=" + std::to_wstring(BgeNormalizeUfoViewModeIndex(ufo.viewMode))
+        + L" " + BgeUfoViewModeName(ufo.viewMode);
+}
+
+std::wstring BgeTrialGroupStatusTextLocked()
+{
+    std::wstring status = L"Test group: ";
+    status += BgeTrialGroupName(g_trialGroupFocus);
+    status += L" | PageUp/PageDown switch | 0-9 ";
+    if (g_trialGroupFocus == BgeTrialGroup::Ufo) {
+        status += L"UFO view " + std::to_wstring(BgeNormalizeUfoViewModeIndex(g_ufoState.viewMode))
+            + L" " + BgeUfoViewModeName(g_ufoState.viewMode);
+    }
+    else {
+        status += L"ship view " + std::to_wstring(BgeNormalizePlayerIconVisibilityModeIndex(g_vectorShipState.playerIconVisibilityMode))
+            + L" " + BgePlayerIconVisibilityModeName(g_vectorShipState.playerIconVisibilityMode);
+    }
+    return status;
+}
+
+void PublishBgeTrialGroupStatus(const std::wstring& statusText)
+{
+    SetCommandStatus(statusText);
+    SetGameHudStatus(statusText);
 }
 
 void HideBgeUfoSlotLocked(int slotIndex)
@@ -2713,6 +2743,40 @@ bool SpawnBgeUfoLocked()
     return true;
 }
 
+bool ApplyBgeUfoViewModeLocked(int modeIndex, std::wstring& statusText)
+{
+    if (!g_ufoActive || !g_ufoState.active) {
+        statusText = L"UFO test group unavailable";
+        return false;
+    }
+
+    int slotIndex = ActiveBgeUfoSlotLocked();
+    if (slotIndex < 0) {
+        slotIndex = FindReusableBgeUfoSlotLocked();
+    }
+    if (slotIndex < 0) {
+        statusText = L"UFO test group: no object slot";
+        return false;
+    }
+
+    g_ufoState.viewMode = BgeNormalizeUfoViewModeIndex(modeIndex);
+    BgeGameViewport viewport = CurrentGameViewport();
+    BgeObjectSlotState& slot = g_objectSlots[slotIndex];
+    BgeApplyUfoViewMode(slot, g_ufoState.viewMode, viewport.width, viewport.playTop, viewport.playHeight);
+    g_ufoState.slotIndex = slotIndex;
+    g_ufoState.radius = slot.radius;
+    g_ufoState.speed = (std::max)(40.0f, std::abs(slot.velocityX));
+    g_ufoState.renderStyle = slot.renderStyle;
+    g_ufoState.outlineThickness = slot.outlineThickness;
+    g_trialGroupFocus = BgeTrialGroup::Ufo;
+    BgeUpdateCollisionFlags(g_objectSlots);
+    PersistActiveObjectGroupLocked();
+    g_rendererStateDirty = true;
+    statusText = BgeTrialGroupStatusTextLocked();
+    LogRendererMessage("[BgeTrialGroup] ufo-view-applied mode=" + std::to_string(g_ufoState.viewMode) + " slot=" + std::to_string(slotIndex + 1));
+    return true;
+}
+
 bool AwardBgeUfoScoreLocked(int& scoreDelta)
 {
     std::wstring counterName;
@@ -2756,7 +2820,7 @@ bool ExecuteBgeUfoCommand(const std::vector<std::wstring>& tokens, std::wstring&
     }
 
     if (subcommand != L"create" && subcommand != L"show") {
-        statusText = L"Use: ufo create --id saucer --score score:200 --weapon enemy-shot --arrival 7..18 --aim player_ship --edge-spawn";
+        statusText = L"Use: ufo create --id saucer --score score:200 --weapon enemy-shot --arrival 7..18 --aim player_ship --edge-spawn --view 0";
         return false;
     }
     if (!BgePluginAlreadyImported(L"bge.piece.ufo")) {
@@ -2827,6 +2891,12 @@ bool ExecuteBgeUfoCommand(const std::vector<std::wstring>& tokens, std::wstring&
             ufo.outlineThickness = ClampFloat(parsedThickness, 0.5f, 16.0f);
         }
     }
+    if (TryGetCommandOptionValue(tokens, L"--view", value) || TryGetCommandOptionValue(tokens, L"--mode", value)) {
+        int parsedMode = 0;
+        if (TryParseIntArg(value, parsedMode)) {
+            ufo.viewMode = BgeNormalizeUfoViewModeIndex(parsedMode);
+        }
+    }
     ufo.edgeSpawn = HasCommandFlag(tokens, L"--edge-spawn") || !HasCommandFlag(tokens, L"--no-edge-spawn");
 
     bool spawned = false;
@@ -2837,7 +2907,7 @@ bool ExecuteBgeUfoCommand(const std::vector<std::wstring>& tokens, std::wstring&
         ResetBgeUfoArrivalTimerLocked();
         if (subcommand == L"show") {
             HideBgeUfoLocked();
-            spawned = SpawnBgeUfoLocked();
+            spawned = ApplyBgeUfoViewModeLocked(ufo.viewMode, statusText);
             ResetBgeUfoArrivalTimerLocked();
         }
         g_rendererStateDirty = true;
@@ -2849,8 +2919,57 @@ bool ExecuteBgeUfoCommand(const std::vector<std::wstring>& tokens, std::wstring&
     if (spawned) {
         statusText += L" | spawned";
     }
-    LogRendererMessage("[BgeUfoPlugin] configured id=\"" + Narrow(ufo.id) + "\" score=\"" + Narrow(ufo.score) + "\" arrival=" + std::to_string(static_cast<int>(ufo.arrivalMinSeconds)) + ".." + std::to_string(static_cast<int>(ufo.arrivalMaxSeconds)));
+    LogRendererMessage("[BgeUfoPlugin] configured id=\"" + Narrow(ufo.id) + "\" score=\"" + Narrow(ufo.score) + "\" arrival=" + std::to_string(static_cast<int>(ufo.arrivalMinSeconds)) + ".." + std::to_string(static_cast<int>(ufo.arrivalMaxSeconds)) + " view=" + std::to_string(BgeNormalizeUfoViewModeIndex(ufo.viewMode)));
     return true;
+}
+
+bool HandleBgeTrialGroupPageKeyDown(WPARAM key)
+{
+    if (key != VK_PRIOR && key != VK_NEXT) {
+        return false;
+    }
+
+    std::wstring statusText;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        g_trialGroupFocus = BgeCycleTrialGroup(g_trialGroupFocus, key == VK_PRIOR ? -1 : 1);
+        statusText = BgeTrialGroupStatusTextLocked();
+        g_rendererStateDirty = true;
+        PersistActiveObjectGroupLocked();
+    }
+
+    PublishBgeTrialGroupStatus(statusText);
+    InvalidateGameRenderer();
+    SendWorkerTelemetry(L"trial-group", L"page", statusText);
+    LogRendererMessage("[BgeTrialGroup] focus=\"" + Narrow(statusText) + "\"");
+    return true;
+}
+
+bool HandleBgeTrialDigitKeyDown(WPARAM key)
+{
+    int modeIndex = BgeDigitModeIndexFromKey(static_cast<unsigned int>(key));
+    if (modeIndex < 0) {
+        return false;
+    }
+
+    std::wstring statusText;
+    bool handled = false;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (g_trialGroupFocus != BgeTrialGroup::Ufo) {
+            return false;
+        }
+        handled = ApplyBgeUfoViewModeLocked(modeIndex, statusText);
+    }
+
+    if (handled) {
+        PublishBgeTrialGroupStatus(statusText);
+        SyncBallControls();
+        InvalidateGameRenderer();
+        SendWorkerTelemetry(L"trial-mode", L"ufo view", statusText);
+        LogRendererMessage("[BgeTrialGroup] ufo-view status=\"" + Narrow(statusText) + "\"");
+    }
+    return handled;
 }
 
 bool TickBgeUfo(double deltaMilliseconds)
@@ -3598,6 +3717,7 @@ bool HandleBgeVectorShipKeyDown(WPARAM key)
             if (!VectorShipPlayerAliveLocked()) {
                 return false;
             }
+            g_trialGroupFocus = BgeTrialGroup::PlayerShip;
             g_vectorShipState.playerIconVisibilityMode = BgeNormalizePlayerIconVisibilityModeIndex(visibilityMode);
             BgeObjectSlotState& shipSlot = g_objectSlots[g_vectorShipState.slotIndex];
             BgeApplyPlayerIconVisibilityMode(shipSlot, g_vectorShipState.playerIconVisibilityMode, g_vectorShipState.invulnerableRemainingSeconds > 0.0f);
@@ -3612,11 +3732,12 @@ bool HandleBgeVectorShipKeyDown(WPARAM key)
             RefreshSelectedObjectGlobalsLocked();
             PersistActiveObjectGroupLocked();
             statusText = L"Player ship: icon mode " + std::to_wstring(g_vectorShipState.playerIconVisibilityMode)
-                + L" (" + BgePlayerIconVisibilityModeName(g_vectorShipState.playerIconVisibilityMode) + L")";
+                + L" (" + BgePlayerIconVisibilityModeName(g_vectorShipState.playerIconVisibilityMode) + L") | "
+                + BgeTrialGroupStatusTextLocked();
         }
         SyncBallControls();
         InvalidateGameRenderer();
-        SetCommandStatus(statusText);
+        PublishBgeTrialGroupStatus(statusText);
         SendWorkerTelemetry(L"player-icon-mode", L"player-ship visibility", statusText);
         LogRendererMessage("[BgeVectorShipPlugin] player-icon-mode status=\"" + Narrow(statusText) + "\"");
         return true;
@@ -3905,6 +4026,12 @@ void StartOrRestartSpaceRocksGameLocked()
 
     // Spawn wave 1.
     SpawnSpaceRocksWaveLocked(1);
+
+    if (g_ufoActive && g_ufoState.active) {
+        std::wstring trialStatus;
+        ApplyBgeUfoViewModeLocked(g_ufoState.viewMode, trialStatus);
+        ResetBgeUfoArrivalTimerLocked();
+    }
 
     PersistActiveObjectGroupLocked();
 }
@@ -6120,7 +6247,8 @@ std::vector<std::wstring> BuildExportCommandsFromCurrentState()
             + L" --radius " + std::to_wstring(static_cast<int>(ufo.radius))
             + L" --speed " + std::to_wstring(static_cast<int>(ufo.speed))
             + L" --style " + CommandFileArg(BgeObjectRenderStyleName(ufo.renderStyle))
-            + L" --outline-thickness " + std::to_wstring(ufo.outlineThickness);
+            + L" --outline-thickness " + std::to_wstring(ufo.outlineThickness)
+            + L" --view " + std::to_wstring(BgeNormalizeUfoViewModeIndex(ufo.viewMode));
         command += ufo.edgeSpawn ? L" --edge-spawn" : L" --no-edge-spawn";
         commands.push_back(command);
     }
@@ -8611,9 +8739,21 @@ bool HandleRendererKeyDown(WPARAM key)
         return true;
     }
 
+    if (key == VK_PRIOR || key == VK_NEXT) {
+        if (HandleAsteroidGameKeyDown(key)) {
+            return true;
+        }
+        if (HandleBgeTrialGroupPageKeyDown(key)) {
+            return true;
+        }
+    }
+
     int playerIconVisibilityMode = BgePlayerIconVisibilityModeIndexFromKey(static_cast<unsigned int>(key));
     if (playerIconVisibilityMode >= 0) {
         if (HandleAsteroidGameKeyDown(key)) {
+            return true;
+        }
+        if (HandleBgeTrialDigitKeyDown(key)) {
             return true;
         }
         if (HandleBgeVectorShipKeyDown(key)) {
@@ -8633,8 +8773,13 @@ bool HandleRendererKeyDown(WPARAM key)
             overlayActive = g_titleScreenActive || g_vectorShipState.gameOver;
         }
         if (overlayActive) {
-            std::lock_guard<std::mutex> lock(ballConfigMutex);
-            StartOrRestartSpaceRocksGameLocked();
+            std::wstring statusText;
+            {
+                std::lock_guard<std::mutex> lock(ballConfigMutex);
+                StartOrRestartSpaceRocksGameLocked();
+                statusText = BgeTrialGroupStatusTextLocked();
+            }
+            PublishBgeTrialGroupStatus(statusText);
             SendWorkerTelemetry(L"game-event", L"game-start", L"player pressed Enter");
             return true;
         }

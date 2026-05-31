@@ -10,6 +10,8 @@
 
 constexpr int BGE_OBJECT_SLOT_COUNT = 10;
 constexpr int BGE_PLAYER_ICON_VISIBILITY_MODE_COUNT = 10;
+constexpr int BGE_UFO_VIEW_MODE_COUNT = 10;
+constexpr int BGE_TRIAL_GROUP_COUNT = 2;
 
 enum class BgeEdgePolicy : int {
     Bounce = 0,
@@ -63,12 +65,44 @@ inline std::atomic<int>& BgeEdgePolicyStorage()
     return policy;
 }
 
+enum class BgeTrialGroup : int {
+    PlayerShip = 0,
+    Ufo = 1,
+};
 inline std::atomic<int>& BgeRenderTopInsetTenthsStorage()
 {
     static std::atomic<int> insetTenths{ 1400 };
     return insetTenths;
 }
 
+inline int BgeNormalizeTrialGroupIndex(int groupIndex)
+{
+    return (std::max)(0, (std::min)(BGE_TRIAL_GROUP_COUNT - 1, groupIndex));
+}
+
+inline BgeTrialGroup BgeNormalizeTrialGroup(BgeTrialGroup group)
+{
+    return static_cast<BgeTrialGroup>(BgeNormalizeTrialGroupIndex(static_cast<int>(group)));
+}
+
+inline BgeTrialGroup BgeCycleTrialGroup(BgeTrialGroup group, int delta)
+{
+    int next = static_cast<int>(group) + delta;
+    while (next < 0) {
+        next += BGE_TRIAL_GROUP_COUNT;
+    }
+    next %= BGE_TRIAL_GROUP_COUNT;
+    return static_cast<BgeTrialGroup>(next);
+}
+
+inline const wchar_t* BgeTrialGroupName(BgeTrialGroup group)
+{
+    switch (BgeNormalizeTrialGroup(group)) {
+    case BgeTrialGroup::Ufo:        return L"ufo";
+    case BgeTrialGroup::PlayerShip:
+    default:                        return L"ship";
+    }
+}
 inline BgeEdgePolicy BgeCurrentEdgePolicy()
 {
     return static_cast<BgeEdgePolicy>(BgeEdgePolicyStorage().load(std::memory_order_relaxed));
@@ -268,6 +302,92 @@ struct BgeObjectSlotState {
     float outlineThickness = 2.0f;  // pixels; used when renderStyle == Outline
 };
 
+struct BgeUfoViewMode {
+    const wchar_t* name;
+    float xFraction;
+    float yFraction;
+    float radius;
+    float velocityX;
+    float velocityY;
+    BgeObjectRenderStyle renderStyle;
+    float outlineThickness;
+    float colorR;
+    float colorG;
+    float colorB;
+    float alpha;
+};
+
+inline const std::array<BgeUfoViewMode, BGE_UFO_VIEW_MODE_COUNT>& BgeUfoViewModes()
+{
+    static const std::array<BgeUfoViewMode, BGE_UFO_VIEW_MODE_COUNT> modes{{
+        { L"left entry high",    0.10f, 0.22f, 20.0f,  170.0f,   0.0f, BgeObjectRenderStyle::Outline, 2.0f, 0.84f, 0.96f, 1.00f, 1.0f },
+        { L"right entry high",   0.90f, 0.22f, 20.0f, -170.0f,   0.0f, BgeObjectRenderStyle::Outline, 2.0f, 0.84f, 0.96f, 1.00f, 1.0f },
+        { L"top center hold",    0.50f, 0.22f, 22.0f,    0.0f,   0.0f, BgeObjectRenderStyle::Outline, 2.0f, 0.92f, 0.98f, 1.00f, 1.0f },
+        { L"left middle drift",  0.12f, 0.50f, 20.0f,  130.0f,  16.0f, BgeObjectRenderStyle::Outline, 2.0f, 0.74f, 0.96f, 0.92f, 1.0f },
+        { L"right middle drift", 0.88f, 0.50f, 20.0f, -130.0f, -16.0f, BgeObjectRenderStyle::Outline, 2.0f, 0.74f, 0.96f, 0.92f, 1.0f },
+        { L"lower center hold",  0.50f, 0.78f, 22.0f,    0.0f,   0.0f, BgeObjectRenderStyle::Outline, 2.5f, 0.96f, 0.86f, 0.48f, 1.0f },
+        { L"left edge clip",     0.04f, 0.35f, 22.0f,   80.0f,   0.0f, BgeObjectRenderStyle::Outline, 3.0f, 1.00f, 0.88f, 0.42f, 1.0f },
+        { L"right edge clip",    0.96f, 0.65f, 22.0f,  -80.0f,   0.0f, BgeObjectRenderStyle::Outline, 3.0f, 1.00f, 0.88f, 0.42f, 1.0f },
+        { L"large filled",       0.50f, 0.35f, 28.0f,    0.0f,   0.0f, BgeObjectRenderStyle::Filled,  2.0f, 0.58f, 0.88f, 1.00f, 1.0f },
+        { L"small bright",       0.50f, 0.65f, 14.0f,    0.0f,   0.0f, BgeObjectRenderStyle::Outline, 1.5f, 0.94f, 1.00f, 0.72f, 1.0f },
+    }};
+    return modes;
+}
+
+inline int BgeNormalizeUfoViewModeIndex(int modeIndex)
+{
+    return (std::max)(0, (std::min)(BGE_UFO_VIEW_MODE_COUNT - 1, modeIndex));
+}
+
+inline const BgeUfoViewMode& BgeUfoViewModeForIndex(int modeIndex)
+{
+    return BgeUfoViewModes()[static_cast<std::size_t>(BgeNormalizeUfoViewModeIndex(modeIndex))];
+}
+
+inline const wchar_t* BgeUfoViewModeName(int modeIndex)
+{
+    return BgeUfoViewModeForIndex(modeIndex).name;
+}
+
+inline int BgeDigitModeIndexFromKey(unsigned int key)
+{
+    if (key >= static_cast<unsigned int>(L'0') && key <= static_cast<unsigned int>(L'9')) {
+        return static_cast<int>(key - static_cast<unsigned int>(L'0'));
+    }
+    constexpr unsigned int kVirtualKeyNumpad0 = 0x60;
+    constexpr unsigned int kVirtualKeyNumpad9 = 0x69;
+    if (key >= kVirtualKeyNumpad0 && key <= kVirtualKeyNumpad9) {
+        return static_cast<int>(key - kVirtualKeyNumpad0);
+    }
+    return -1;
+}
+
+inline void BgeApplyUfoViewMode(BgeObjectSlotState& slot, int modeIndex, float viewportWidth, float playTop, float playHeight)
+{
+    const BgeUfoViewMode& mode = BgeUfoViewModeForIndex(modeIndex);
+    float width = (std::max)(1.0f, viewportWidth);
+    float height = (std::max)(1.0f, playHeight);
+    slot.visible = true;
+    slot.deleteMarked = false;
+    slot.isDeleted = false;
+    slot.collisionDetected = false;
+    slot.x = width * mode.xFraction;
+    slot.y = playTop + height * mode.yFraction;
+    slot.radius = mode.radius;
+    slot.velocityX = mode.velocityX;
+    slot.velocityY = mode.velocityY;
+    slot.headingX = mode.velocityX < 0.0f ? -1.0f : 1.0f;
+    slot.headingY = 0.0f;
+    slot.colorR = mode.colorR;
+    slot.colorG = mode.colorG;
+    slot.colorB = mode.colorB;
+    slot.colorA = mode.alpha;
+    slot.shape = BgeObjectShape::Ufo;
+    slot.kind = BgeObjectKind::Ufo;
+    slot.renderStyle = mode.renderStyle;
+    slot.outlineThickness = mode.outlineThickness;
+}
+
 struct BgePlayerIconVisibilityMode {
     const wchar_t* name;
     BgeObjectShape shape;
@@ -313,15 +433,7 @@ inline int BgeNormalizePlayerIconVisibilityModeIndex(int modeIndex)
 
 inline int BgePlayerIconVisibilityModeIndexFromKey(unsigned int key)
 {
-    if (key >= static_cast<unsigned int>(L'0') && key <= static_cast<unsigned int>(L'9')) {
-        return static_cast<int>(key - static_cast<unsigned int>(L'0'));
-    }
-    constexpr unsigned int kVirtualKeyNumpad0 = 0x60;
-    constexpr unsigned int kVirtualKeyNumpad9 = 0x69;
-    if (key >= kVirtualKeyNumpad0 && key <= kVirtualKeyNumpad9) {
-        return static_cast<int>(key - kVirtualKeyNumpad0);
-    }
-    return -1;
+    return BgeDigitModeIndexFromKey(key);
 }
 
 inline const BgePlayerIconVisibilityMode& BgePlayerIconVisibilityModeForIndex(int modeIndex)

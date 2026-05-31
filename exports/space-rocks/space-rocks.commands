@@ -8,7 +8,7 @@ counter define lives 3 min 0 max 5
 counter define wave 1 min 1
 projectile create --id shot --owner player --shape line --speed 620 --ttl 1.1 --wrap
 projectile create --id enemy-shot --owner enemy --shape line --speed 420 --ttl 1.4 --wrap
-ufo create --id saucer --score score:200 --weapon enemy-shot --arrival 7..18 --aim player_ship --edge-spawn --style outline
+ufo create --id saucer --score score:200 --weapon enemy-shot --arrival 7..18 --aim player_ship --edge-spawn --style outline --view 0
 sound define --id shot --kind tone --freq 880 --duration 0.08 --volume 0.6
 player-ship create --id player_ship --shape vector-ship --lives lives --input-profile arrows-space --fire shot --hyperspace H --respawn 1.5 --invulnerable 2.0 --style outline
 rock-field create --sizes large|medium|small --count 4 --split 2 --score score:20|50|100 --speed-range 30..180 --wave-counter wave --avoid player_ship:160 --style outline

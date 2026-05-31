@@ -1,6 +1,7 @@
-# bge.ui-honing.10-suitors.expanding
+# bge.ui-honing.10-suitors.collapsing
 
 Date: 2026-05-31
+State: collapsing
 Priority: high
 Focus: reusable UI honing through fast grouped option sets.
 
@@ -23,6 +24,27 @@ The method supports three passes:
 After those passes, the winning setting becomes the default, while the candidate mechanism remains available for future tuning.
 
 Once the user's preferences are recorded, selected, and locked in, recommend a checkpoint before continuing development: save or commit the branch, set a version or tag if appropriate, and treat that preference set as the baseline for the next work lane.
+
+## Collapse Record
+
+Collapsed on 2026-05-31.
+
+Saved outcome:
+
+- The `0`-`9` ten-candidate method is now a reusable BGE tuning pattern, not a one-off player-icon hack.
+- The first locked player candidate is mode `0` for heading alignment.
+- The UFO group now has ten live view candidates.
+- Page Up/Page Down is the baseline mechanism for changing the active test group.
+- Status/HUD text must show the focused group before digit keys are used for grouped trials.
+- A save/commit/version checkpoint is recommended whenever a preference set becomes the baseline for further development.
+
+Verification saved with the collapse:
+
+- Ship and UFO grouped trial controls are implemented in both command-composed and hosted paths.
+- Full BGE Julia suite passed after the grouped controls landed.
+- Exported runtime smoke verified digit candidate switching and group focus switching.
+
+Follow-up boundary: future groups can be opened for asteroid, projectile, UI marker, collision radius, or layout/density testing without reopening the method itself.
 
 ## 10 Suitors Method
 
@@ -56,6 +78,8 @@ Suggested shape:
 
 Only one group should be under judgment at a time. A selected candidate from one group can become the baseline while the next group is explored.
 
+For live game/object testing, Page Up and Page Down can cycle the active test group while `0`-`9` applies candidates to that focused group. The status bar or HUD/status line should show the active group, such as `test group ufo` or `test group ship`, so the user always knows what the digit keys currently control.
+
 ## Boundary-Condition Probes
 
 The same `0`-`9` selector can be used as a quick engineering probe when an object needs boundary testing, not only when the concern is subjective polish.
@@ -69,6 +93,8 @@ Useful cases:
 - Tuning projectile, UFO, asteroid, player, or UI-marker boundary behavior while the scene stays playable.
 
 For this use, each candidate should isolate one boundary hypothesis. Keep the object under test easy to see, keep unrelated animation stable enough to judge the boundary, and record the winning candidate before promoting it to the default.
+
+When multiple objects are being probed, use Page Up/Page Down to select the target object group first, then digits to change only that group's candidate. This prevents the old "which thing did I just change?" confusion.
 
 ## Toolset Compatibility
 
