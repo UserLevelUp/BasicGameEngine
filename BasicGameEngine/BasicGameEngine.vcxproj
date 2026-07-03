@@ -168,15 +168,18 @@
     <ClInclude Include="include\UserPrivilegeMgr.h" />
     <ClInclude Include="include\WindowMutex.h" />
     <ClInclude Include="include\WindowMutexMgr.h" />
+    <ClInclude Include="include\BgeHierarchy.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\AsteroidGameModule.cpp" />
     <ClCompile Include="src\BgeScenePrimitives.cpp" />
     <ClCompile Include="src\BasicGameEngine.cpp" />
+    <ClCompile Include="src\BgeHierarchy.cpp" />
     <ClCompile Include="src\DirectX11BouncingBallRenderer.cpp" />
     <ClCompile Include="src\DirectX12BouncingBallRenderer.cpp" />
     <ClCompile Include="src\InterprocessComm.cpp" />
     <ClCompile Include="src\InterprocessCommMgr.cpp" />
+    <ClCompile Include="src\IntiGameModule.cpp" />
     <ClCompile Include="src\StatusBar.cpp" />
     <ClCompile Include="src\StatusBarMgr.cpp" />
     <ClCompile Include="src\TaskBarMgr.cpp" />

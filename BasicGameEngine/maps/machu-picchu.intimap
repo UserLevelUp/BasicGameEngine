@@ -1,0 +1,46 @@
+# Inti photo-run tourist map (v0)
+# Schema: line-based, whitespace tokens, '#' comments.
+#   map        <id> <display name...>
+#   start      <xFraction> <yFraction>
+#   checkpoint <xFraction> <yFraction> <name>
+#   shot       <checkpointName> golden-angle <deg> tolerance <deg>  # composition target
+#   path       <checkpointName> <checkpointName>          # corridor + trail dots
+#   exit       <xFraction> <yFraction> <nextMap> [name]   # scene-change when area complete
+# Fractions are [0,1] of the play area. Max 9 checkpoints (slot 0 = courier).
+# Paths/dots/exits ride the engine scene-geometry channel, so they are NOT
+# limited to the 10 object slots. Swap this file (or pass another *.intimap
+# path) to retarget any tourist area with no engine recompile.
+
+map machu-picchu Machu Picchu Citadel
+
+start 0.50 0.52
+
+checkpoint 0.18 0.30 intihuatana
+checkpoint 0.50 0.20 temple-of-the-sun
+checkpoint 0.82 0.30 room-of-three-windows
+checkpoint 0.86 0.66 main-gate
+checkpoint 0.50 0.78 central-plaza
+checkpoint 0.16 0.68 guardhouse-terrace
+
+path intihuatana temple-of-the-sun
+path temple-of-the-sun room-of-three-windows
+path room-of-three-windows main-gate
+path main-gate central-plaza
+path central-plaza guardhouse-terrace
+path guardhouse-terrace intihuatana
+path intihuatana central-plaza
+
+# Composition shots: the golden approach heading (degrees, layout space with
+# +x right / +y down) is the postcard angle. Arrive along it for a high
+# composition score; arrive from the wrong corridor for a blurry snap. The
+# temple-of-the-sun hero shot has the tightest cone.
+shot temple-of-the-sun golden-angle -18 tolerance 22
+shot room-of-three-windows golden-angle 18 tolerance 30
+shot main-gate golden-angle 84 tolerance 32
+shot central-plaza golden-angle 162 tolerance 34
+shot guardhouse-terrace golden-angle -164 tolerance 34
+shot intihuatana golden-angle -87 tolerance 30
+
+# Exit sits on the main-gate checkpoint so the path-constrained courier can
+# reach it by running the corridors (it cannot leave the path network).
+exit 0.86 0.66 huayna-picchu.intimap huayna-picchu-trail

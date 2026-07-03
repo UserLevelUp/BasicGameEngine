@@ -1,0 +1,21 @@
+# Inti photo-run tourist map (v0) -- second area, reached via the exit on
+# machu-picchu.intimap. Demonstrates the scene-change: same engine, new file.
+
+map huayna-picchu Huayna Picchu Trail
+
+start 0.50 0.85
+
+checkpoint 0.50 0.16 summit-shrine
+checkpoint 0.24 0.34 great-cavern
+checkpoint 0.76 0.34 moon-temple
+checkpoint 0.30 0.60 switchback-ledge
+checkpoint 0.70 0.60 condor-lookout
+
+path summit-shrine great-cavern
+path summit-shrine moon-temple
+path great-cavern switchback-ledge
+path moon-temple condor-lookout
+path switchback-ledge condor-lookout
+
+# Exit sits on the switchback-ledge checkpoint (on the corridor network).
+exit 0.30 0.60 machu-picchu.intimap return-to-citadel

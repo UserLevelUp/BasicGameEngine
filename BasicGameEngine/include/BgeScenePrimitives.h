@@ -25,6 +25,8 @@ enum class BgeObjectShape : int {
     VectorShip = 2,
     Line = 3,
     Ufo = 4,
+    Runner = 5,
+    Quipu = 6,
 };
 
 // Render style is recipe-driven, NOT a player/controller mode toggle.
@@ -49,6 +51,8 @@ enum class BgeObjectKind : int {
     Asteroid = 2,
     Bullet = 3,
     Ufo = 4,
+    Runner = 5,
+    Quipu = 6,
 };
 
 constexpr int BGE_ASTEROID_POINT_COUNT = 18;
@@ -145,6 +149,8 @@ inline bool BgeTryParseEdgePolicy(const std::wstring& text, BgeEdgePolicy& out)
 inline const wchar_t* BgeObjectShapeName(BgeObjectShape shape)
 {
     switch (shape) {
+    case BgeObjectShape::Quipu:  return L"quipu";
+    case BgeObjectShape::Runner: return L"runner";
     case BgeObjectShape::Line: return L"line";
     case BgeObjectShape::Ufo: return L"ufo";
     case BgeObjectShape::VectorShip: return L"vector-ship";
@@ -161,6 +167,8 @@ inline bool BgeTryParseObjectShape(const std::wstring& text, BgeObjectShape& out
     if (text == L"vector-ship" || text == L"ship" || text == L"player-ship") { out = BgeObjectShape::VectorShip; return true; }
     if (text == L"line" || text == L"projectile" || text == L"shot") { out = BgeObjectShape::Line; return true; }
     if (text == L"ufo" || text == L"saucer") { out = BgeObjectShape::Ufo; return true; }
+    if (text == L"runner" || text == L"chasqui") { out = BgeObjectShape::Runner; return true; }
+    if (text == L"quipu" || text == L"knot" || text == L"knots") { out = BgeObjectShape::Quipu; return true; }
     return false;
 }
 
@@ -189,6 +197,8 @@ inline const wchar_t* BgeObjectKindName(BgeObjectKind kind)
     case BgeObjectKind::Asteroid: return L"asteroid";
     case BgeObjectKind::Bullet:   return L"bullet";
     case BgeObjectKind::Ufo:      return L"ufo";
+    case BgeObjectKind::Runner:   return L"runner";
+    case BgeObjectKind::Quipu:    return L"quipu";
     case BgeObjectKind::Generic:
     default:                      return L"generic";
     }
@@ -300,6 +310,12 @@ struct BgeObjectSlotState {
     // Filled keeps legacy behaviour for ball/bouncing-demo recipes).
     BgeObjectRenderStyle renderStyle = BgeObjectRenderStyle::Filled;
     float outlineThickness = 2.0f;  // pixels; used when renderStyle == Outline
+    bool spriteEnabled = false;
+    std::wstring spriteImagePath;
+    float spriteU0 = 0.0f;
+    float spriteV0 = 0.0f;
+    float spriteU1 = 1.0f;
+    float spriteV1 = 1.0f;
 };
 
 struct BgeUfoViewMode {
@@ -527,6 +543,7 @@ inline void BgeUpdateCollisionFlags(std::array<BgeObjectSlotState, SlotCount>& s
 }
 
 bool LoadBackgroundImageMesh(const std::wstring& path, std::vector<BgeColorVertex>& vertices, std::wstring& error);
+bool LoadImageRgbaPixels(const std::wstring& path, std::vector<std::uint8_t>& pixels, unsigned int& width, unsigned int& height, std::wstring& error);
 
 inline std::array<unsigned char, 7> BgeSceneGlyphRows(wchar_t glyph)
 {
@@ -680,4 +697,159 @@ inline void BgeAppendStrokedPolygon(BgeColorVertex* vertices, int& vertexCount, 
         vertices[vertexCount++] = vd;
         vertices[vertexCount++] = vb;
     }
+}
+
+inline void BgeAppendQuipuGlyph(BgeColorVertex* vertices, int& vertexCount, int maxVertexCount,
+                                const BgeObjectSlotState& slot, bool ghost,
+                                float targetWidth, float targetHeight)
+{
+    if (!slot.visible || slot.isDeleted || targetWidth <= 0.0f || targetHeight <= 0.0f) {
+        return;
+    }
+
+    constexpr float pi = 3.14159265358979323846f;
+    float progress = (std::max)(0.0f, (std::min)(1.0f, slot.velocityX));
+    bool complete = slot.velocityY > 0.5f;
+    bool current = slot.headingX > 0.5f;
+    float cordLength = (std::max)(slot.radius * 4.0f, std::abs(slot.headingY));
+    float knotRadius = (std::max)(4.0f, slot.radius) * (current ? 1.18f : 1.0f);
+    float alpha = ghost ? (std::min)(0.34f, slot.colorA * 0.45f) : slot.colorA;
+    float red = ghost ? 0.16f + slot.colorR * 0.16f : slot.colorR;
+    float green = ghost ? 0.14f + slot.colorG * 0.16f : slot.colorG;
+    float blue = ghost ? 0.10f + slot.colorB * 0.16f : slot.colorB;
+    float thickness = (std::max)(1.2f, slot.outlineThickness) * (complete ? 1.30f : 1.0f);
+
+    auto stroke = [&](const float* xs, const float* ys, int count, bool closed, float scale, float r, float g, float b, float a) {
+        BgeAppendStrokedPolygon(vertices, vertexCount, maxVertexCount,
+                                xs, ys, count, closed, thickness * scale,
+                                r, g, b, a, targetWidth, targetHeight);
+    };
+
+    float topX = slot.x;
+    float topY = slot.y;
+    float bottomY = topY + cordLength;
+    float cordX[2] = { topX, topX };
+    float cordY[2] = { topY, bottomY };
+    stroke(cordX, cordY, 2, false, current ? 1.20f : 0.92f, red, green, blue, alpha);
+
+    float tieHalfWidth = knotRadius * (current ? 1.70f : 1.35f);
+    float tieX[2] = { topX - tieHalfWidth, topX + tieHalfWidth };
+    float tieY[2] = { topY, topY };
+    stroke(tieX, tieY, 2, false, 1.10f, red, green, blue, alpha);
+
+    if (complete || current) {
+        float braidX[3] = { topX - knotRadius * 0.42f, topX + knotRadius * 0.34f, topX - knotRadius * 0.22f };
+        float braidY[3] = { topY + cordLength * 0.18f, topY + cordLength * 0.33f, topY + cordLength * 0.50f };
+        stroke(braidX, braidY, 3, false, 0.55f,
+               (std::min)(1.0f, red + 0.14f), (std::min)(1.0f, green + 0.10f), (std::min)(1.0f, blue + 0.06f), alpha);
+    }
+
+    int knotCount = complete ? 5 : static_cast<int>(std::ceil(progress * 5.0f));
+    if (current && knotCount == 0) {
+        knotCount = 1;
+    }
+    knotCount = (std::max)(0, (std::min)(5, knotCount));
+
+    for (int knotIndex = 0; knotIndex < knotCount; ++knotIndex) {
+        float t = 0.22f + static_cast<float>(knotIndex) * 0.135f;
+        float centerY = topY + cordLength * t;
+        float centerX = topX + ((knotIndex % 2) == 0 ? -0.18f : 0.16f) * knotRadius;
+        float rx = knotRadius * (complete ? 0.76f : 0.62f);
+        float ry = knotRadius * (complete ? 0.46f : 0.38f);
+        float knotX[10];
+        float knotY[10];
+        for (int point = 0; point < 10; ++point) {
+            float angle = (static_cast<float>(point) / 10.0f) * 2.0f * pi;
+            knotX[point] = centerX + std::cos(angle) * rx;
+            knotY[point] = centerY + std::sin(angle) * ry;
+        }
+        stroke(knotX, knotY, 10, true, current && knotIndex == knotCount - 1 ? 1.28f : 1.0f,
+               (std::min)(1.0f, red + 0.10f), (std::min)(1.0f, green + 0.08f), (std::min)(1.0f, blue + 0.04f), alpha);
+
+        float wrapX[2] = { centerX - rx * 0.75f, centerX + rx * 0.75f };
+        float wrapY[2] = { centerY + ry * 0.40f, centerY - ry * 0.42f };
+        stroke(wrapX, wrapY, 2, false, 0.56f, red, green, blue, alpha);
+    }
+}
+
+inline void BgeAppendRunnerGlyph(BgeColorVertex* vertices, int& vertexCount, int maxVertexCount,
+                                 const BgeObjectSlotState& slot, bool ghost,
+                                 float targetWidth, float targetHeight)
+{
+    if (!slot.visible || slot.isDeleted || targetWidth <= 0.0f || targetHeight <= 0.0f) {
+        return;
+    }
+
+    constexpr float pi = 3.14159265358979323846f;
+    float radius = (std::max)(6.0f, slot.radius) * (ghost ? 1.08f : 1.0f);
+    float alpha = ghost ? (std::min)(0.36f, slot.colorA * 0.48f) : slot.colorA;
+    float red = ghost ? 0.12f + slot.colorR * 0.18f : slot.colorR;
+    float green = ghost ? 0.12f + slot.colorG * 0.18f : slot.colorG;
+    float blue = ghost ? 0.14f + slot.colorB * 0.20f : slot.colorB;
+    float thickness = (std::max)(1.2f, slot.outlineThickness) * (slot.renderStyle == BgeObjectRenderStyle::Filled ? 1.35f : 1.0f);
+    float facing = std::abs(slot.headingX) > 0.001f ? (slot.headingX < 0.0f ? -1.0f : 1.0f) : (slot.velocityX < -1.0f ? -1.0f : 1.0f);
+    float framePhase = std::abs(slot.velocityY) > 0.001f ? slot.velocityY : ((slot.x * 0.075f) + (slot.y * 0.031f));
+    float phase = std::sin(framePhase);
+    float counterPhase = std::cos(framePhase);
+
+    auto stroke = [&](const float* xs, const float* ys, int count, bool closed, float scale) {
+        BgeAppendStrokedPolygon(vertices, vertexCount, maxVertexCount,
+                                xs, ys, count, closed, thickness * scale,
+                                red, green, blue, alpha, targetWidth, targetHeight);
+    };
+
+    float headRadius = radius * 0.25f;
+    float headCenterX = slot.x + facing * radius * 0.08f;
+    float headCenterY = slot.y - radius * 0.98f;
+    float headX[8];
+    float headY[8];
+    for (int index = 0; index < 8; ++index) {
+        float angle = (static_cast<float>(index) / 8.0f) * 2.0f * pi;
+        headX[index] = headCenterX + std::cos(angle) * headRadius;
+        headY[index] = headCenterY + std::sin(angle) * headRadius;
+    }
+    stroke(headX, headY, 8, true, 0.92f);
+
+    float neckX = slot.x + facing * radius * 0.10f;
+    float neckY = slot.y - radius * 0.62f;
+    float hipX = slot.x - facing * radius * 0.08f;
+    float hipY = slot.y + radius * 0.18f;
+    float torsoX[2] = { neckX, hipX };
+    float torsoY[2] = { neckY, hipY };
+    stroke(torsoX, torsoY, 2, false, 1.25f);
+
+    float shoulderX = slot.x + facing * radius * 0.02f;
+    float shoulderY = slot.y - radius * 0.42f;
+    float frontHandX = shoulderX + facing * radius * (0.42f + 0.24f * phase);
+    float frontHandY = shoulderY + radius * (0.26f - 0.10f * counterPhase);
+    float backHandX = shoulderX - facing * radius * (0.40f + 0.18f * phase);
+    float backHandY = shoulderY + radius * (0.34f + 0.08f * counterPhase);
+    float frontArmX[2] = { shoulderX, frontHandX };
+    float frontArmY[2] = { shoulderY, frontHandY };
+    float backArmX[2] = { shoulderX, backHandX };
+    float backArmY[2] = { shoulderY, backHandY };
+    stroke(frontArmX, frontArmY, 2, false, 0.86f);
+    stroke(backArmX, backArmY, 2, false, 0.78f);
+
+    float frontKneeX = hipX + facing * radius * (0.22f + 0.38f * phase);
+    float frontKneeY = hipY + radius * (0.42f - 0.10f * counterPhase);
+    float frontFootX = hipX + facing * radius * (0.58f + 0.42f * phase);
+    float frontFootY = hipY + radius * (1.00f - 0.12f * counterPhase);
+    float backKneeX = hipX - facing * radius * (0.24f + 0.34f * phase);
+    float backKneeY = hipY + radius * (0.46f + 0.10f * counterPhase);
+    float backFootX = hipX - facing * radius * (0.58f + 0.34f * phase);
+    float backFootY = hipY + radius * (1.02f + 0.10f * counterPhase);
+    float frontLegX[3] = { hipX, frontKneeX, frontFootX };
+    float frontLegY[3] = { hipY, frontKneeY, frontFootY };
+    float backLegX[3] = { hipX, backKneeX, backFootX };
+    float backLegY[3] = { hipY, backKneeY, backFootY };
+    stroke(frontLegX, frontLegY, 3, false, 1.02f);
+    stroke(backLegX, backLegY, 3, false, 0.92f);
+
+    float sashX[2] = { neckX - facing * radius * 0.20f, hipX + facing * radius * 0.25f };
+    float sashY[2] = { neckY + radius * 0.12f, hipY - radius * 0.10f };
+    BgeAppendStrokedPolygon(vertices, vertexCount, maxVertexCount,
+                            sashX, sashY, 2, false, thickness * 0.55f,
+                            (std::min)(1.0f, red + 0.18f), (std::min)(1.0f, green + 0.12f), (std::min)(1.0f, blue + 0.08f), alpha,
+                            targetWidth, targetHeight);
 }

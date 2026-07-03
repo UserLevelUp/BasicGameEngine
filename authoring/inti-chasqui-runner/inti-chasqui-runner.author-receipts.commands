@@ -1,0 +1,16 @@
+bge.event.author.started inti-chasqui-runner
+bge.event.author.group maps
+bge.event.author.bound background maps/machu-picchu.intimap
+bge.event.author.group paths
+bge.event.author.tool 1
+bge.event.author.placed 0.44 0.62 hut-of-the-caretaker
+bge.event.author.placed 0.52 0.40 sun-gate
+bge.event.author.linked hut-of-the-caretaker sun-gate
+bge.event.author.triggered sun-gate photo-claimed open-area-exit
+bge.event.author.group ui
+bge.event.author.tool 0
+bge.event.author.group buttons
+bge.event.author.button.added start-run
+bge.event.author.button.bound start-run inti photo-run maps/machu-picchu.intimap game-loop
+bge.event.author.tested inti-chasqui-runner
+bge.event.author.saved inti-chasqui-runner

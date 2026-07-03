@@ -3,16 +3,19 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <sstream>
 
 namespace {
 constexpr int kBallSegments = 48;
 constexpr int kBackgroundVertexCapacity = 48 * 27 * 6;
+constexpr int kSceneGeometryVertexCapacity = 8192;
 constexpr int kArrowVertexCapacity = 9;
 constexpr int kOverlayTextVertexCapacity = 32000;
 constexpr int kBallVertexCount = kBallSegments * 3 * BGE_OBJECT_SLOT_COUNT;
 constexpr int kRingVertexCount = kBallSegments * 6 * ((BGE_OBJECT_SLOT_COUNT * 2) + 1);
-constexpr int kMaxVertexCount = kBackgroundVertexCapacity + (kBallVertexCount * 2) + kRingVertexCount + kArrowVertexCapacity + kOverlayTextVertexCapacity;
+constexpr int kMaxVertexCount = kBackgroundVertexCapacity + kSceneGeometryVertexCapacity + (kBallVertexCount * 2) + kRingVertexCount + kArrowVertexCapacity + kOverlayTextVertexCapacity;
+constexpr int kMaxSpriteVertexCount = BGE_OBJECT_SLOT_COUNT * 6;
 constexpr float kPi = 3.14159265358979323846f;
 
 const char* kVertexShaderSource = R"(
@@ -44,6 +47,44 @@ float4 PSMain(PSInput input) : SV_TARGET {
     return input.color;
 }
 )";
+
+const char* kSpriteVertexShaderSource = R"(
+struct VSInput {
+    float2 position : POSITION;
+    float2 uv : TEXCOORD0;
+    float4 color : COLOR;
+};
+
+struct PSInput {
+    float4 position : SV_POSITION;
+    float2 uv : TEXCOORD0;
+    float4 color : COLOR;
+};
+
+PSInput VSMain(VSInput input) {
+    PSInput output;
+    output.position = float4(input.position, 0.0f, 1.0f);
+    output.uv = input.uv;
+    output.color = input.color;
+    return output;
+}
+)";
+
+const char* kSpritePixelShaderSource = R"(
+Texture2D spriteTexture : register(t0);
+SamplerState spriteSampler : register(s0);
+
+struct PSInput {
+    float4 position : SV_POSITION;
+    float2 uv : TEXCOORD0;
+    float4 color : COLOR;
+};
+
+float4 PSMain(PSInput input) : SV_TARGET {
+    float4 sampled = spriteTexture.Sample(spriteSampler, input.uv);
+    return sampled * input.color;
+}
+)";
 }
 
 DirectX11BouncingBallRenderer::~DirectX11BouncingBallRenderer()
@@ -71,6 +112,12 @@ bool DirectX11BouncingBallRenderer::Initialize(HWND hWnd)
     if (!CreateVertexBuffer()) {
         return false;
     }
+    if (!CreateSpriteShaders()) {
+        return false;
+    }
+    if (!CreateSpriteVertexBuffer()) {
+        return false;
+    }
 
     initialized_ = true;
     return true;
@@ -84,6 +131,13 @@ void DirectX11BouncingBallRenderer::Shutdown()
     }
 
     vertexBuffer_.Reset();
+    spriteVertexBuffer_.Reset();
+    spriteSamplerState_.Reset();
+    spriteTextureView_.Reset();
+    spriteTexture_.Reset();
+    spriteInputLayout_.Reset();
+    spritePixelShader_.Reset();
+    spriteVertexShader_.Reset();
     inputLayout_.Reset();
     alphaBlendState_.Reset();
     pixelShader_.Reset();
@@ -176,6 +230,15 @@ void DirectX11BouncingBallRenderer::Render()
         vertices[vertexCount++] = vertex;
     }
 
+    // Module-emitted 2D scene geometry (paths, trail dots, etc.).
+    // Drawn after the background mesh and before object slots so the
+    // 10 object slots stay on top. Engine-neutral channel: any module
+    // can paint arbitrary 2D geometry without consuming object slots.
+    for (const auto& vertex : sceneGeometryVertices_) {
+        if (vertexCount >= kMaxVertexCount) break;
+        vertices[vertexCount++] = vertex;
+    }
+
     int ballVertexCount = 0;
     BuildBallVertices(vertices + vertexCount, ballVertexCount);
     vertexCount += ballVertexCount;
@@ -201,6 +264,45 @@ void DirectX11BouncingBallRenderer::Render()
     if (vertexCount > 0) {
         context_->Draw(static_cast<UINT>(vertexCount), 0);
     }
+
+    std::array<SpriteVertex, kMaxSpriteVertexCount> spriteVertices{};
+    int spriteVertexCount = BuildSpriteVertices(spriteVertices.data(), static_cast<int>(spriteVertices.size()));
+    if (spriteVertexCount > 0 && spriteVertexBuffer_ && spriteInputLayout_ && spriteVertexShader_ && spritePixelShader_) {
+        std::wstring spritePath;
+        for (const auto& slot : slots_) {
+            if (slot.visible && !slot.isDeleted && slot.spriteEnabled && !slot.spriteImagePath.empty()) {
+                spritePath = slot.spriteImagePath;
+                break;
+            }
+        }
+
+        if (!spritePath.empty() && EnsureSpriteTextureLoaded(spritePath) && spriteTextureView_) {
+            D3D11_MAPPED_SUBRESOURCE spriteMapped{};
+            hr = context_->Map(spriteVertexBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &spriteMapped);
+            if (SUCCEEDED(hr)) {
+                std::memcpy(spriteMapped.pData, spriteVertices.data(), static_cast<size_t>(spriteVertexCount) * sizeof(SpriteVertex));
+                context_->Unmap(spriteVertexBuffer_.Get(), 0);
+
+                UINT spriteStride = sizeof(SpriteVertex);
+                UINT spriteOffset = 0;
+                ID3D11Buffer* spriteBuffers[] = { spriteVertexBuffer_.Get() };
+                context_->IASetInputLayout(spriteInputLayout_.Get());
+                context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                context_->IASetVertexBuffers(0, 1, spriteBuffers, &spriteStride, &spriteOffset);
+                context_->VSSetShader(spriteVertexShader_.Get(), nullptr, 0);
+                context_->PSSetShader(spritePixelShader_.Get(), nullptr, 0);
+                context_->PSSetShaderResources(0, 1, spriteTextureView_.GetAddressOf());
+                if (spriteSamplerState_) {
+                    context_->PSSetSamplers(0, 1, spriteSamplerState_.GetAddressOf());
+                }
+                context_->Draw(static_cast<UINT>(spriteVertexCount), 0);
+
+                ID3D11ShaderResourceView* nullSrv = nullptr;
+                context_->PSSetShaderResources(0, 1, &nullSrv);
+            }
+        }
+    }
+
     swapChain_->Present(1, 0);
 }
 
@@ -258,6 +360,11 @@ void DirectX11BouncingBallRenderer::SetGhostObjectSlotState(int slotIndex, const
 void DirectX11BouncingBallRenderer::SetSceneOverlayText(const std::vector<BgeSceneOverlayText>& overlays)
 {
     sceneOverlayText_ = overlays;
+}
+
+void DirectX11BouncingBallRenderer::SetSceneGeometry(const std::vector<BgeColorVertex>& vertices)
+{
+    sceneGeometryVertices_ = vertices;
 }
 
 bool DirectX11BouncingBallRenderer::LoadBackgroundImage(const std::wstring& path)
@@ -456,6 +563,214 @@ bool DirectX11BouncingBallRenderer::CreateVertexBuffer()
     }
 
     return true;
+}
+
+bool DirectX11BouncingBallRenderer::CreateSpriteShaders()
+{
+    Microsoft::WRL::ComPtr<ID3DBlob> vertexShaderBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> pixelShaderBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> errors;
+
+    HRESULT hr = D3DCompile(
+        kSpriteVertexShaderSource,
+        strlen(kSpriteVertexShaderSource),
+        nullptr,
+        nullptr,
+        nullptr,
+        "VSMain",
+        "vs_4_0",
+        D3DCOMPILE_ENABLE_STRICTNESS,
+        0,
+        vertexShaderBlob.GetAddressOf(),
+        errors.GetAddressOf());
+    if (FAILED(hr)) {
+        SetError(L"D3DCompile sprite vertex shader", hr);
+        return false;
+    }
+
+    hr = D3DCompile(
+        kSpritePixelShaderSource,
+        strlen(kSpritePixelShaderSource),
+        nullptr,
+        nullptr,
+        nullptr,
+        "PSMain",
+        "ps_4_0",
+        D3DCOMPILE_ENABLE_STRICTNESS,
+        0,
+        pixelShaderBlob.GetAddressOf(),
+        errors.ReleaseAndGetAddressOf());
+    if (FAILED(hr)) {
+        SetError(L"D3DCompile sprite pixel shader", hr);
+        return false;
+    }
+
+    hr = device_->CreateVertexShader(vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize(), nullptr, spriteVertexShader_.GetAddressOf());
+    if (FAILED(hr)) {
+        SetError(L"ID3D11Device::CreateVertexShader sprite", hr);
+        return false;
+    }
+
+    hr = device_->CreatePixelShader(pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize(), nullptr, spritePixelShader_.GetAddressOf());
+    if (FAILED(hr)) {
+        SetError(L"ID3D11Device::CreatePixelShader sprite", hr);
+        return false;
+    }
+
+    D3D11_INPUT_ELEMENT_DESC inputElements[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+
+    hr = device_->CreateInputLayout(
+        inputElements,
+        static_cast<UINT>(std::size(inputElements)),
+        vertexShaderBlob->GetBufferPointer(),
+        vertexShaderBlob->GetBufferSize(),
+        spriteInputLayout_.GetAddressOf());
+    if (FAILED(hr)) {
+        SetError(L"ID3D11Device::CreateInputLayout sprite", hr);
+        return false;
+    }
+
+    D3D11_SAMPLER_DESC samplerDesc{};
+    samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+    samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+    samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+    hr = device_->CreateSamplerState(&samplerDesc, spriteSamplerState_.GetAddressOf());
+    if (FAILED(hr)) {
+        SetError(L"ID3D11Device::CreateSamplerState sprite", hr);
+        return false;
+    }
+
+    return true;
+}
+
+bool DirectX11BouncingBallRenderer::CreateSpriteVertexBuffer()
+{
+    D3D11_BUFFER_DESC bufferDesc{};
+    bufferDesc.ByteWidth = sizeof(SpriteVertex) * kMaxSpriteVertexCount;
+    bufferDesc.Usage = D3D11_USAGE_DYNAMIC;
+    bufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    HRESULT hr = device_->CreateBuffer(&bufferDesc, nullptr, spriteVertexBuffer_.GetAddressOf());
+    if (FAILED(hr)) {
+        SetError(L"ID3D11Device::CreateBuffer sprite", hr);
+        return false;
+    }
+
+    return true;
+}
+
+bool DirectX11BouncingBallRenderer::EnsureSpriteTextureLoaded(const std::wstring& path)
+{
+    if (path.empty()) {
+        return false;
+    }
+    if (spriteTextureView_ && path == spriteTexturePath_) {
+        return true;
+    }
+
+    std::vector<std::uint8_t> pixels;
+    UINT width = 0;
+    UINT height = 0;
+    std::wstring error;
+    if (!LoadImageRgbaPixels(path, pixels, width, height, error)) {
+        lastError_ = L"Sprite texture load failed: " + error;
+        return false;
+    }
+
+    D3D11_TEXTURE2D_DESC textureDesc{};
+    textureDesc.Width = width;
+    textureDesc.Height = height;
+    textureDesc.MipLevels = 1;
+    textureDesc.ArraySize = 1;
+    textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    textureDesc.SampleDesc.Count = 1;
+    textureDesc.Usage = D3D11_USAGE_DEFAULT;
+    textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA initData{};
+    initData.pSysMem = pixels.data();
+    initData.SysMemPitch = width * 4u;
+
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+    HRESULT hr = device_->CreateTexture2D(&textureDesc, &initData, texture.GetAddressOf());
+    if (FAILED(hr)) {
+        SetError(L"ID3D11Device::CreateTexture2D sprite", hr);
+        return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc{};
+    viewDesc.Format = textureDesc.Format;
+    viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    viewDesc.Texture2D.MipLevels = 1;
+
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> textureView;
+    hr = device_->CreateShaderResourceView(texture.Get(), &viewDesc, textureView.GetAddressOf());
+    if (FAILED(hr)) {
+        SetError(L"ID3D11Device::CreateShaderResourceView sprite", hr);
+        return false;
+    }
+
+    spriteTexture_ = texture;
+    spriteTextureView_ = textureView;
+    spriteTexturePath_ = path;
+    spriteTextureWidth_ = width;
+    spriteTextureHeight_ = height;
+    return true;
+}
+
+int DirectX11BouncingBallRenderer::BuildSpriteVertices(SpriteVertex* vertices, int maxVertexCount) const
+{
+    if (!vertices || maxVertexCount < 6) {
+        return 0;
+    }
+
+    UINT width = (std::max)(ClientWidth(), 1u);
+    UINT height = (std::max)(ClientHeight(), 1u);
+    auto toNdcX = [width](float x) {
+        return (x / static_cast<float>(width)) * 2.0f - 1.0f;
+    };
+    auto toNdcY = [height](float y) {
+        return 1.0f - (y / static_cast<float>(height)) * 2.0f;
+    };
+
+    int count = 0;
+    for (const auto& slot : slots_) {
+        if (!slot.visible || slot.isDeleted || !slot.spriteEnabled || slot.spriteImagePath.empty() || slot.colorA <= 0.0f) {
+            continue;
+        }
+        if (count + 6 > maxVertexCount) {
+            break;
+        }
+
+        float halfW = slot.radius * 3.0f;
+        float halfH = slot.radius * 3.0f;
+        float left = slot.x - halfW;
+        float right = slot.x + halfW;
+        float top = slot.y - halfH;
+        float bottom = slot.y + halfH;
+
+        SpriteVertex tl{ toNdcX(left),  toNdcY(top),    slot.spriteU0, slot.spriteV0, slot.colorR, slot.colorG, slot.colorB, slot.colorA };
+        SpriteVertex tr{ toNdcX(right), toNdcY(top),    slot.spriteU1, slot.spriteV0, slot.colorR, slot.colorG, slot.colorB, slot.colorA };
+        SpriteVertex bl{ toNdcX(left),  toNdcY(bottom), slot.spriteU0, slot.spriteV1, slot.colorR, slot.colorG, slot.colorB, slot.colorA };
+        SpriteVertex br{ toNdcX(right), toNdcY(bottom), slot.spriteU1, slot.spriteV1, slot.colorR, slot.colorG, slot.colorB, slot.colorA };
+
+        vertices[count++] = tl;
+        vertices[count++] = bl;
+        vertices[count++] = tr;
+        vertices[count++] = tr;
+        vertices[count++] = bl;
+        vertices[count++] = br;
+    }
+
+    return count;
 }
 
 void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, int& vertexCount) const
@@ -785,6 +1100,14 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
         else if (slot.shape == BgeObjectShape::Ufo) {
             appendUfoSlot(slot, ghost);
         }
+        else if (slot.shape == BgeObjectShape::Runner) {
+            BgeAppendRunnerGlyph(vertices, vertexCount, kMaxVertexCount,
+                                 slot, ghost, static_cast<float>(width), static_cast<float>(height));
+        }
+        else if (slot.shape == BgeObjectShape::Quipu) {
+            BgeAppendQuipuGlyph(vertices, vertexCount, kMaxVertexCount,
+                                slot, ghost, static_cast<float>(width), static_cast<float>(height));
+        }
         else if (slot.shape == BgeObjectShape::VectorShip) {
             appendVectorShipSlot(slot, ghost);
         }
@@ -827,6 +1150,9 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
     }
 
     for (const auto& slot : slots_) {
+        if (slot.shape == BgeObjectShape::Runner) {
+            continue;
+        }
         if (slot.deleteMarked) {
             appendRing(slot, slot.radius + 3.0f, slot.radius + 6.0f, 1.0f, 0.08f, 0.08f);
         }
@@ -837,7 +1163,9 @@ void DirectX11BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
 
     if (objectSelectionActive_ && selectedSlot_ >= 0 && selectedSlot_ < BGE_OBJECT_SLOT_COUNT) {
         const BgeObjectSlotState& selectedSlot = slots_[selectedSlot_];
-        appendRing(selectedSlot, selectedSlot.radius + 8.0f, selectedSlot.radius + 11.0f, 0.25f, 1.0f, 0.45f);
+        if (selectedSlot.shape != BgeObjectShape::Runner) {
+            appendRing(selectedSlot, selectedSlot.radius + 8.0f, selectedSlot.radius + 11.0f, 0.25f, 1.0f, 0.45f);
+        }
     }
 
     if (objectSelectionActive_ && slots_[selectedSlot_].visible && !slots_[selectedSlot_].isDeleted) {

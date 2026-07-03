@@ -1,0 +1,22 @@
+bge-author-envelope-v1
+name=inti-chasqui-runner
+session=inti-chasqui-runner
+group=buttons
+tool=0
+receipt-count=16
+receipt.1=bge.event.author.started inti-chasqui-runner
+receipt.2=bge.event.author.group maps
+receipt.3=bge.event.author.bound background maps/machu-picchu.intimap
+receipt.4=bge.event.author.group paths
+receipt.5=bge.event.author.tool 1
+receipt.6=bge.event.author.placed 0.44 0.62 hut-of-the-caretaker
+receipt.7=bge.event.author.placed 0.52 0.40 sun-gate
+receipt.8=bge.event.author.linked hut-of-the-caretaker sun-gate
+receipt.9=bge.event.author.triggered sun-gate photo-claimed open-area-exit
+receipt.10=bge.event.author.group ui
+receipt.11=bge.event.author.tool 0
+receipt.12=bge.event.author.group buttons
+receipt.13=bge.event.author.button.added start-run
+receipt.14=bge.event.author.button.bound start-run inti photo-run maps/machu-picchu.intimap game-loop
+receipt.15=bge.event.author.tested inti-chasqui-runner
+receipt.16=bge.event.author.saved inti-chasqui-runner

@@ -1,0 +1,29 @@
+# Inti Chasqui runner authoring recipe - Slice A universal author grammar witness.
+# The author commands are the portable envelope; the inti commands are the playable witness.
+plugin import-set inti-chasqui
+author start inti-chasqui-runner
+author group maps
+author bind background maps/machu-picchu.intimap
+author group paths
+author tool 1
+author place 0.44 0.62 hut-of-the-caretaker
+author place 0.52 0.40 sun-gate
+author link hut-of-the-caretaker sun-gate
+author trigger sun-gate photo-claimed open-area-exit
+author group ui
+author tool 0
+inti ui-group dots
+inti ui-candidate 0
+inti ui-lock dots 0
+inti ui-group aim
+inti ui-candidate 1
+inti ui-lock aim 1
+inti ui-group hud
+inti ui-candidate 2
+inti ui-lock hud 2
+author group buttons
+author button add start-run
+author button bind start-run "inti photo-run maps/machu-picchu.intimap" game-loop
+inti photo-run maps/machu-picchu.intimap
+author test
+author save inti-chasqui-runner

@@ -35,7 +35,26 @@ struct BgeGameRuntime {
     void (*invalidateRenderer)() = nullptr;
     void (*setStatus)(const std::wstring& statusText) = nullptr;
     void (*setHud)(const std::wstring& hudText) = nullptr;
+    void (*setTitleScreen)(const std::wstring& text, const std::wstring& subtitle, const std::wstring& legend, const std::wstring& credit, bool blinkPrompt) = nullptr;
+    void (*clearTitleScreen)() = nullptr;
     void (*log)(const std::string& message) = nullptr;
+
+    // Engine-neutral 2D scene-geometry channel: a module may paint
+    // arbitrary triangles (paths, trails, grids, overlays) that render
+    // behind the BGE_OBJECT_SLOT_COUNT object slots. Vertices are in
+    // normalized device coordinates (x,y in [-1,1], y up). Pass an empty
+    // vector to clear. Does NOT consume object slots.
+    void (*setSceneGeometry)(const std::vector<BgeColorVertex>& vertices) = nullptr;
+
+    // Engine-neutral bound on the interactive vector drag (the "pull the
+    // arrow" gesture that sets the selected object's velocity). A module may
+    // cap how hard the arrow can be pulled (maxMagnitude, pixels/sec; <= 0 =
+    // unlimited) and restrict its direction to a cone of angleHalfWidthRadians
+    // around angleCenterRadians (<= 0 = unrestricted). This is a generic
+    // bounded-vector control with no game semantics: a non-game domain could
+    // use it to limit how far any object may be nudged. Defaults leave the
+    // drag unlimited so controller authoring is unchanged.
+    void (*setVectorDragLimit)(float maxMagnitude, float angleCenterRadians, float angleHalfWidthRadians) = nullptr;
 };
 
 class BgeGameModule {
@@ -50,3 +69,4 @@ public:
 };
 
 BgeGameModule& BgeAsteroidGameModule();
+BgeGameModule& BgeIntiGameModule();

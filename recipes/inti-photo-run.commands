@@ -1,0 +1,6 @@
+# Inti photo-run launch recipe — Level 1 data-driven tourist maze witness.
+# Loads the Machu Picchu map from BasicGameEngine/maps/machu-picchu.intimap
+# (or the embedded fallback) and enters the photo-run arcade mode.
+# Drive: WASD / arrows steer the courier, Space = camera snap nearest,
+# M = back to Inti main. Swap the .intimap file to retarget any area.
+inti photo-run

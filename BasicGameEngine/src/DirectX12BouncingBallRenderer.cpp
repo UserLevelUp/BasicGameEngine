@@ -11,11 +11,12 @@
 namespace {
 constexpr int kBallSegments = 48;
 constexpr int kBackgroundVertexCapacity = 48 * 27 * 6;
+constexpr int kSceneGeometryVertexCapacity = 8192;
 constexpr int kArrowVertexCapacity = 9;
 constexpr int kOverlayTextVertexCapacity = 32000;
 constexpr int kBallVertexCount = kBallSegments * 3 * BGE_OBJECT_SLOT_COUNT;
 constexpr int kRingVertexCount = kBallSegments * 6 * ((BGE_OBJECT_SLOT_COUNT * 2) + 1);
-constexpr int kMaxVertexCount = kBackgroundVertexCapacity + (kBallVertexCount * 2) + kRingVertexCount + kArrowVertexCapacity + kOverlayTextVertexCapacity;
+constexpr int kMaxVertexCount = kBackgroundVertexCapacity + kSceneGeometryVertexCapacity + (kBallVertexCount * 2) + kRingVertexCount + kArrowVertexCapacity + kOverlayTextVertexCapacity;
 constexpr float kPi = 3.14159265358979323846f;
 
 const char* kVertexShaderSource = R"(
@@ -176,6 +177,15 @@ void DirectX12BouncingBallRenderer::Render()
         vertices[vertexCount++] = vertex;
     }
 
+    // Module-emitted 2D scene geometry (paths, trail dots, etc.).
+    // Drawn after the background mesh and before object slots so the
+    // 10 object slots stay on top. Engine-neutral channel: any module
+    // can paint arbitrary 2D geometry without consuming object slots.
+    for (const auto& vertex : sceneGeometryVertices_) {
+        if (vertexCount >= kMaxVertexCount) break;
+        vertices[vertexCount++] = vertex;
+    }
+
     int ballVertexCount = 0;
     BuildBallVertices(vertices + vertexCount, ballVertexCount);
     vertexCount += ballVertexCount;
@@ -289,6 +299,11 @@ void DirectX12BouncingBallRenderer::SetGhostObjectSlotState(int slotIndex, const
 void DirectX12BouncingBallRenderer::SetSceneOverlayText(const std::vector<BgeSceneOverlayText>& overlays)
 {
     sceneOverlayText_ = overlays;
+}
+
+void DirectX12BouncingBallRenderer::SetSceneGeometry(const std::vector<BgeColorVertex>& vertices)
+{
+    sceneGeometryVertices_ = vertices;
 }
 
 bool DirectX12BouncingBallRenderer::LoadBackgroundImage(const std::wstring& path)
@@ -887,6 +902,14 @@ void DirectX12BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
         else if (slot.shape == BgeObjectShape::Ufo) {
             appendUfoSlot(slot, ghost);
         }
+        else if (slot.shape == BgeObjectShape::Runner) {
+            BgeAppendRunnerGlyph(vertices, vertexCount, kMaxVertexCount,
+                                 slot, ghost, static_cast<float>(width), static_cast<float>(height));
+        }
+        else if (slot.shape == BgeObjectShape::Quipu) {
+            BgeAppendQuipuGlyph(vertices, vertexCount, kMaxVertexCount,
+                                slot, ghost, static_cast<float>(width), static_cast<float>(height));
+        }
         else if (slot.shape == BgeObjectShape::VectorShip) {
             appendVectorShipSlot(slot, ghost);
         }
@@ -929,6 +952,9 @@ void DirectX12BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
     }
 
     for (const auto& slot : slots_) {
+        if (slot.shape == BgeObjectShape::Runner) {
+            continue;
+        }
         if (slot.deleteMarked) {
             appendRing(slot, slot.radius + 3.0f, slot.radius + 6.0f, 1.0f, 0.08f, 0.08f);
         }
@@ -939,7 +965,9 @@ void DirectX12BouncingBallRenderer::BuildBallVertices(BgeColorVertex* vertices, 
 
     if (objectSelectionActive_ && selectedSlot_ >= 0 && selectedSlot_ < BGE_OBJECT_SLOT_COUNT) {
         const BgeObjectSlotState& selectedSlot = slots_[selectedSlot_];
-        appendRing(selectedSlot, selectedSlot.radius + 8.0f, selectedSlot.radius + 11.0f, 0.25f, 1.0f, 0.45f);
+        if (selectedSlot.shape != BgeObjectShape::Runner) {
+            appendRing(selectedSlot, selectedSlot.radius + 8.0f, selectedSlot.radius + 11.0f, 0.25f, 1.0f, 0.45f);
+        }
     }
 
     if (objectSelectionActive_ && slots_[selectedSlot_].visible && !slots_[selectedSlot_].isDeleted) {

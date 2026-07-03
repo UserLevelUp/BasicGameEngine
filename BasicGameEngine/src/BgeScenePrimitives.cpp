@@ -35,10 +35,12 @@ void AddQuad(std::vector<BgeColorVertex>& vertices, float left, float top, float
 }
 }
 
-bool LoadBackgroundImageMesh(const std::wstring& path, std::vector<BgeColorVertex>& vertices, std::wstring& error)
+bool LoadImageRgbaPixels(const std::wstring& path, std::vector<std::uint8_t>& pixels, unsigned int& width, unsigned int& height, std::wstring& error)
 {
-    vertices.clear();
     error.clear();
+    pixels.clear();
+    width = 0;
+    height = 0;
 
     HRESULT coResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     bool uninitializeCom = SUCCEEDED(coResult);
@@ -71,8 +73,6 @@ bool LoadBackgroundImageMesh(const std::wstring& path, std::vector<BgeColorVerte
         return false;
     }
 
-    UINT width = 0;
-    UINT height = 0;
     result = frame->GetSize(&width, &height);
     if (FAILED(result) || width == 0 || height == 0) {
         SetHresultError(L"IWICBitmapFrameDecode::GetSize", FAILED(result) ? result : E_FAIL, error);
@@ -95,11 +95,26 @@ bool LoadBackgroundImageMesh(const std::wstring& path, std::vector<BgeColorVerte
         return false;
     }
 
-    std::vector<std::uint8_t> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4u);
+    pixels.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 4u);
     result = converter->CopyPixels(nullptr, width * 4u, static_cast<UINT>(pixels.size()), pixels.data());
     if (FAILED(result)) {
         SetHresultError(L"IWICFormatConverter::CopyPixels", result, error);
         if (uninitializeCom) CoUninitialize();
+        return false;
+    }
+
+    if (uninitializeCom) CoUninitialize();
+    return true;
+}
+
+bool LoadBackgroundImageMesh(const std::wstring& path, std::vector<BgeColorVertex>& vertices, std::wstring& error)
+{
+    vertices.clear();
+
+    std::vector<std::uint8_t> pixels;
+    UINT width = 0;
+    UINT height = 0;
+    if (!LoadImageRgbaPixels(path, pixels, width, height, error)) {
         return false;
     }
 
@@ -122,6 +137,5 @@ bool LoadBackgroundImageMesh(const std::wstring& path, std::vector<BgeColorVerte
         }
     }
 
-    if (uninitializeCom) CoUninitialize();
     return true;
 }

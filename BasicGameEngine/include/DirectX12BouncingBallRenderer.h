@@ -28,6 +28,7 @@ public:
     void SetObjectSlotState(int slotIndex, const BgeObjectSlotState& slot);
     void SetGhostObjectSlotState(int slotIndex, const BgeObjectSlotState& slot);
     void SetSceneOverlayText(const std::vector<BgeSceneOverlayText>& overlays);
+    void SetSceneGeometry(const std::vector<BgeColorVertex>& vertices);
     bool LoadBackgroundImage(const std::wstring& path);
 
     bool IsInitialized() const { return initialized_; }
@@ -81,6 +82,7 @@ private:
     std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> slots_{};
     std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> ghostSlots_{};
     std::vector<BgeColorVertex> backgroundVertices_;
+    std::vector<BgeColorVertex> sceneGeometryVertices_;
     std::vector<BgeSceneOverlayText> sceneOverlayText_;
     int selectedSlot_ = 0;
     bool objectSelectionActive_ = true;

@@ -35,12 +35,14 @@
 #include "../include/UserPrivilegeMgr.h"
 
 #include "../../OpNode/OpNode.h"
+#include "../include/BgeHierarchy.h"
 #include "../include/BgeGameModule.h"
 #include "../include/BgeAudioPluginOperation.h"
 #include "../include/BgeBreakableRockFieldPluginOperation.h"
 #include "../include/BgeProjectilePluginOperation.h"
 #include "../include/BgeScenePrimitives.h"
 #include "../include/BgeScoreboardPluginOperation.h"
+#include "../include/BgeSpriteSheetAnimatorPluginOperation.h"
 #include "../include/BgeTitleScreenPluginOperation.h"
 #include "../include/BgeVectorShipPluginOperation.h"
 #include "../include/BasicGameRoleOperation.h"
@@ -138,6 +140,24 @@ constexpr int IDC_BGE_ASTEROID_RESUME = 42934;
 constexpr int IDC_BGE_ASTEROID_TITLE = 42935;
 constexpr int IDC_BGE_ASTEROID_HUD = 42936;
 constexpr int IDC_BGE_ASTEROID_COMMANDS = 42937;
+constexpr int IDC_BGE_OPEN_SPRITE_MANAGER = 42938;
+constexpr int IDC_BGE_SPRITE_MANAGER_STATUS = 42940;
+constexpr int IDC_BGE_SPRITE_MANAGER_LIST = 42941;
+constexpr int IDC_BGE_SPRITE_ID = 42942;
+constexpr int IDC_BGE_SPRITE_IMAGE = 42943;
+constexpr int IDC_BGE_SPRITE_COLUMNS = 42944;
+constexpr int IDC_BGE_SPRITE_ROWS = 42945;
+constexpr int IDC_BGE_SPRITE_FRAME_W = 42946;
+constexpr int IDC_BGE_SPRITE_FRAME_H = 42947;
+constexpr int IDC_BGE_SPRITE_GROUP = 42948;
+constexpr int IDC_BGE_SPRITE_COMBO = 42949;
+constexpr int IDC_BGE_SPRITE_VERSION = 42950;
+constexpr int IDC_BGE_SPRITE_CREATE = 42951;
+constexpr int IDC_BGE_SPRITE_REGISTER = 42952;
+constexpr int IDC_BGE_SPRITE_IMPORT_PLUGIN = 42953;
+constexpr int IDC_BGE_SPRITE_REFRESH = 42954;
+constexpr int IDC_BGE_SPRITE_PERSPECTIVE = 42955;
+constexpr int IDC_BGE_SPRITE_TEMPLATE = 42956;
 constexpr ULONG_PTR BGE_COPYDATA_WORKER_COMMAND = 0xB6E00001;
 constexpr ULONG_PTR BGE_COPYDATA_WORKER_TELEMETRY = 0xB6E00002;
 constexpr int BGE_CONTROLLER_ARTIFACT_COUNT = 6;
@@ -158,6 +178,7 @@ constexpr std::array<const wchar_t*, 5> BGE_EDIT_RATE_LABELS = { L"0.25x", L"0.5
 const wchar_t kBgeHistoryWindowClass[] = L"BasicGameEngineHistoryWindow";
 const wchar_t kBgeMappingWindowClass[] = L"BasicGameEngineMappingWindow";
 const wchar_t kBgeAsteroidAlphaWindowClass[] = L"BasicGameEngineAsteroidAlphaWindow";
+const wchar_t kBgeSpriteManagerWindowClass[] = L"BasicGameEngineSpriteManagerWindow";
 const wchar_t kBgeEmbeddedGameScriptResourceName[] = L"BGE_GAME_SCRIPT";
 const wchar_t kBgeEmbeddedFeatureLedgerResourceName[] = L"BGE_FEATURE_LEDGER";
 
@@ -212,15 +233,6 @@ struct BgeControllerArtifactSpec {
     bool visualByDefault;
 };
 
-struct BgePluginDescriptor {
-    const wchar_t* id;
-    const wchar_t* kind;
-    const wchar_t* summary;
-    const wchar_t* command;
-    const wchar_t* flags;
-    const wchar_t* emits;
-};
-
 struct BgeTitleScreenState {
     bool visible = false;
     std::wstring text = L"ASTEROIDS";
@@ -234,6 +246,12 @@ struct BgeTitleScreenState {
     bool showLegend = true;
     bool showCredit = true;
     bool blinkPrompt = true;
+};
+
+enum class BgeActiveGameModule : int {
+    None = 0,
+    Asteroid = 1,
+    Inti = 2,
 };
 
 struct BgeCounterState {
@@ -255,6 +273,69 @@ struct BgeScoreboardState {
     std::wstring color = L"vector-white";
     std::wstring iconRow;
     float scale = 2.0f;
+};
+
+struct BgeSpriteSheetState {
+    std::wstring id;
+    std::wstring imagePath;
+    int columns = 1;
+    int rows = 1;
+    int frameWidth = 128;
+    int frameHeight = 128;
+    int totalFrames = 1;
+    bool preserveAlpha = true;
+    bool premultipliedAlpha = false;
+    bool transparentBackground = true;
+    float alphaCutoff = 0.0f;
+};
+
+struct BgeSpriteSheetCatalogEntry {
+    std::wstring sheetId;
+    std::wstring groupName;
+    std::wstring comboName;
+    int version = 1;
+    std::wstring perspective = L"side";
+};
+
+struct BgeAnimationSequenceState {
+    std::wstring id;
+    std::wstring sheetId;
+    std::vector<int> frames;
+    float fps = 8.0f;
+    bool loop = false;
+};
+
+struct BgeTierSequenceBinding {
+    int tier = 0;
+    std::wstring sequenceId;
+};
+
+struct BgeActorAnimationBindingState {
+    std::wstring actorId;
+    std::wstring tierCounter;
+    std::vector<BgeTierSequenceBinding> tierMap;
+    std::wstring currentSequenceId;
+    int currentTier = 0;
+    int frameCursor = 0;
+    float frameAccumulatorSeconds = 0.0f;
+    int currentFrameIndex = 0;
+    int groupsTotal = 1;
+    int groupIndex = 0;
+    int groupLocalIndex = 0;
+    int globalFrameIndex = 0;
+    bool redlineEnabled = false;
+    std::wstring redlineShow;
+    std::wstring redlineColor = L"red";
+    std::vector<std::wstring> replayTrace;
+};
+
+struct BgeSpriteSheetAnimatorState {
+    bool active = false;
+    std::vector<BgeSpriteSheetState> sheets;
+    std::vector<BgeAnimationSequenceState> sequences;
+    std::vector<BgeActorAnimationBindingState> actorBindings;
+    std::vector<BgeSpriteSheetCatalogEntry> catalogEntries;
+    uint64_t replayTraceStep = 0;
 };
 
 struct BgeProjectileDefinition {
@@ -342,17 +423,6 @@ const std::array<BgeControllerArtifactSpec, BGE_CONTROLLER_ARTIFACT_COUNT> kCont
     { L"Audio", L"Sound", L"bge.sound", L"sound slots and playback", false },
 }};
 
-const std::array<BgePluginDescriptor, 8> kBgePluginRegistry = {{
-    { L"bge.2d.arcade", L"capability", L"2D arcade viewport, counters, overlays, replay, and executable export command grammar", L"game define | viewport fit-host | counter define | export enable | export executable | inspect commands", L"--design-size --wrap-x --wrap-y --background --formats --target --name --include", L"bge.event.game.defined bge.event.scene.configured bge.event.replay.surface.enabled bge.event.export.requested" },
-    { L"bge.piece.vector-ship", L"piece", L"Reusable vector player ship with input, firing, respawn, and hyperspace signature", L"player-ship create", L"--id --shape --lives --input-profile --fire --hyperspace --respawn --invulnerable", L"bge.event.entity.spawned bge.event.input.bound bge.event.player.respawned" },
-    { L"bge.piece.breakable-rock-field", L"piece", L"Reusable breakable rock field with split, scoring, wave, and avoid-zone signature", L"rock-field create", L"--sizes --count --split --score --speed-range --wave-counter --avoid", L"bge.event.entity.spawned bge.event.rule.defined bge.event.counter.changed" },
-    { L"bge.piece.projectile", L"piece", L"Reusable projectile with owner, speed, lifetime, wrap, and collision tag signature", L"projectile create", L"--id --owner --shape --speed --ttl --wrap --collision-tag", L"bge.event.entity.grammar.extended bge.event.entity.lifecycle.changed" },
-    { L"bge.piece.ufo", L"piece", L"Reusable UFO enemy with score, weapon, arrival, aim, and edge-spawn signature", L"ufo create", L"--id --score --weapon --arrival --aim --edge-spawn", L"bge.event.entity.spawned bge.event.rule.fired bge.event.counter.changed" },
-    { L"bge.piece.scoreboard", L"piece", L"Reusable vector scoreboard and HUD line bound to counters", L"scoreboard create", L"--counters --anchor --format --font --color --icon-row --scale", L"bge.event.overlay.defined bge.event.counter.observed" },
-    { L"bge.piece.title-screen", L"piece", L"Reusable vector-arcade title screen with score legend, credit line, blinking prompt, and start command binding", L"title-screen create", L"--text --subtitle --start --next --font --center --legend --credit --blink", L"bge.event.screen.defined bge.event.command.bound bge.event.overlay.defined" },
-    { L"bge.piece.audio", L"piece", L"Engine-neutral audio piece with synthesized-tone WAV playback via winmm; any domain (game, business-rules, DICOM alert) can consume it", L"sound define | sound play", L"--id --kind --freq --duration --volume", L"bge.event.sound.defined bge.event.sound.played" },
-}};
-
 const std::array<const wchar_t*, 8> kBgeAsteroidsPluginSet = {{
     L"bge.2d.arcade",
     L"bge.piece.vector-ship",
@@ -361,6 +431,14 @@ const std::array<const wchar_t*, 8> kBgeAsteroidsPluginSet = {{
     L"bge.piece.ufo",
     L"bge.piece.scoreboard",
     L"bge.piece.title-screen",
+    L"bge.piece.audio",
+}};
+
+const std::array<const wchar_t*, 5> kBgeIntiChasquiPluginSet = {{
+    L"bge.2d.arcade",
+    L"bge.piece.title-screen",
+    L"bge.piece.scoreboard",
+    L"bge.piece.sprite-sheet-animator",
     L"bge.piece.audio",
 }};
 
@@ -386,6 +464,10 @@ SharedMemoryData* g_sharedData = nullptr;
 DWORD64 g_lastHeartbeatTick = 0;
 std::unique_ptr<DirectX11BouncingBallRenderer> g_directX11Renderer;
 std::unique_ptr<DirectX12BouncingBallRenderer> g_directX12Renderer;
+// Module-emitted 2D scene geometry (paths, trail dots, etc.), guarded by
+// its own mutex because modules push it while holding ballConfigMutex.
+std::vector<BgeColorVertex> g_sceneGeometry;
+std::mutex g_sceneGeometryMutex;
 std::atomic<BgeRendererApi> g_rendererApi = BgeRendererApi::DirectX11;
 bool g_ballAdded = false;
 bool g_ballAnimationRunning = false;
@@ -394,6 +476,17 @@ bool g_rendererSwitchRequested = false;
 bool g_rendererResizeRequested = false;
 bool g_backgroundImageDirty = false;
 bool g_draggingVectorTip = false;
+// Engine-neutral bound on the interactive vector drag (the "pull the arrow"
+// gesture). A game module may cap how hard (magnitude) and how wide (an angle
+// cone around a center heading) the selected object's velocity may be pulled.
+// Defaults are unlimited so controller authoring is unchanged. Lock-free
+// atomics so a module can set them from inside its own object-mutex scope
+// without risking a deadlock against ballConfigMutex. No domain semantics: a
+// plain bounded-vector control.
+std::atomic<float> g_vectorDragMaxMagnitude{0.0f};      // <= 0 => no magnitude cap
+std::atomic<float> g_vectorDragAngleCenter{0.0f};       // radians, screen space
+std::atomic<float> g_vectorDragAngleHalfWidth{0.0f};    // <= 0 => no angle cap
+std::atomic<bool> g_vectorDragConeActive{false};
 float g_ballVelocityX = 180.0f;
 float g_ballVelocityY = 135.0f;
 float g_ballColorR = 0.96f;
@@ -415,8 +508,10 @@ int g_mainPlayerSlot = -1;
 std::vector<BgeDeleteHistoryEntry> g_deleteHistory;
 bool g_titleScreenActive = false;
 BgeTitleScreenState g_titleScreenState;
+BgeActiveGameModule g_activeGameModule = BgeActiveGameModule::None;
 bool g_scoreboardActive = false;
 BgeScoreboardState g_scoreboardState;
+BgeSpriteSheetAnimatorState g_spriteSheetAnimatorState;
 std::vector<BgeCounterState> g_bgeCounters;
 bool g_breakableRockFieldActive = false;
 BgeBreakableRockFieldState g_breakableRockFieldState;
@@ -450,6 +545,7 @@ HWND g_asteroidHudButton = nullptr;
 HWND g_asteroidCommandsButton = nullptr;
 HWND g_loadBackgroundButton = nullptr;
 HWND g_openMappingButton = nullptr;
+HWND g_openSpriteManagerButton = nullptr;
 HWND g_editModeStatus = nullptr;
 HWND g_velocityXEdit = nullptr;
 HWND g_velocityYEdit = nullptr;
@@ -483,6 +579,24 @@ HWND g_asteroidAEdit = nullptr;
 HWND g_asteroidApplyRgbaButton = nullptr;
 HWND g_asteroidApplyShapeButton = nullptr;
 HWND g_asteroidStatus = nullptr;
+HWND g_spriteManagerWindow = nullptr;
+HWND g_spriteManagerStatus = nullptr;
+HWND g_spriteManagerList = nullptr;
+HWND g_spriteIdEdit = nullptr;
+HWND g_spriteImageEdit = nullptr;
+HWND g_spriteColumnsEdit = nullptr;
+HWND g_spriteRowsEdit = nullptr;
+HWND g_spriteFrameWEdit = nullptr;
+HWND g_spriteFrameHEdit = nullptr;
+HWND g_spriteGroupEdit = nullptr;
+HWND g_spriteComboEdit = nullptr;
+HWND g_spriteVersionEdit = nullptr;
+HWND g_spritePerspectiveEdit = nullptr;
+HWND g_spriteCreateButton = nullptr;
+HWND g_spriteRegisterButton = nullptr;
+HWND g_spriteImportPluginButton = nullptr;
+HWND g_spriteRefreshButton = nullptr;
+HWND g_spriteTemplateButton = nullptr;
 std::array<HWND, BGE_CONTROLLER_ARTIFACT_COUNT> g_controllerTargetButtons{};
 std::array<HWND, BGE_CONTROLLER_ARTIFACT_COUNT> g_controllerStatusLabels{};
 std::array<HWND, BGE_CONTROLLER_ARTIFACT_COUNT> g_controllerLaunchButtons{};
@@ -500,6 +614,11 @@ std::vector<std::wstring> g_controllerHistory;
 std::vector<std::wstring> g_controllerHistoryDetails;
 std::vector<std::wstring> g_workerCommandHistory;
 std::vector<std::wstring> g_importedBgePlugins;
+bool g_authorSessionActive = false;
+std::wstring g_authorSessionName;
+std::wstring g_authorActiveGroup = L"objects";
+int g_authorToolCandidate = 0;
+std::vector<std::wstring> g_authorReceiptLog;
 BgeEditMode g_editMode = BgeEditMode::Translate;
 int g_editRateIndex = BGE_EDIT_RATE_DEFAULT_INDEX;
 
@@ -516,6 +635,7 @@ LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    HistoryWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    MappingWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    AsteroidAlphaWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    SpriteManagerWndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 void GameLoop();               // Game loop function
 void LoadConfig();             // Pass A: read bge.toml from the exe directory
@@ -573,13 +693,27 @@ void LoadBackgroundOnActiveRenderer(const std::wstring& path);
 void ProcessPendingRendererCommands();
 void ShowAsteroidAlphaWindow();
 void RefreshAsteroidAlphaWindow();
+void ShowSpriteSheetManagerWindow();
+bool RegisterSpriteSheetManagerWindowClass();
+void CreateSpriteSheetManagerWindowControls(HWND hWnd);
+void LayoutSpriteSheetManagerWindow(HWND hWnd);
+void RefreshSpriteSheetManagerWindow();
+void ApplySpriteSheetFromManagerControls();
+void RegisterSpriteSheetCatalogFromManagerControls();
+void GenerateSpriteTemplateFromManagerControls();
+bool WriteStickFigureTemplateBmp(const std::wstring& path, int frameWidth, int frameHeight, int columns, int rows, const std::wstring& perspective);
 BgeGameViewport CurrentGameViewport();
 BgeGameRuntime CreateGameRuntime();
+void ActivateExclusiveGameModule(BgeActiveGameModule module, bool preserveTitleScreen);
+BgeActiveGameModule CurrentActiveGameModule();
 bool ExecuteAsteroidGameModuleCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteIntiGameModuleCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool StartAsteroidGameMode(std::wstring& statusText);
+bool StartIntiGameMode(std::wstring& statusText);
 bool HandleAsteroidGameKeyDown(WPARAM key);
+bool HandleIntiGameKeyDown(WPARAM key);
 bool TickAsteroidGameMode(double deltaMilliseconds);
-void AddBgePluginRegistryAttributesToOpNode(const std::shared_ptr<OpNode>& root);
+bool TickIntiGameMode(double deltaMilliseconds);
 bool BgePluginAlreadyImported(const std::wstring& pluginId);
 bool ExecuteBgePluginCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeInspectCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
@@ -591,6 +725,17 @@ bool ExecuteBgeProjectileCommand(const std::vector<std::wstring>& tokens, std::w
 bool ExecuteBgeUfoCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeVectorShipCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeSoundCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeSpriteSheetCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeAnimationSequenceCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeActorAnimationCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool TryParseIntPairArg(const std::wstring& text, int& first, int& second);
+BgeSpriteSheetState* FindSpriteSheetMutable(const std::wstring& id);
+BgeAnimationSequenceState* FindAnimationSequenceMutable(const std::wstring& id);
+BgeActorAnimationBindingState* FindActorAnimationBindingMutable(const std::wstring& actorId);
+void AppendSpriteReplayDeterminismTraceLocked(BgeActorAnimationBindingState& binding, const std::wstring& eventKind);
+std::wstring SpriteReplayDeterminismProofSummaryLocked(const BgeActorAnimationBindingState& binding);
+std::wstring BuildSpriteReplayDeterminismProofText();
 bool HandleBgeVectorShipKeyDown(WPARAM key);
 bool HandleBgeVectorShipKeyUp(WPARAM key);
 void ClearBgeVectorShipInputState();
@@ -602,6 +747,7 @@ bool HandleBgeTrialDigitKeyDown(WPARAM key);
 bool TickBgeProjectiles(double deltaMilliseconds);
 bool TickBgeUfo(double deltaMilliseconds);
 bool TickBgeVectorShip(double deltaMilliseconds);
+bool TickBgeSpriteSheetAnimator(double deltaMilliseconds);
 bool VectorShipPlayerAliveLocked();
 void ResolveBgeShipRockCollisionsLocked();
 void RespawnVectorShipLocked();
@@ -629,6 +775,7 @@ void ExecuteAsteroidCommandFromControls(const wchar_t* commandText);
 void SelectSoundSlotFromControls(int slotIndex);
 void AdvanceSoundSlotLoop();
 std::vector<std::wstring> TokenizeCommandText(const std::wstring& commandText);
+std::wstring JoinCommandTokens(const std::vector<std::wstring>& tokens, size_t firstIndex);
 void ExecuteCommandBarInput();
 bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusText);
 bool ExecuteControllerCommandText(const std::wstring& commandText, std::wstring& statusText);
@@ -671,6 +818,8 @@ bool TryStartVectorDrag(int x, int y);
 bool TrySelectObjectAtPoint(int x, int y);
 void UpdateVectorDrag(int x, int y);
 void EndVectorDrag();
+void SetVectorDragLimit(float maxMagnitude, float angleCenterRadians, float angleHalfWidthRadians);
+void ClampVectorDragLocked(float& velocityX, float& velocityY);
 int ObjectSlotIndexFromNumberKey(WPARAM key);
 bool SelectObjectSlotFromKeyboard(int slotIndex);
 bool FocusObjectGroupsFromKeyboard();
@@ -689,10 +838,13 @@ std::wstring EditRateLabel();
 void AdjustEditRate(int direction);
 bool SetEditRateFromText(const std::wstring& rateText);
 std::wstring TrimText(const std::wstring& value);
+std::wstring SanitizeFileToken(const std::wstring& value);
 std::string Narrow(const std::wstring& value);
 std::wstring WidenUtf8(const std::string& value);
 std::wstring QuoteArg(const std::wstring& value);
 std::wstring CommandFileArg(const std::wstring& value);
+std::wstring SafeExportFileStem(std::wstring value);
+bool WriteUtf8TextFile(const std::filesystem::path& path, const std::wstring& text, std::wstring& errorText);
 bool LoadConstructionArtifactCommands(const std::wstring& path, std::vector<std::wstring>& commands, std::wstring& errorText);
 bool ExtractLineConstructionCommands(const std::wstring& text, std::vector<std::wstring>& commands);
 bool ExtractJsonConstructionCommands(const std::wstring& text, std::vector<std::wstring>& commands, std::wstring& errorText);
@@ -719,7 +871,6 @@ void LoadAsteroidGameFromController();
 void ProcessControllerUiAutomation();
 void AddControllerMenu(HWND hWnd);
 void UpdateRoleWindowTitle(HWND hWnd);
-void BootstrapRoleOpNode();
 void LaunchWorkerRole(const std::wstring& role);
 void LaunchBasicGameStack();
 bool EnsureCoordMutex();
@@ -1460,6 +1611,76 @@ void SetGameHudStatus(const std::wstring& hudText)
     }
 }
 
+void SetGameTitleScreen(const std::wstring& text, const std::wstring& subtitle, const std::wstring& legend, const std::wstring& credit, bool blinkPrompt)
+{
+    BgeTitleScreenState titleScreen;
+    titleScreen.visible = true;
+    titleScreen.text = text;
+    titleScreen.subtitle = subtitle;
+    titleScreen.legend = legend;
+    titleScreen.credit = credit;
+    titleScreen.showLegend = !legend.empty();
+    titleScreen.showCredit = !credit.empty();
+    titleScreen.blinkPrompt = blinkPrompt;
+    titleScreen.centered = true;
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        g_titleScreenState = titleScreen;
+        g_titleScreenActive = true;
+        g_rendererStateDirty = true;
+    }
+    InvalidateGameRenderer();
+}
+
+void ClearGameTitleScreen()
+{
+    bool dirty = false;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        dirty = g_titleScreenActive || g_titleScreenState.visible;
+        g_titleScreenActive = false;
+        g_titleScreenState.visible = false;
+        g_rendererStateDirty = true;
+    }
+    if (dirty) {
+        InvalidateGameRenderer();
+    }
+}
+
+void ActivateExclusiveGameModule(BgeActiveGameModule module, bool preserveTitleScreen)
+{
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        g_activeGameModule = module;
+        if (module != BgeActiveGameModule::None) {
+            g_vectorShipInputState = BgeVectorShipInputState{};
+            g_vectorShipActive = false;
+            g_ufoActive = false;
+            g_breakableRockFieldActive = false;
+            g_scoreboardActive = false;
+            if (!preserveTitleScreen) {
+                g_titleScreenActive = false;
+                g_titleScreenState.visible = false;
+            }
+        }
+        g_rendererStateDirty = true;
+    }
+    InvalidateGameRenderer();
+}
+
+BgeActiveGameModule CurrentActiveGameModule()
+{
+    std::lock_guard<std::mutex> lock(ballConfigMutex);
+    return g_activeGameModule;
+}
+
+void SetGameSceneGeometry(const std::vector<BgeColorVertex>& vertices)
+{
+    std::lock_guard<std::mutex> lock(g_sceneGeometryMutex);
+    g_sceneGeometry = vertices;
+}
+
 BgeGameRuntime CreateGameRuntime()
 {
     BgeGameRuntime runtime;
@@ -1481,20 +1702,54 @@ BgeGameRuntime CreateGameRuntime()
     runtime.invalidateRenderer = InvalidateGameRenderer;
     runtime.setStatus = SetCommandStatus;
     runtime.setHud = SetGameHudStatus;
+    runtime.setTitleScreen = SetGameTitleScreen;
+    runtime.clearTitleScreen = ClearGameTitleScreen;
     runtime.log = LogRendererMessage;
+    runtime.setSceneGeometry = SetGameSceneGeometry;
+    runtime.setVectorDragLimit = SetVectorDragLimit;
     return runtime;
 }
 
 bool ExecuteAsteroidGameModuleCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
 {
     BgeGameRuntime runtime = CreateGameRuntime();
-    return BgeAsteroidGameModule().OnCommand(runtime, tokens, statusText);
+    bool ok = BgeAsteroidGameModule().OnCommand(runtime, tokens, statusText);
+    if (ok) {
+        ActivateExclusiveGameModule(BgeActiveGameModule::Asteroid, false);
+    }
+    return ok;
+}
+
+bool ExecuteIntiGameModuleCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    BgeGameRuntime runtime = CreateGameRuntime();
+    bool ok = BgeIntiGameModule().OnCommand(runtime, tokens, statusText);
+    if (ok) {
+        ActivateExclusiveGameModule(BgeActiveGameModule::Inti, true);
+    }
+    return ok;
 }
 
 bool StartAsteroidGameMode(std::wstring& statusText)
 {
+    ActivateExclusiveGameModule(BgeActiveGameModule::Asteroid, false);
     BgeGameRuntime runtime = CreateGameRuntime();
-    return BgeAsteroidGameModule().OnStart(runtime, statusText);
+    bool ok = BgeAsteroidGameModule().OnStart(runtime, statusText);
+    if (!ok) {
+        ActivateExclusiveGameModule(BgeActiveGameModule::None, true);
+    }
+    return ok;
+}
+
+bool StartIntiGameMode(std::wstring& statusText)
+{
+    ActivateExclusiveGameModule(BgeActiveGameModule::Inti, false);
+    BgeGameRuntime runtime = CreateGameRuntime();
+    bool ok = BgeIntiGameModule().OnStart(runtime, statusText);
+    if (!ok) {
+        ActivateExclusiveGameModule(BgeActiveGameModule::None, true);
+    }
+    return ok;
 }
 
 bool HandleAsteroidGameKeyDown(WPARAM key)
@@ -1503,10 +1758,22 @@ bool HandleAsteroidGameKeyDown(WPARAM key)
     return BgeAsteroidGameModule().OnKeyDown(runtime, static_cast<unsigned int>(key));
 }
 
+bool HandleIntiGameKeyDown(WPARAM key)
+{
+    BgeGameRuntime runtime = CreateGameRuntime();
+    return BgeIntiGameModule().OnKeyDown(runtime, static_cast<unsigned int>(key));
+}
+
 bool TickAsteroidGameMode(double deltaMilliseconds)
 {
     BgeGameRuntime runtime = CreateGameRuntime();
     return BgeAsteroidGameModule().OnTick(runtime, deltaMilliseconds);
+}
+
+bool TickIntiGameMode(double deltaMilliseconds)
+{
+    BgeGameRuntime runtime = CreateGameRuntime();
+    return BgeIntiGameModule().OnTick(runtime, deltaMilliseconds);
 }
 
 bool TryGetCommandOptionValue(const std::vector<std::wstring>& tokens, const std::wstring& optionName, std::wstring& value)
@@ -1745,6 +2012,140 @@ std::vector<std::wstring> SplitBgeListText(std::wstring text)
         }
     }
     return values;
+}
+
+bool TryParseIntPairArg(const std::wstring& text, int& first, int& second)
+{
+    size_t separator = text.find(L'x');
+    if (separator == std::wstring::npos) {
+        separator = text.find(L'X');
+    }
+    if (separator == std::wstring::npos) {
+        separator = text.find(L',');
+    }
+    if (separator == std::wstring::npos) {
+        return false;
+    }
+
+    std::wstring left = TrimText(text.substr(0, separator));
+    std::wstring right = TrimText(text.substr(separator + 1));
+    if (!TryParseIntArg(left, first) || !TryParseIntArg(right, second)) {
+        return false;
+    }
+
+    return first > 0 && second > 0;
+}
+
+BgeSpriteSheetState* FindSpriteSheetMutable(const std::wstring& id)
+{
+    std::wstring requested = LowerArg(id);
+    for (auto& sheet : g_spriteSheetAnimatorState.sheets) {
+        if (LowerArg(sheet.id) == requested) {
+            return &sheet;
+        }
+    }
+    return nullptr;
+}
+
+BgeAnimationSequenceState* FindAnimationSequenceMutable(const std::wstring& id)
+{
+    std::wstring requested = LowerArg(id);
+    for (auto& sequence : g_spriteSheetAnimatorState.sequences) {
+        if (LowerArg(sequence.id) == requested) {
+            return &sequence;
+        }
+    }
+    return nullptr;
+}
+
+BgeActorAnimationBindingState* FindActorAnimationBindingMutable(const std::wstring& actorId)
+{
+    std::wstring requested = LowerArg(actorId);
+    for (auto& binding : g_spriteSheetAnimatorState.actorBindings) {
+        if (LowerArg(binding.actorId) == requested) {
+            return &binding;
+        }
+    }
+    return nullptr;
+}
+
+void AppendSpriteReplayDeterminismTraceLocked(BgeActorAnimationBindingState& binding, const std::wstring& eventKind)
+{
+    ++g_spriteSheetAnimatorState.replayTraceStep;
+    std::wstring entry = L"step=" + std::to_wstring(g_spriteSheetAnimatorState.replayTraceStep)
+        + L" actor=" + binding.actorId
+        + L" event=" + eventKind
+        + L" tier=" + std::to_wstring(binding.currentTier)
+        + L" sequence=" + (binding.currentSequenceId.empty() ? L"(none)" : binding.currentSequenceId)
+        + L" frame=" + std::to_wstring(binding.currentFrameIndex)
+        + L" group=" + std::to_wstring(binding.groupIndex) + L"/" + std::to_wstring(binding.groupsTotal)
+        + L" global=" + std::to_wstring(binding.globalFrameIndex);
+    binding.replayTrace.push_back(entry);
+    constexpr size_t kReplayTraceLimit = 64;
+    if (binding.replayTrace.size() > kReplayTraceLimit) {
+        binding.replayTrace.erase(binding.replayTrace.begin());
+    }
+}
+
+std::wstring SpriteReplayDeterminismProofSummaryLocked(const BgeActorAnimationBindingState& binding)
+{
+    std::wstring summary = L"sprite replay determinism proof: trace=" + std::to_wstring(binding.replayTrace.size());
+    if (!binding.replayTrace.empty()) {
+        summary += L" last={" + binding.replayTrace.back() + L"}";
+    }
+    else {
+        summary += L" last={(none)}";
+    }
+    return summary;
+}
+
+uint64_t SpriteReplayDigest(const std::wstring& text)
+{
+    uint64_t digest = 1469598103934665603ull;
+    for (wchar_t ch : text) {
+        digest ^= static_cast<uint64_t>(ch);
+        digest *= 1099511628211ull;
+    }
+    return digest;
+}
+
+std::wstring BuildSpriteReplayDeterminismProofText()
+{
+    std::vector<BgeActorAnimationBindingState> bindings;
+    uint64_t replayStep = 0;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        bindings = g_spriteSheetAnimatorState.actorBindings;
+        replayStep = g_spriteSheetAnimatorState.replayTraceStep;
+    }
+
+    std::sort(bindings.begin(), bindings.end(), [](const BgeActorAnimationBindingState& left, const BgeActorAnimationBindingState& right) {
+        return LowerArg(left.actorId) < LowerArg(right.actorId);
+    });
+
+    std::wstring text = L"sprite replay determinism proof\r\n";
+    text += L"policy=same recipe should yield same sequence-selection/page-change trace\r\n";
+    text += L"replay-step=" + std::to_wstring(replayStep) + L"\r\n";
+    text += L"actor-count=" + std::to_wstring(bindings.size()) + L"\r\n";
+
+    for (size_t index = 0; index < bindings.size(); ++index) {
+        const auto& binding = bindings[index];
+        text += L"actor." + std::to_wstring(index + 1) + L".id=" + binding.actorId + L"\r\n";
+        text += L"actor." + std::to_wstring(index + 1) + L".sequence=" + (binding.currentSequenceId.empty() ? L"(none)" : binding.currentSequenceId) + L"\r\n";
+        text += L"actor." + std::to_wstring(index + 1) + L".trace-count=" + std::to_wstring(binding.replayTrace.size()) + L"\r\n";
+        if (binding.replayTrace.empty()) {
+            text += L"actor." + std::to_wstring(index + 1) + L".trace.0=(none)\r\n";
+        }
+        else {
+            for (size_t traceIndex = 0; traceIndex < binding.replayTrace.size(); ++traceIndex) {
+                text += L"actor." + std::to_wstring(index + 1) + L".trace." + std::to_wstring(traceIndex + 1) + L"=" + binding.replayTrace[traceIndex] + L"\r\n";
+            }
+        }
+    }
+
+    uint64_t digest = SpriteReplayDigest(text);
+    text += L"trace-digest=" + std::to_wstring(digest) + L"\r\n";
+    return text;
 }
 
 BgeCounterState* FindBgeCounterMutable(const std::wstring& name)
@@ -3218,6 +3619,492 @@ bool ExecuteBgeSoundCommand(const std::vector<std::wstring>& tokens, std::wstrin
     return true;
 }
 
+bool ExecuteBgeSpriteSheetCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"sprite-sheet commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"window" || subcommand == L"manager") {
+        ShowSpriteSheetManagerWindow();
+        statusText = L"Sprite Manager window open";
+        return true;
+    }
+    if (subcommand == L"template") {
+        std::wstring value;
+        std::wstring templateName = L"stick-figure";
+        std::wstring sheetId = L"stick_template";
+        std::wstring perspective = L"side";
+        int columns = 8;
+        int rows = 1;
+        int frameW = 128;
+        int frameH = 128;
+
+        if (TryGetCommandOptionValue(tokens, L"--name", value)) {
+            templateName = LowerArg(value);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--id", value)) {
+            sheetId = NormalizeTitleScreenText(value);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--perspective", value)) {
+            perspective = NormalizeTitleScreenText(value);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--columns", value)) {
+            TryParseIntArg(value, columns);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--rows", value)) {
+            TryParseIntArg(value, rows);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--frame-size", value)) {
+            TryParseIntPairArg(value, frameW, frameH);
+        }
+
+        if (templateName != L"stick-figure" && templateName != L"stick" && templateName != L"runner-stick") {
+            statusText = L"sprite-sheet template: only stick-figure is supported currently";
+            return false;
+        }
+        if (sheetId.empty()) {
+            sheetId = L"stick_template";
+        }
+        if (perspective.empty()) {
+            perspective = L"side";
+        }
+
+        std::filesystem::path outputDir = std::filesystem::current_path() / "exports" / "sprites" / "templates";
+        std::error_code ec;
+        std::filesystem::create_directories(outputDir, ec);
+        std::wstring fileSheetId = SanitizeFileToken(sheetId);
+        std::wstring filePerspective = SanitizeFileToken(perspective);
+        std::filesystem::path outputPath = outputDir / (Narrow(fileSheetId) + "." + Narrow(filePerspective) + ".stick-template.bmp");
+        if (!WriteStickFigureTemplateBmp(outputPath.wstring(), frameW, frameH, columns, rows, perspective)) {
+            statusText = L"sprite-sheet template: failed to write template image";
+            return false;
+        }
+
+        statusText = L"Sprite template ready: " + outputPath.wstring() + L" (draw over image, then use sprite-sheet create --image <path>)";
+        return true;
+    }
+    if (subcommand == L"catalog") {
+        std::wstring action = tokens.size() >= 3 ? LowerArg(tokens[2]) : L"list";
+        if (action == L"list" || action == L"status") {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            statusText = L"Sprite catalog entries: " + std::to_wstring(static_cast<int>(g_spriteSheetAnimatorState.catalogEntries.size()));
+            return true;
+        }
+        if (action != L"add" && action != L"set" && action != L"register") {
+            statusText = L"Use: sprite-sheet catalog add --sheet <id> --group <name> --combo <name> --version <n>";
+            return false;
+        }
+
+        std::wstring sheetId;
+        std::wstring groupName = L"default";
+        std::wstring comboName = L"base";
+        std::wstring perspective = L"side";
+        std::wstring value;
+        int version = 1;
+        if (TryGetCommandOptionValue(tokens, L"--sheet", value) || TryGetCommandOptionValue(tokens, L"--id", value)) {
+            sheetId = NormalizeTitleScreenText(value);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--group", value)) {
+            groupName = NormalizeTitleScreenText(value);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--combo", value) || TryGetCommandOptionValue(tokens, L"--combination", value)) {
+            comboName = NormalizeTitleScreenText(value);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--version", value)) {
+            TryParseIntArg(value, version);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--perspective", value)) {
+            perspective = NormalizeTitleScreenText(value);
+        }
+        version = (std::max)(1, version);
+        if (sheetId.empty()) {
+            statusText = L"sprite-sheet catalog add: --sheet required";
+            return false;
+        }
+        if (groupName.empty()) groupName = L"default";
+        if (comboName.empty()) comboName = L"base";
+        if (perspective.empty()) perspective = L"side";
+
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            BgeSpriteSheetCatalogEntry* existing = nullptr;
+            for (auto& entry : g_spriteSheetAnimatorState.catalogEntries) {
+                if (entry.sheetId == sheetId) {
+                    existing = &entry;
+                    break;
+                }
+            }
+            if (existing) {
+                existing->groupName = groupName;
+                existing->comboName = comboName;
+                existing->version = version;
+                existing->perspective = perspective;
+            }
+            else {
+                BgeSpriteSheetCatalogEntry entry;
+                entry.sheetId = sheetId;
+                entry.groupName = groupName;
+                entry.comboName = comboName;
+                entry.version = version;
+                entry.perspective = perspective;
+                g_spriteSheetAnimatorState.catalogEntries.push_back(entry);
+            }
+        }
+        RefreshSpriteSheetManagerWindow();
+        statusText = L"Sprite catalog saved: " + sheetId + L" -> " + groupName + L"/" + comboName + L" v" + std::to_wstring(version) + L" | " + perspective;
+        return true;
+    }
+    if (subcommand == L"status" || subcommand == L"list") {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        std::wstring sheetId;
+        if (TryGetCommandOptionValue(tokens, L"--id", sheetId)) {
+            sheetId = NormalizeTitleScreenText(sheetId);
+        }
+        if (!sheetId.empty()) {
+            BgeSpriteSheetState* sheet = FindSpriteSheetMutable(sheetId);
+            if (!sheet) {
+                statusText = L"Sprite sheet not found: " + sheetId;
+                return false;
+            }
+            statusText = L"Sprite sheet status: id=" + sheet->id
+                + L" frames=" + std::to_wstring(sheet->totalFrames)
+                + L" alpha.preserve=" + std::wstring(sheet->preserveAlpha ? L"on" : L"off")
+                + L" alpha.premultiplied=" + std::wstring(sheet->premultipliedAlpha ? L"on" : L"off")
+                + L" bg.transparent=" + std::wstring(sheet->transparentBackground ? L"on" : L"off")
+                + L" alpha.cutoff=" + std::to_wstring(sheet->alphaCutoff);
+            return true;
+        }
+        statusText = L"Sprite sheets defined: " + std::to_wstring(static_cast<int>(g_spriteSheetAnimatorState.sheets.size()))
+            + L" | catalog entries: " + std::to_wstring(static_cast<int>(g_spriteSheetAnimatorState.catalogEntries.size()));
+        return true;
+    }
+
+    if (subcommand != L"create" && subcommand != L"define") {
+        statusText = L"Use: sprite-sheet create --id chasqui_base --image <png> --columns 8 --rows 1 --frame-size 128x128 --alpha-source straight|premultiplied --alpha-cutoff 0.0 --transparent-background";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.piece.sprite-sheet-animator")) {
+        statusText = L"Import sprite animator first: plugin import bge.piece.sprite-sheet-animator";
+        return false;
+    }
+
+    BgeSpriteSheetState sheet;
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--id", value)) {
+        sheet.id = NormalizeTitleScreenText(value);
+    }
+    if (sheet.id.empty()) {
+        statusText = L"sprite-sheet create: --id required";
+        return false;
+    }
+    if (TryGetCommandOptionValue(tokens, L"--image", value)) {
+        sheet.imagePath = value;
+    }
+    if (TryGetCommandOptionValue(tokens, L"--columns", value)) {
+        int parsed = 0;
+        if (TryParseIntArg(value, parsed) && parsed > 0) {
+            sheet.columns = parsed;
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--rows", value)) {
+        int parsed = 0;
+        if (TryParseIntArg(value, parsed) && parsed > 0) {
+            sheet.rows = parsed;
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--frame-size", value)) {
+        int frameW = 0;
+        int frameH = 0;
+        if (TryParseIntPairArg(value, frameW, frameH)) {
+            sheet.frameWidth = frameW;
+            sheet.frameHeight = frameH;
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--alpha-source", value)) {
+        std::wstring alphaSource = LowerArg(value);
+        if (alphaSource == L"premultiplied" || alphaSource == L"pre-multiplied") {
+            sheet.premultipliedAlpha = true;
+            sheet.preserveAlpha = true;
+        }
+        else if (alphaSource == L"straight" || alphaSource == L"rgba" || alphaSource == L"unassociated") {
+            sheet.premultipliedAlpha = false;
+            sheet.preserveAlpha = true;
+        }
+        else if (alphaSource == L"binary-mask" || alphaSource == L"mask") {
+            sheet.premultipliedAlpha = false;
+            sheet.preserveAlpha = true;
+            sheet.alphaCutoff = (std::max)(sheet.alphaCutoff, 0.5f);
+        }
+    }
+    if (TryGetCommandOptionValue(tokens, L"--alpha-cutoff", value)) {
+        float parsedCutoff = 0.0f;
+        if (TryParseFloatArg(value, parsedCutoff)) {
+            sheet.alphaCutoff = ClampFloat(parsedCutoff, 0.0f, 1.0f);
+        }
+    }
+    if (HasCommandFlag(tokens, L"--preserve-alpha")) {
+        sheet.preserveAlpha = true;
+    }
+    if (HasCommandFlag(tokens, L"--no-preserve-alpha")) {
+        sheet.preserveAlpha = false;
+    }
+    if (HasCommandFlag(tokens, L"--transparent-background")) {
+        sheet.transparentBackground = true;
+    }
+    if (HasCommandFlag(tokens, L"--opaque-background")) {
+        sheet.transparentBackground = false;
+    }
+    sheet.totalFrames = (std::max)(1, sheet.columns * sheet.rows);
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        BgeSpriteSheetState* existing = FindSpriteSheetMutable(sheet.id);
+        if (existing) {
+            *existing = sheet;
+        }
+        else {
+            g_spriteSheetAnimatorState.sheets.push_back(sheet);
+        }
+        g_spriteSheetAnimatorState.active = true;
+        g_rendererStateDirty = true;
+    }
+
+    statusText = L"Sprite sheet defined: " + sheet.id + L" frames=" + std::to_wstring(sheet.totalFrames)
+        + L" alpha.preserve=" + std::wstring(sheet.preserveAlpha ? L"on" : L"off")
+        + L" alpha.premultiplied=" + std::wstring(sheet.premultipliedAlpha ? L"on" : L"off")
+        + L" bg.transparent=" + std::wstring(sheet.transparentBackground ? L"on" : L"off")
+        + L" alpha.cutoff=" + std::to_wstring(sheet.alphaCutoff);
+    LogRendererMessage("[BgeSpriteAnimator] sheet-defined id=\"" + Narrow(sheet.id) + "\" frames=" + std::to_string(sheet.totalFrames));
+    SendWorkerTelemetry(
+        L"game-event",
+        L"bge.event.sprite.alpha.policy",
+        L"sheet=" + sheet.id
+            + L" preserve=" + std::wstring(sheet.preserveAlpha ? L"on" : L"off")
+            + L" premultiplied=" + std::wstring(sheet.premultipliedAlpha ? L"on" : L"off")
+            + L" transparent-bg=" + std::wstring(sheet.transparentBackground ? L"on" : L"off")
+            + L" cutoff=" + std::to_wstring(sheet.alphaCutoff)
+    );
+    RefreshSpriteSheetManagerWindow();
+    return true;
+}
+
+bool ExecuteBgeAnimationSequenceCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"animation-sequence commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"status" || subcommand == L"list") {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        statusText = L"Animation sequences defined: " + std::to_wstring(static_cast<int>(g_spriteSheetAnimatorState.sequences.size()));
+        return true;
+    }
+
+    if (subcommand != L"create" && subcommand != L"define") {
+        statusText = L"Use: animation-sequence create --id tier0 --sheet chasqui_base --frames 0|1|2|3 --fps 8 --loop";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.piece.sprite-sheet-animator")) {
+        statusText = L"Import sprite animator first: plugin import bge.piece.sprite-sheet-animator";
+        return false;
+    }
+
+    BgeAnimationSequenceState sequence;
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--id", value)) {
+        sequence.id = NormalizeTitleScreenText(value);
+    }
+    if (sequence.id.empty()) {
+        statusText = L"animation-sequence create: --id required";
+        return false;
+    }
+    if (TryGetCommandOptionValue(tokens, L"--sheet", value)) {
+        sequence.sheetId = NormalizeTitleScreenText(value);
+    }
+    if (sequence.sheetId.empty()) {
+        statusText = L"animation-sequence create: --sheet required";
+        return false;
+    }
+    if (TryGetCommandOptionValue(tokens, L"--frames", value)) {
+        std::vector<std::wstring> parts = SplitBgeListText(value);
+        for (const auto& part : parts) {
+            int frame = 0;
+            if (TryParseIntArg(part, frame) && frame >= 0) {
+                sequence.frames.push_back(frame);
+            }
+        }
+    }
+    if (sequence.frames.empty()) {
+        sequence.frames.push_back(0);
+    }
+    if (TryGetCommandOptionValue(tokens, L"--fps", value)) {
+        float parsedFps = 0.0f;
+        if (TryParseFloatArg(value, parsedFps) && parsedFps > 0.0f) {
+            sequence.fps = parsedFps;
+        }
+    }
+    sequence.loop = HasCommandFlag(tokens, L"--loop") || !HasCommandFlag(tokens, L"--no-loop");
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (!FindSpriteSheetMutable(sequence.sheetId)) {
+            statusText = L"animation-sequence create: unknown sheet id " + sequence.sheetId;
+            return false;
+        }
+        BgeAnimationSequenceState* existing = FindAnimationSequenceMutable(sequence.id);
+        if (existing) {
+            *existing = sequence;
+        }
+        else {
+            g_spriteSheetAnimatorState.sequences.push_back(sequence);
+        }
+        g_spriteSheetAnimatorState.active = true;
+        g_rendererStateDirty = true;
+    }
+
+    statusText = L"Animation sequence defined: " + sequence.id + L" frames=" + std::to_wstring(static_cast<int>(sequence.frames.size()));
+    LogRendererMessage("[BgeSpriteAnimator] sequence-defined id=\"" + Narrow(sequence.id) + "\" sheet=\"" + Narrow(sequence.sheetId) + "\"");
+    return true;
+}
+
+bool ExecuteBgeActorAnimationCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"actor animation commands run in bge.game-loop";
+        return false;
+    }
+
+    if (tokens.size() < 2 || LowerArg(tokens[1]) != L"animation") {
+        statusText = L"Use: actor animation bind --id courier --tier-counter tier --map 0:tier0|1:tier1";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.piece.sprite-sheet-animator")) {
+        statusText = L"Import sprite animator first: plugin import bge.piece.sprite-sheet-animator";
+        return false;
+    }
+
+    std::wstring action = tokens.size() >= 3 ? LowerArg(tokens[2]) : L"status";
+    if (action == L"status" || action == L"list") {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        std::wstring actorFilter;
+        if (TryGetCommandOptionValue(tokens, L"--id", actorFilter)) {
+            actorFilter = NormalizeTitleScreenText(actorFilter);
+        }
+        if (!actorFilter.empty()) {
+            BgeActorAnimationBindingState* binding = FindActorAnimationBindingMutable(actorFilter);
+            if (!binding) {
+                statusText = L"Actor animation binding not found: " + actorFilter;
+                return false;
+            }
+            statusText = L"Actor animation status: id=" + binding->actorId
+                + L" seq=" + (binding->currentSequenceId.empty() ? L"(none)" : binding->currentSequenceId)
+                + L" tier=" + std::to_wstring(binding->currentTier)
+                + L" frame=" + std::to_wstring(binding->currentFrameIndex)
+                + L" cursor=" + std::to_wstring(binding->frameCursor)
+                + L" group=" + std::to_wstring(binding->groupIndex) + L"/" + std::to_wstring(binding->groupsTotal)
+                + L" local=" + std::to_wstring(binding->groupLocalIndex)
+                + L" | " + SpriteReplayDeterminismProofSummaryLocked(*binding);
+            return true;
+        }
+        statusText = L"Actor animation bindings: " + std::to_wstring(static_cast<int>(g_spriteSheetAnimatorState.actorBindings.size()));
+        return true;
+    }
+
+    if (action != L"bind" && action != L"redline") {
+        statusText = L"Use: actor animation bind --id courier --tier-counter tier --map 0:tier0|1:tier1|2:tier2";
+        return false;
+    }
+
+    std::wstring actorId;
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--id", value)) {
+        actorId = NormalizeTitleScreenText(value);
+    }
+    if (actorId.empty()) {
+        statusText = L"actor animation: --id required";
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        BgeActorAnimationBindingState* binding = FindActorAnimationBindingMutable(actorId);
+        if (!binding) {
+            BgeActorAnimationBindingState created;
+            created.actorId = actorId;
+            g_spriteSheetAnimatorState.actorBindings.push_back(created);
+            binding = &g_spriteSheetAnimatorState.actorBindings.back();
+        }
+
+        if (action == L"bind") {
+            if (TryGetCommandOptionValue(tokens, L"--tier-counter", value)) {
+                binding->tierCounter = NormalizeTitleScreenText(value);
+            }
+            if (TryGetCommandOptionValue(tokens, L"--map", value)) {
+                std::vector<BgeTierSequenceBinding> parsedMap;
+                for (const auto& part : SplitBgeListText(value)) {
+                    size_t separator = part.find(L':');
+                    if (separator == std::wstring::npos) {
+                        continue;
+                    }
+                    int tier = 0;
+                    if (!TryParseIntArg(TrimText(part.substr(0, separator)), tier)) {
+                        continue;
+                    }
+                    std::wstring sequenceId = NormalizeTitleScreenText(part.substr(separator + 1));
+                    if (sequenceId.empty()) {
+                        continue;
+                    }
+                    if (!FindAnimationSequenceMutable(sequenceId)) {
+                        continue;
+                    }
+                    BgeTierSequenceBinding entry;
+                    entry.tier = tier;
+                    entry.sequenceId = sequenceId;
+                    parsedMap.push_back(entry);
+                }
+                if (!parsedMap.empty()) {
+                    binding->tierMap = parsedMap;
+                    binding->currentSequenceId = parsedMap.front().sequenceId;
+                    binding->frameCursor = 0;
+                    binding->frameAccumulatorSeconds = 0.0f;
+                    binding->currentFrameIndex = 0;
+                    binding->groupsTotal = 1;
+                    binding->groupIndex = 0;
+                    binding->groupLocalIndex = 0;
+                    binding->globalFrameIndex = 0;
+                    binding->replayTrace.clear();
+                    AppendSpriteReplayDeterminismTraceLocked(*binding, L"binding.updated");
+                }
+            }
+            g_spriteSheetAnimatorState.active = true;
+            g_rendererStateDirty = true;
+            statusText = L"Actor animation bound: " + actorId + L" map-size=" + std::to_wstring(static_cast<int>(binding->tierMap.size()));
+            LogRendererMessage("[BgeSpriteAnimator] actor-bound id=\"" + Narrow(actorId) + "\" map-size=" + std::to_string(binding->tierMap.size()));
+            return true;
+        }
+
+        if (TryGetCommandOptionValue(tokens, L"--show", value)) {
+            binding->redlineShow = NormalizeTitleScreenText(value);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--color", value)) {
+            binding->redlineColor = NormalizeTitleScreenText(value);
+        }
+        binding->redlineEnabled = !HasCommandFlag(tokens, L"--off");
+        g_spriteSheetAnimatorState.active = true;
+        g_rendererStateDirty = true;
+        statusText = L"Actor animation redline " + std::wstring(binding->redlineEnabled ? L"enabled" : L"disabled") + L": " + actorId;
+    }
+
+    SendWorkerTelemetry(L"game-event", L"bge.event.sprite.redline.changed", statusText);
+
+    return true;
+}
+
 bool ExecuteBgeProjectileCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
 {
     if (!CurrentProcessOwnsGameLoop()) {
@@ -3479,6 +4366,149 @@ void ClampVectorShipVelocity(BgeObjectSlotState& slot, float maxSpeed)
         slot.velocityX *= scale;
         slot.velocityY *= scale;
     }
+}
+
+bool TickBgeSpriteSheetAnimator(double deltaMilliseconds)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return false;
+    }
+
+    struct BgePendingTelemetry {
+        std::wstring command;
+        std::wstring status;
+    };
+
+    std::vector<BgePendingTelemetry> pendingTelemetry;
+    bool dirty = false;
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        if (!g_spriteSheetAnimatorState.active || g_spriteSheetAnimatorState.actorBindings.empty()) {
+            return false;
+        }
+
+        float deltaSeconds = static_cast<float>((std::max)(0.0, deltaMilliseconds) / 1000.0);
+
+        for (auto& binding : g_spriteSheetAnimatorState.actorBindings) {
+            if (binding.tierMap.empty()) {
+                continue;
+            }
+
+            int tierValue = 0;
+            if (!binding.tierCounter.empty()) {
+                const BgeCounterState* tierCounter = FindBgeCounterMutable(binding.tierCounter);
+                if (tierCounter) {
+                    tierValue = tierCounter->value;
+                }
+            }
+            binding.currentTier = tierValue;
+
+            std::wstring nextSequenceId = binding.currentSequenceId;
+            bool exactTierMatch = false;
+            for (const auto& entry : binding.tierMap) {
+                if (entry.tier == tierValue) {
+                    nextSequenceId = entry.sequenceId;
+                    exactTierMatch = true;
+                    break;
+                }
+            }
+            if (!exactTierMatch && !binding.tierMap.empty() && nextSequenceId.empty()) {
+                nextSequenceId = binding.tierMap.front().sequenceId;
+            }
+            if (nextSequenceId.empty()) {
+                continue;
+            }
+
+            if (LowerArg(binding.currentSequenceId) != LowerArg(nextSequenceId)) {
+                binding.currentSequenceId = nextSequenceId;
+                binding.frameCursor = 0;
+                binding.frameAccumulatorSeconds = 0.0f;
+                AppendSpriteReplayDeterminismTraceLocked(binding, L"sequence.selected");
+                pendingTelemetry.push_back({
+                    L"bge.event.sprite.sequence.selected",
+                    L"actor=" + binding.actorId + L" tier=" + std::to_wstring(binding.currentTier) + L" sequence=" + binding.currentSequenceId
+                    });
+                dirty = true;
+            }
+
+            BgeAnimationSequenceState* sequence = FindAnimationSequenceMutable(binding.currentSequenceId);
+            if (!sequence || sequence->frames.empty()) {
+                continue;
+            }
+
+            bool frameChanged = false;
+            float fps = sequence->fps > 0.0f ? sequence->fps : 1.0f;
+            float frameDuration = 1.0f / fps;
+            binding.frameAccumulatorSeconds += deltaSeconds;
+
+            const int frameCount = static_cast<int>(sequence->frames.size());
+            while (binding.frameAccumulatorSeconds >= frameDuration) {
+                binding.frameAccumulatorSeconds -= frameDuration;
+                int nextCursor = binding.frameCursor + 1;
+                if (nextCursor >= frameCount) {
+                    nextCursor = sequence->loop ? 0 : (frameCount - 1);
+                }
+                if (nextCursor != binding.frameCursor) {
+                    binding.frameCursor = nextCursor;
+                    frameChanged = true;
+                    dirty = true;
+                }
+            }
+
+            if (binding.frameCursor < 0) {
+                binding.frameCursor = 0;
+            }
+            if (binding.frameCursor >= frameCount) {
+                binding.frameCursor = frameCount - 1;
+            }
+
+            int previousGroupIndex = binding.groupIndex;
+            int computedGroups = (frameCount + 9) / 10;
+            int computedGroupIndex = binding.frameCursor / 10;
+            int computedGroupLocal = binding.frameCursor % 10;
+            int computedGlobalFrame = sequence->frames[binding.frameCursor];
+
+            if (binding.groupsTotal != computedGroups ||
+                binding.groupIndex != computedGroupIndex ||
+                binding.groupLocalIndex != computedGroupLocal ||
+                binding.currentFrameIndex != binding.frameCursor ||
+                binding.globalFrameIndex != computedGlobalFrame) {
+                binding.groupsTotal = computedGroups;
+                binding.groupIndex = computedGroupIndex;
+                binding.groupLocalIndex = computedGroupLocal;
+                binding.currentFrameIndex = binding.frameCursor;
+                binding.globalFrameIndex = computedGlobalFrame;
+                dirty = true;
+            }
+
+            if (frameChanged) {
+                int progressPercent = frameCount > 1 ? (binding.frameCursor * 100) / (frameCount - 1) : 100;
+                pendingTelemetry.push_back({
+                    L"bge.event.sprite.translation.progress",
+                    L"actor=" + binding.actorId + L" progress=" + std::to_wstring(progressPercent)
+                    });
+            }
+
+            if (previousGroupIndex != binding.groupIndex) {
+                AppendSpriteReplayDeterminismTraceLocked(binding, L"page.changed");
+                pendingTelemetry.push_back({
+                    L"bge.event.sprite.page.changed",
+                    L"actor=" + binding.actorId + L" group=" + std::to_wstring(binding.groupIndex) + L"/" + std::to_wstring(binding.groupsTotal)
+                    });
+            }
+        }
+
+        if (dirty) {
+            g_rendererStateDirty = true;
+        }
+    }
+
+    for (const auto& telemetry : pendingTelemetry) {
+        SendWorkerTelemetry(L"game-event", telemetry.command, telemetry.status);
+    }
+
+    return dirty;
 }
 
 bool VectorShipPlayerAliveLocked()
@@ -4541,24 +5571,6 @@ std::wstring BgePluginExplainText(const BgePluginDescriptor& descriptor)
     return text;
 }
 
-void AddBgePluginRegistryAttributesToOpNode(const std::shared_ptr<OpNode>& root)
-{
-    if (!root) {
-        return;
-    }
-
-    root->SetAttribute("plugin.registry", "enabled");
-    root->SetAttribute("plugin.registry.source", "bge.static.command-signatures");
-    for (const auto& descriptor : kBgePluginRegistry) {
-        std::string key = std::string("plugin.") + Narrow(descriptor.id);
-        root->SetAttribute(key, "available");
-        root->SetAttribute(key + ".kind", Narrow(descriptor.kind));
-        root->SetAttribute(key + ".command", Narrow(descriptor.command));
-        root->SetAttribute(key + ".flags", Narrow(descriptor.flags));
-        root->SetAttribute(key + ".emits", Narrow(descriptor.emits));
-    }
-}
-
 bool ExecuteBgePluginCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
 {
     std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"list";
@@ -4593,14 +5605,25 @@ bool ExecuteBgePluginCommand(const std::vector<std::wstring>& tokens, std::wstri
 
     if (subcommand == L"import-set" || subcommand == L"require-set" || subcommand == L"import-bundle" || subcommand == L"require-bundle" || subcommand == L"bundle" || subcommand == L"load-set") {
         if (tokens.size() < 3) {
-            statusText = L"Use: plugin import-set asteroids";
+            statusText = L"Use: plugin import-set asteroids|inti-chasqui";
             return false;
         }
 
         std::wstring setName = LowerArg(tokens[2]);
-        if (setName != L"asteroids" && setName != L"space-rocks") {
+        if (setName != L"asteroids" && setName != L"space-rocks" && setName != L"inti-chasqui" && setName != L"inti") {
             statusText = L"BGE plugin set not found: " + tokens[2];
             return false;
+        }
+
+        if (setName == L"inti-chasqui" || setName == L"inti") {
+            for (const auto* pluginId : kBgeIntiChasquiPluginSet) {
+                const BgePluginDescriptor* descriptor = FindBgePluginDescriptor(pluginId);
+                if (descriptor) {
+                    ImportBgePluginDescriptor(*descriptor);
+                }
+            }
+            statusText = L"Plugin set imported: inti-chasqui -> " + BgeImportedPluginText();
+            return true;
         }
 
         for (const auto* pluginId : kBgeAsteroidsPluginSet) {
@@ -4630,7 +5653,7 @@ bool ExecuteBgePluginCommand(const std::vector<std::wstring>& tokens, std::wstri
         return true;
     }
 
-    statusText = L"Use: plugin list | plugin import <plugin-id> | plugin import-set asteroids | plugin explain <plugin-id> | plugin commands";
+    statusText = L"Use: plugin list | plugin import <plugin-id> | plugin import-set asteroids|inti-chasqui | plugin explain <plugin-id> | plugin commands | author start <plugin-name>";
     return false;
 }
 
@@ -4643,6 +5666,279 @@ bool ExecuteBgeInspectCommand(const std::vector<std::wstring>& tokens, std::wstr
     }
 
     statusText = L"Use: inspect commands";
+    return false;
+}
+
+std::wstring BgeAuthorUsageText()
+{
+    return L"Use: author start <plugin-name> | author group objects|paths|triggers|ui|maps|buttons | author tool 0-9 | author place <x> <y> [name] | author link <a> <b> | author trigger <node> <event> <action> | author bind background <asset> | author button add <name> | author button bind <name> <command> [window] | author button group <name> <group> | author test | author save [name] | author package [name] | author warp";
+}
+
+void RecordBgeAuthorReceipt(const std::wstring& eventName, const std::wstring& detail)
+{
+    std::wstring receipt = eventName;
+    if (!detail.empty()) {
+        receipt += L" " + detail;
+    }
+    g_authorReceiptLog.push_back(receipt);
+    LogRendererMessage("[BgeAuthor] " + Narrow(receipt));
+}
+
+bool BgeAuthorNeedsSession(std::wstring& statusText)
+{
+    if (g_authorSessionActive) {
+        return true;
+    }
+    statusText = L"Use author start <plugin-name> before editing";
+    return false;
+}
+
+std::wstring BgeAuthorSessionLabel()
+{
+    return g_authorSessionName.empty() ? L"untitled" : g_authorSessionName;
+}
+
+std::wstring BgeAuthorReceiptText()
+{
+    std::wstring text;
+    for (const std::wstring& receipt : g_authorReceiptLog) {
+        text += receipt + L"\r\n";
+    }
+    return text;
+}
+
+std::wstring BgeAuthorEnvelopeText(const std::wstring& packageName)
+{
+    std::wstring text = L"bge-author-envelope-v1\r\n";
+    text += L"name=" + packageName + L"\r\n";
+    text += L"session=" + BgeAuthorSessionLabel() + L"\r\n";
+    text += L"group=" + g_authorActiveGroup + L"\r\n";
+    text += L"tool=" + std::to_wstring(g_authorToolCandidate) + L"\r\n";
+    text += L"receipt-count=" + std::to_wstring(g_authorReceiptLog.size()) + L"\r\n";
+    for (size_t index = 0; index < g_authorReceiptLog.size(); ++index) {
+        text += L"receipt." + std::to_wstring(index + 1) + L"=" + g_authorReceiptLog[index] + L"\r\n";
+    }
+    return text;
+}
+
+bool SaveBgeAuthorEnvelope(const std::wstring& requestedName, bool packageBundle, std::wstring& statusText)
+{
+    if (!BgeAuthorNeedsSession(statusText)) {
+        return false;
+    }
+
+    std::wstring packageName = SafeExportFileStem(requestedName.empty() ? BgeAuthorSessionLabel() : requestedName);
+    std::filesystem::path outputDir = std::filesystem::current_path() / (packageBundle ? "exports" : "authoring") / Narrow(packageName);
+    std::error_code fsError;
+    std::filesystem::create_directories(outputDir, fsError);
+    if (fsError) {
+        statusText = L"Could not create authoring directory: " + outputDir.wstring();
+        return false;
+    }
+
+    RecordBgeAuthorReceipt(packageBundle ? L"bge.event.author.packaged" : L"bge.event.author.saved", packageName);
+
+    std::filesystem::path envelopePath = outputDir / (Narrow(packageName) + ".bge-author-envelope.txt");
+    std::wstring errorText;
+    if (!WriteUtf8TextFile(envelopePath, BgeAuthorEnvelopeText(packageName), errorText)) {
+        statusText = errorText;
+        return false;
+    }
+
+    std::filesystem::path receiptPath = outputDir / (Narrow(packageName) + ".author-receipts.commands");
+    if (!WriteUtf8TextFile(receiptPath, BgeAuthorReceiptText(), errorText)) {
+        statusText = errorText;
+        return false;
+    }
+
+    if (packageBundle) {
+        std::filesystem::path manifestPath = outputDir / (Narrow(packageName) + ".plugin-package.txt");
+        std::wstring manifest = L"bge-plugin-package-v1\r\n";
+        manifest += L"name=" + packageName + L"\r\n";
+        manifest += L"author-envelope=" + envelopePath.filename().wstring() + L"\r\n";
+        manifest += L"receipts=" + receiptPath.filename().wstring() + L"\r\n";
+        manifest += L"runtime=absent-safe-static-fallback\r\n";
+        if (!WriteUtf8TextFile(manifestPath, manifest, errorText)) {
+            statusText = errorText;
+            return false;
+        }
+    }
+
+    statusText = std::wstring(packageBundle ? L"Author package written: " : L"Author envelope saved: ") + envelopePath.wstring();
+    return true;
+}
+
+bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"author commands run in bge.game-loop";
+        return false;
+    }
+
+    std::wstring subcommand = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (subcommand == L"help" || subcommand == L"commands") {
+        statusText = BgeAuthorUsageText();
+        return true;
+    }
+
+    if (subcommand == L"start") {
+        if (tokens.size() < 3) {
+            statusText = L"Use: author start <plugin-name>";
+            return false;
+        }
+        g_authorSessionActive = true;
+        g_authorSessionName = NormalizeTitleScreenText(JoinCommandTokens(tokens, 2));
+        g_authorActiveGroup = L"objects";
+        g_authorToolCandidate = 0;
+        g_authorReceiptLog.clear();
+        RecordBgeAuthorReceipt(L"bge.event.author.started", g_authorSessionName);
+        statusText = L"Authoring: " + g_authorSessionName + L" | Arrows/WASD move, Space acts, Enter commits, M/Esc goes back, PgUp/PgDn cycles groups, 0-9 picks candidates";
+        return true;
+    }
+
+    if (subcommand == L"status") {
+        statusText = g_authorSessionActive
+            ? L"Authoring " + BgeAuthorSessionLabel() + L" group=" + g_authorActiveGroup + L" tool=" + std::to_wstring(g_authorToolCandidate) + L" receipts=" + std::to_wstring(g_authorReceiptLog.size())
+            : L"Authoring inactive";
+        return true;
+    }
+
+    if (!BgeAuthorNeedsSession(statusText)) {
+        return false;
+    }
+
+    if (subcommand == L"group") {
+        if (tokens.size() < 3) {
+            statusText = L"Use: author group objects|paths|triggers|ui|maps|buttons";
+            return false;
+        }
+        std::wstring groupName = LowerArg(tokens[2]);
+        if (groupName != L"objects" && groupName != L"paths" && groupName != L"triggers" && groupName != L"ui" && groupName != L"maps" && groupName != L"buttons") {
+            statusText = L"Use: author group objects|paths|triggers|ui|maps|buttons";
+            return false;
+        }
+        g_authorActiveGroup = groupName;
+        RecordBgeAuthorReceipt(L"bge.event.author.group", groupName);
+        statusText = L"Author group: " + g_authorActiveGroup;
+        return true;
+    }
+
+    if (subcommand == L"tool") {
+        int candidate = 0;
+        if (tokens.size() < 3 || !TryParseIntArg(tokens[2], candidate) || candidate < 0 || candidate > 9) {
+            statusText = L"Use: author tool 0-9";
+            return false;
+        }
+        g_authorToolCandidate = candidate;
+        RecordBgeAuthorReceipt(L"bge.event.author.tool", std::to_wstring(candidate));
+        statusText = L"Author tool candidate: " + std::to_wstring(candidate);
+        return true;
+    }
+
+    if (subcommand == L"place") {
+        if (tokens.size() < 4) {
+            statusText = L"Use: author place <x> <y> [name]";
+            return false;
+        }
+        std::wstring detail = tokens[2] + L" " + tokens[3];
+        if (tokens.size() > 4) {
+            detail += L" " + JoinCommandTokens(tokens, 4);
+        }
+        RecordBgeAuthorReceipt(L"bge.event.author.placed", detail);
+        statusText = L"Author placed: " + detail;
+        return true;
+    }
+
+    if (subcommand == L"link") {
+        if (tokens.size() < 4) {
+            statusText = L"Use: author link <a> <b>";
+            return false;
+        }
+        std::wstring detail = tokens[2] + L" " + tokens[3];
+        RecordBgeAuthorReceipt(L"bge.event.author.linked", detail);
+        statusText = L"Author linked: " + detail;
+        return true;
+    }
+
+    if (subcommand == L"trigger") {
+        if (tokens.size() < 5) {
+            statusText = L"Use: author trigger <node> <event> <action>";
+            return false;
+        }
+        std::wstring detail = tokens[2] + L" " + tokens[3] + L" " + JoinCommandTokens(tokens, 4);
+        RecordBgeAuthorReceipt(L"bge.event.author.triggered", detail);
+        statusText = L"Author trigger: " + detail;
+        return true;
+    }
+
+    if (subcommand == L"bind") {
+        if (tokens.size() < 4 || LowerArg(tokens[2]) != L"background") {
+            statusText = L"Use: author bind background <asset>";
+            return false;
+        }
+        std::wstring detail = L"background " + JoinCommandTokens(tokens, 3);
+        RecordBgeAuthorReceipt(L"bge.event.author.bound", detail);
+        statusText = L"Author binding: " + detail;
+        return true;
+    }
+
+    if (subcommand == L"button") {
+        if (tokens.size() < 4) {
+            statusText = L"Use: author button add|bind|group ...";
+            return false;
+        }
+        std::wstring action = LowerArg(tokens[2]);
+        if (action == L"add") {
+            std::wstring detail = JoinCommandTokens(tokens, 3);
+            RecordBgeAuthorReceipt(L"bge.event.author.button.added", detail);
+            statusText = L"Author button added: " + detail;
+            return true;
+        }
+        if (action == L"bind") {
+            if (tokens.size() < 5) {
+                statusText = L"Use: author button bind <name> <command> [window]";
+                return false;
+            }
+            std::wstring detail = JoinCommandTokens(tokens, 3);
+            RecordBgeAuthorReceipt(L"bge.event.author.button.bound", detail);
+            statusText = L"Author button bound: " + detail;
+            return true;
+        }
+        if (action == L"group") {
+            if (tokens.size() < 5) {
+                statusText = L"Use: author button group <name> <group>";
+                return false;
+            }
+            std::wstring detail = JoinCommandTokens(tokens, 3);
+            RecordBgeAuthorReceipt(L"bge.event.author.button.grouped", detail);
+            statusText = L"Author button grouped: " + detail;
+            return true;
+        }
+        statusText = L"Use: author button add|bind|group ...";
+        return false;
+    }
+
+    if (subcommand == L"test") {
+        RecordBgeAuthorReceipt(L"bge.event.author.tested", BgeAuthorSessionLabel());
+        statusText = L"Author test receipt recorded; run the authored game command from this recipe/history";
+        return true;
+    }
+
+    if (subcommand == L"save") {
+        return SaveBgeAuthorEnvelope(tokens.size() > 2 ? JoinCommandTokens(tokens, 2) : L"", false, statusText);
+    }
+
+    if (subcommand == L"package") {
+        return SaveBgeAuthorEnvelope(tokens.size() > 2 ? JoinCommandTokens(tokens, 2) : L"", true, statusText);
+    }
+
+    if (subcommand == L"warp") {
+        RecordBgeAuthorReceipt(L"bge.event.author.warp", BgeAuthorSessionLabel());
+        statusText = L"Author warp receipt recorded for " + BgeAuthorSessionLabel();
+        return true;
+    }
+
+    statusText = BgeAuthorUsageText();
     return false;
 }
 
@@ -5353,37 +6649,6 @@ void UpdateRoleWindowTitle(HWND hWnd)
     SetWindowTextW(hWnd, title.c_str());
 }
 
-void BootstrapRoleOpNode()
-{
-    std::string role = g_isController ? "bge.controller" : Narrow(g_workerName);
-    auto root = std::make_shared<OpNode>(role.empty() ? "bge.worker" : role);
-    root->SetAttribute("bge.role", g_isController ? "controller" : "worker");
-    root->SetAttribute("bge.worker.name", role);
-    root->SetAttribute("runtime.game-loop", CurrentProcessOwnsGameLoop() ? "enabled" : "disabled");
-    root->SetAttribute("plugin.opnode", "enabled");
-    root->SetAttribute("plugin.game-loop", (role == "bge.game-loop") ? "enabled" : "available");
-    root->SetAttribute("plugin.directx11", (role == "bge.game-loop") ? "enabled" : "available");
-    root->SetAttribute("plugin.directx12", "available");
-    root->SetAttribute("animation.2d.bouncing-ball", (role == "bge.game-loop") ? "enabled" : "available");
-    root->SetAttribute("plugin.scene-3d", (role == "bge.scene-3d") ? "enabled" : "available");
-    root->SetAttribute("plugin.images", (role == "bge.images") ? "enabled" : "available");
-    root->SetAttribute("plugin.sound", (role == "bge.sound") ? "enabled" : "available");
-    root->SetAttribute("plugin.sample-game", (role == "bge.sample-game-one" || role == "bge.sample-game-two") ? "enabled" : "available");
-    AddBgePluginRegistryAttributesToOpNode(root);
-    root->SetAttribute("environment", "basic-3d");
-    if (role == "bge.game-loop") {
-        root->AddOperation(std::make_shared<DirectX11BouncingBallOperation>());
-        root->AddOperation(std::make_shared<BgeAudioPluginOperation>());
-        root->AddOperation(std::make_shared<BgeBreakableRockFieldPluginOperation>());
-        root->AddOperation(std::make_shared<BgeProjectilePluginOperation>());
-        root->AddOperation(std::make_shared<BgeScoreboardPluginOperation>());
-        root->AddOperation(std::make_shared<BgeTitleScreenPluginOperation>());
-        root->AddOperation(std::make_shared<BgeVectorShipPluginOperation>());
-    }
-    root->AddOperation(std::make_shared<BasicGameRoleOperation>());
-    root->PerformOperations();
-}
-
 bool DirectXRendererActive()
 {
     if (g_rendererApi.load() == BgeRendererApi::DirectX12) {
@@ -5487,6 +6752,39 @@ std::wstring TrimText(const std::wstring& value)
     }
     size_t last = value.find_last_not_of(L" \t\r\n");
     return value.substr(first, last - first + 1);
+}
+
+std::wstring SanitizeFileToken(const std::wstring& value)
+{
+    std::wstring trimmed = TrimText(value);
+    std::wstring token;
+    token.reserve(trimmed.size());
+    bool lastUnderscore = false;
+    for (wchar_t ch : trimmed) {
+        bool allowed = (ch >= L'a' && ch <= L'z')
+            || (ch >= L'A' && ch <= L'Z')
+            || (ch >= L'0' && ch <= L'9')
+            || ch == L'-'
+            || ch == L'_';
+        if (allowed) {
+            token += ch;
+            lastUnderscore = false;
+        }
+        else if (!lastUnderscore) {
+            token += L'_';
+            lastUnderscore = true;
+        }
+    }
+    while (!token.empty() && token.front() == L'_') {
+        token.erase(token.begin());
+    }
+    while (!token.empty() && token.back() == L'_') {
+        token.pop_back();
+    }
+    if (token.empty()) {
+        token = L"template";
+    }
+    return token;
 }
 
 std::wstring ConstructionArtifactExtension(const std::wstring& path)
@@ -6156,6 +7454,12 @@ std::vector<std::wstring> BuildExportFeatureSetLedger(const std::vector<std::wst
         else if (verb == L"title-screen") {
             AddExportFeatureSet(features, L"bge.piece.title-screen");
         }
+        else if (verb == L"sprite-sheet" || verb == L"animation-sequence") {
+            AddExportFeatureSet(features, L"bge.piece.sprite-sheet-animator");
+        }
+        else if (verb == L"actor" && tokens.size() >= 2 && LowerArg(tokens[1]) == L"animation") {
+            AddExportFeatureSet(features, L"bge.piece.sprite-sheet-animator");
+        }
     }
     return features;
 }
@@ -6189,6 +7493,7 @@ std::vector<std::wstring> BuildExportCommandsFromCurrentState()
     BgeScoreboardState scoreboard;
     BgeBreakableRockFieldState rockField;
     BgeUfoState ufo;
+    BgeSpriteSheetAnimatorState spriteAnimator;
     std::vector<BgeCounterState> counters;
     std::vector<BgeProjectileDefinition> projectiles;
     BgeVectorShipState vectorShip;
@@ -6203,6 +7508,7 @@ std::vector<std::wstring> BuildExportCommandsFromCurrentState()
         scoreboard = g_scoreboardState;
         rockField = g_breakableRockFieldState;
         ufo = g_ufoState;
+        spriteAnimator = g_spriteSheetAnimatorState;
         counters = g_bgeCounters;
         projectiles = g_projectileDefinitions;
         vectorShip = g_vectorShipState;
@@ -6313,6 +7619,61 @@ std::vector<std::wstring> BuildExportCommandsFromCurrentState()
         commands.push_back(command);
     }
 
+    for (const BgeSpriteSheetState& sheet : spriteAnimator.sheets) {
+        std::wstring command = L"sprite-sheet create --id " + CommandFileArg(sheet.id)
+            + L" --image " + CommandFileArg(sheet.imagePath)
+            + L" --columns " + std::to_wstring(sheet.columns)
+            + L" --rows " + std::to_wstring(sheet.rows)
+            + L" --frame-size " + std::to_wstring(sheet.frameWidth) + L"x" + std::to_wstring(sheet.frameHeight)
+            + L" --alpha-source " + CommandFileArg(sheet.premultipliedAlpha ? L"premultiplied" : L"straight")
+            + L" --alpha-cutoff " + std::to_wstring(sheet.alphaCutoff);
+        command += sheet.preserveAlpha ? L" --preserve-alpha" : L" --no-preserve-alpha";
+        command += sheet.transparentBackground ? L" --transparent-background" : L" --opaque-background";
+        commands.push_back(command);
+    }
+
+    for (const BgeAnimationSequenceState& sequence : spriteAnimator.sequences) {
+        std::wstring framesText;
+        for (size_t frameIndex = 0; frameIndex < sequence.frames.size(); ++frameIndex) {
+            if (frameIndex > 0) {
+                framesText += L"|";
+            }
+            framesText += std::to_wstring(sequence.frames[frameIndex]);
+        }
+        std::wstring command = L"animation-sequence create --id " + CommandFileArg(sequence.id)
+            + L" --sheet " + CommandFileArg(sequence.sheetId)
+            + L" --frames " + CommandFileArg(framesText)
+            + L" --fps " + std::to_wstring(sequence.fps);
+        command += sequence.loop ? L" --loop" : L" --no-loop";
+        commands.push_back(command);
+    }
+
+    for (const BgeActorAnimationBindingState& binding : spriteAnimator.actorBindings) {
+        std::wstring mapText;
+        for (size_t mapIndex = 0; mapIndex < binding.tierMap.size(); ++mapIndex) {
+            if (mapIndex > 0) {
+                mapText += L"|";
+            }
+            mapText += std::to_wstring(binding.tierMap[mapIndex].tier) + L":" + binding.tierMap[mapIndex].sequenceId;
+        }
+        std::wstring command = L"actor animation bind --id " + CommandFileArg(binding.actorId)
+            + L" --tier-counter " + CommandFileArg(binding.tierCounter)
+            + L" --map " + CommandFileArg(mapText);
+        commands.push_back(command);
+
+        if (binding.redlineEnabled || !binding.redlineShow.empty() || !binding.redlineColor.empty()) {
+            std::wstring redlineCommand = L"actor animation redline --id " + CommandFileArg(binding.actorId);
+            if (!binding.redlineShow.empty()) {
+                redlineCommand += L" --show " + CommandFileArg(binding.redlineShow);
+            }
+            if (!binding.redlineColor.empty()) {
+                redlineCommand += L" --color " + CommandFileArg(binding.redlineColor);
+            }
+            redlineCommand += binding.redlineEnabled ? L" --on" : L" --off";
+            commands.push_back(redlineCommand);
+        }
+    }
+
     return commands;
 }
 
@@ -6407,6 +7768,13 @@ bool ExecuteBgeExportCommand(const std::vector<std::wstring>& tokens, std::wstri
         return false;
     }
 
+    std::filesystem::path spriteReplayProofPath = packageDir / (Narrow(exportName) + ".sprite-replay-proof.txt");
+    std::wstring spriteReplayProofText = BuildSpriteReplayDeterminismProofText();
+    if (!WriteUtf8TextFile(spriteReplayProofPath, spriteReplayProofText, errorText)) {
+        statusText = errorText;
+        return false;
+    }
+
     if (!EmbedUtf8TextResourceInExecutable(exportedExe, kBgeEmbeddedGameScriptResourceName, scriptText, errorText)) {
         statusText = errorText;
         return false;
@@ -6432,6 +7800,7 @@ bool ExecuteBgeExportCommand(const std::vector<std::wstring>& tokens, std::wstri
         + L"executable=" + exportedExe.filename().wstring() + L"\r\n"
         + L"commands=" + scriptPath.filename().wstring() + L"\r\n"
         + L"features=" + featureLedgerPath.filename().wstring() + L"\r\n"
+        + L"sprite-replay-proof=" + spriteReplayProofPath.filename().wstring() + L"\r\n"
         + L"embedded-commands=" + std::wstring(kBgeEmbeddedGameScriptResourceName) + L"\r\n"
         + L"embedded-features=" + std::wstring(kBgeEmbeddedFeatureLedgerResourceName) + L"\r\n"
         + L"launch=" + launcherPath.filename().wstring() + L"\r\n";
@@ -6440,7 +7809,7 @@ bool ExecuteBgeExportCommand(const std::vector<std::wstring>& tokens, std::wstri
         return false;
     }
 
-    statusText = L"Exported " + exportName + L" " + featureVersion + L" executable package: " + exportedExe.wstring();
+    statusText = L"Exported " + exportName + L" " + featureVersion + L" executable package: " + exportedExe.wstring() + L" | sprite replay determinism proof recorded";
     LogRendererMessage("[BgeExport] executable package=\"" + Narrow(packageDir.wstring()) + "\" name=\"" + Narrow(exportName) + "\" version=\"" + Narrow(featureVersion) + "\" commands=" + std::to_string(commands.size()));
     return true;
 }
@@ -6686,6 +8055,9 @@ void ApplyBallStateToRenderer()
     bool objectSelectionActive = false;
     std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> objectSlots;
     std::array<BgeObjectSlotState, BGE_OBJECT_SLOT_COUNT> ghostSlots{};
+    std::vector<BgeSpriteSheetState> spriteSheets;
+    std::vector<BgeAnimationSequenceState> spriteSequences;
+    std::vector<BgeActorAnimationBindingState> spriteBindings;
 
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
@@ -6695,8 +8067,134 @@ void ApplyBallStateToRenderer()
         objectSelectionActive = g_objectSelectionActive;
         objectSlots = g_objectSlots;
         BgeUpdateCollisionFlags(objectSlots);
+        spriteSheets = g_spriteSheetAnimatorState.sheets;
+        spriteSequences = g_spriteSheetAnimatorState.sequences;
+        spriteBindings = g_spriteSheetAnimatorState.actorBindings;
         if (g_ghostOverlayEnabled && g_ghostObjectGroupIndex >= 0 && g_ghostObjectGroupIndex < static_cast<int>(g_objectGroups.size()) && g_ghostObjectGroupIndex != g_activeObjectGroupIndex) {
             ghostSlots = g_objectGroups[static_cast<size_t>(g_ghostObjectGroupIndex)].slots;
+        }
+    }
+
+    // Sprite animator alpha compositing render policy:
+    // apply per-sheet alpha rules to the outgoing draw state before the
+    // renderer consumes slot colours/alpha. This keeps transparent
+    // backgrounds from polluting the scene even before textured sprite
+    // upload lands.
+    if (!spriteSheets.empty() && !spriteBindings.empty()) {
+        for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+            objectSlots[index].spriteEnabled = false;
+            objectSlots[index].spriteImagePath.clear();
+            objectSlots[index].spriteU0 = 0.0f;
+            objectSlots[index].spriteV0 = 0.0f;
+            objectSlots[index].spriteU1 = 1.0f;
+            objectSlots[index].spriteV1 = 1.0f;
+        }
+
+        auto findSequenceById = [&spriteSequences](const std::wstring& id) -> const BgeAnimationSequenceState* {
+            std::wstring requested = LowerArg(id);
+            for (const auto& sequence : spriteSequences) {
+                if (LowerArg(sequence.id) == requested) {
+                    return &sequence;
+                }
+            }
+            return nullptr;
+        };
+
+        auto applySpriteFrameToRunnerLikeSlots = [&objectSlots](const BgeSpriteSheetState& sheet, const BgeActorAnimationBindingState& binding) {
+            if (sheet.imagePath.empty() || sheet.columns <= 0 || sheet.rows <= 0 || sheet.totalFrames <= 0) {
+                return;
+            }
+
+            int frameIndex = binding.globalFrameIndex;
+            frameIndex = (std::max)(0, (std::min)(sheet.totalFrames - 1, frameIndex));
+            int frameColumn = frameIndex % sheet.columns;
+            int frameRow = frameIndex / sheet.columns;
+            frameRow = (std::max)(0, (std::min)(sheet.rows - 1, frameRow));
+
+            float u0 = static_cast<float>(frameColumn) / static_cast<float>(sheet.columns);
+            float v0 = static_cast<float>(frameRow) / static_cast<float>(sheet.rows);
+            float u1 = static_cast<float>(frameColumn + 1) / static_cast<float>(sheet.columns);
+            float v1 = static_cast<float>(frameRow + 1) / static_cast<float>(sheet.rows);
+
+            for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+                BgeObjectSlotState& slot = objectSlots[index];
+                if (!slot.visible || slot.isDeleted) {
+                    continue;
+                }
+                bool runnerLike = slot.kind == BgeObjectKind::Runner || slot.kind == BgeObjectKind::Quipu ||
+                    slot.shape == BgeObjectShape::Runner || slot.shape == BgeObjectShape::Quipu;
+                if (!runnerLike) {
+                    continue;
+                }
+                slot.spriteEnabled = true;
+                slot.spriteImagePath = sheet.imagePath;
+                slot.spriteU0 = u0;
+                slot.spriteV0 = v0;
+                slot.spriteU1 = u1;
+                slot.spriteV1 = v1;
+            }
+        };
+
+        auto findSheetById = [&spriteSheets](const std::wstring& id) -> const BgeSpriteSheetState* {
+            std::wstring requested = LowerArg(id);
+            for (const auto& sheet : spriteSheets) {
+                if (LowerArg(sheet.id) == requested) {
+                    return &sheet;
+                }
+            }
+            return nullptr;
+        };
+
+        auto applyAlphaPolicy = [](BgeObjectSlotState& slot, const BgeSpriteSheetState& sheet) {
+            float alpha = slot.colorA;
+            if (!sheet.preserveAlpha || !sheet.transparentBackground) {
+                alpha = 1.0f;
+            }
+            if (sheet.alphaCutoff > 0.0f && alpha < sheet.alphaCutoff) {
+                alpha = 0.0f;
+            }
+            alpha = ClampFloat(alpha, 0.0f, 1.0f);
+
+            // If source is premultiplied but renderer path expects straight
+            // alpha vertex colours, un-premultiply so edge colours stay clean.
+            if (sheet.premultipliedAlpha && alpha > 0.0001f && alpha < 1.0f) {
+                slot.colorR = ClampFloat(slot.colorR / alpha, 0.0f, 1.0f);
+                slot.colorG = ClampFloat(slot.colorG / alpha, 0.0f, 1.0f);
+                slot.colorB = ClampFloat(slot.colorB / alpha, 0.0f, 1.0f);
+            }
+            slot.colorA = alpha;
+        };
+
+        auto applySheetPolicyToRunnerLikeSlots = [&objectSlots, &ghostSlots, &applyAlphaPolicy](const BgeSpriteSheetState& sheet) {
+            for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
+                BgeObjectSlotState& slot = objectSlots[index];
+                if (!slot.visible || slot.isDeleted) {
+                    continue;
+                }
+                bool runnerLike = slot.kind == BgeObjectKind::Runner || slot.kind == BgeObjectKind::Quipu ||
+                    slot.shape == BgeObjectShape::Runner || slot.shape == BgeObjectShape::Quipu;
+                if (!runnerLike) {
+                    continue;
+                }
+                applyAlphaPolicy(slot, sheet);
+                applyAlphaPolicy(ghostSlots[index], sheet);
+            }
+        };
+
+        for (const auto& binding : spriteBindings) {
+            if (binding.currentSequenceId.empty()) {
+                continue;
+            }
+            const BgeAnimationSequenceState* sequence = findSequenceById(binding.currentSequenceId);
+            if (!sequence) {
+                continue;
+            }
+            const BgeSpriteSheetState* sheet = findSheetById(sequence->sheetId);
+            if (!sheet) {
+                continue;
+            }
+            applySheetPolicyToRunnerLikeSlots(*sheet);
+            applySpriteFrameToRunnerLikeSlots(*sheet, binding);
         }
     }
 
@@ -6738,6 +8236,22 @@ void ApplyBallStateToRenderer()
         g_directX12Renderer->SelectObjectSlot(selectedSlot);
         g_directX12Renderer->SetObjectSelectionActive(objectSelectionActive);
         g_directX12Renderer->SetAnimationRunning(animationRunning);
+    }
+
+    // Forward module-emitted 2D scene geometry (paths, trail dots) to the
+    // active renderers on the game-loop thread, mirroring slot/overlay sync.
+    {
+        std::vector<BgeColorVertex> sceneGeometry;
+        {
+            std::lock_guard<std::mutex> lock(g_sceneGeometryMutex);
+            sceneGeometry = g_sceneGeometry;
+        }
+        if (g_directX11Renderer) {
+            g_directX11Renderer->SetSceneGeometry(sceneGeometry);
+        }
+        if (g_directX12Renderer) {
+            g_directX12Renderer->SetSceneGeometry(sceneGeometry);
+        }
     }
 
     BgeTitleScreenState titleScreen;
@@ -6852,6 +8366,7 @@ void TickActiveRenderer(double deltaMilliseconds)
         if (g_directX12Renderer) {
             g_directX12Renderer->Tick(deltaMilliseconds);
             SyncObjectSlotsFromRenderer(g_directX12Renderer->ObjectSlotStates());
+            BgeActiveGameModule activeGame = CurrentActiveGameModule();
             bool overlayActive = false;
             {
                 std::lock_guard<std::mutex> lock(ballConfigMutex);
@@ -6862,11 +8377,14 @@ void TickActiveRenderer(double deltaMilliseconds)
             // true (e.g. projectiles in flight), which froze ship rotation
             // until bullets expired (perceived as "ship only turns when I
             // thrust"). Bitwise OR forces all ticks to run.
-            bool asteroidDirty = TickAsteroidGameMode(deltaMilliseconds);
-            bool projectileDirty = TickBgeProjectiles(deltaMilliseconds);
-            bool ufoDirty = TickBgeUfo(deltaMilliseconds);
-            bool shipDirty = TickBgeVectorShip(deltaMilliseconds);
-            if (asteroidDirty | projectileDirty | ufoDirty | shipDirty | overlayActive) {
+            bool asteroidDirty = activeGame == BgeActiveGameModule::Asteroid ? TickAsteroidGameMode(deltaMilliseconds) : false;
+            bool intiDirty = activeGame == BgeActiveGameModule::Inti ? TickIntiGameMode(deltaMilliseconds) : false;
+            bool runComponentTicks = activeGame == BgeActiveGameModule::None;
+            bool projectileDirty = runComponentTicks ? TickBgeProjectiles(deltaMilliseconds) : false;
+            bool ufoDirty = runComponentTicks ? TickBgeUfo(deltaMilliseconds) : false;
+            bool shipDirty = runComponentTicks ? TickBgeVectorShip(deltaMilliseconds) : false;
+            bool spriteAnimatorDirty = TickBgeSpriteSheetAnimator(deltaMilliseconds);
+            if (asteroidDirty | intiDirty | projectileDirty | ufoDirty | shipDirty | spriteAnimatorDirty | overlayActive) {
                 ApplyBallStateToRenderer();
             }
         }
@@ -6875,17 +8393,21 @@ void TickActiveRenderer(double deltaMilliseconds)
     if (g_directX11Renderer) {
         g_directX11Renderer->Tick(deltaMilliseconds);
         SyncObjectSlotsFromRenderer(g_directX11Renderer->ObjectSlotStates());
+        BgeActiveGameModule activeGame = CurrentActiveGameModule();
         bool overlayActive = false;
         {
             std::lock_guard<std::mutex> lock(ballConfigMutex);
             overlayActive = g_titleScreenActive || g_scoreboardActive;
         }
         // See DX12 branch above for the short-circuit explanation.
-        bool asteroidDirty = TickAsteroidGameMode(deltaMilliseconds);
-        bool projectileDirty = TickBgeProjectiles(deltaMilliseconds);
-        bool ufoDirty = TickBgeUfo(deltaMilliseconds);
-        bool shipDirty = TickBgeVectorShip(deltaMilliseconds);
-        if (asteroidDirty | projectileDirty | ufoDirty | shipDirty | overlayActive) {
+        bool asteroidDirty = activeGame == BgeActiveGameModule::Asteroid ? TickAsteroidGameMode(deltaMilliseconds) : false;
+        bool intiDirty = activeGame == BgeActiveGameModule::Inti ? TickIntiGameMode(deltaMilliseconds) : false;
+        bool runComponentTicks = activeGame == BgeActiveGameModule::None;
+        bool projectileDirty = runComponentTicks ? TickBgeProjectiles(deltaMilliseconds) : false;
+        bool ufoDirty = runComponentTicks ? TickBgeUfo(deltaMilliseconds) : false;
+        bool shipDirty = runComponentTicks ? TickBgeVectorShip(deltaMilliseconds) : false;
+        bool spriteAnimatorDirty = TickBgeSpriteSheetAnimator(deltaMilliseconds);
+        if (asteroidDirty | intiDirty | projectileDirty | ufoDirty | shipDirty | spriteAnimatorDirty | overlayActive) {
             ApplyBallStateToRenderer();
         }
     }
@@ -7305,9 +8827,15 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
     };
 
     if (command == L"help" || command == L"?") {
-        statusText = L"plugin import/import-set | player-ship create | projectile create | ufo create | counter define/set | scoreboard create | title-screen create | export executable | inspect commands | mapping";
+        statusText = L"author start/group/tool/save | inti title | asteroid game | plugin import/import-set | player-ship create | projectile create | ufo create | counter define/set | scoreboard create | title-screen create | sprite-sheet create|template|catalog|window | animation-sequence create | actor animation bind | export executable | inspect commands | mapping";
         logCommand("help");
         return true;
+    }
+
+    if (command == L"author") {
+        bool ok = ExecuteBgeAuthorCommand(tokens, statusText);
+        logCommand(ok ? "author" : "author failed");
+        return ok;
     }
 
     if (command == L"plugin" || command == L"capability") {
@@ -7395,8 +8923,46 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
         return ok;
     }
 
+    if (command == L"sprite-sheet") {
+        bool ok = ExecuteBgeSpriteSheetCommand(tokens, statusText);
+        logCommand(ok ? "sprite-sheet" : "sprite-sheet failed");
+        return ok;
+    }
+
+    if (command == L"animation-sequence") {
+        bool ok = ExecuteBgeAnimationSequenceCommand(tokens, statusText);
+        logCommand(ok ? "animation-sequence" : "animation-sequence failed");
+        return ok;
+    }
+
+    if (command == L"actor") {
+        bool ok = ExecuteBgeActorAnimationCommand(tokens, statusText);
+        logCommand(ok ? "actor-animation" : "actor-animation failed");
+        return ok;
+    }
+
+    if (command == L"inti" || command == L"inti-runners" || command == L"intirunners") {
+        if (!CurrentProcessOwnsGameLoop()) {
+            statusText = L"Inti Runners commands run in bge.game-loop";
+            return false;
+        }
+        bool ok = ExecuteIntiGameModuleCommand(tokens, statusText);
+        logCommand(ok ? "inti-runners" : "inti-runners failed");
+        return ok;
+    }
+
     if (command == L"game" && tokens.size() >= 2) {
         std::wstring subcommand = LowerArg(tokens[1]);
+        if (subcommand == L"inti" || subcommand == L"inti-runners" || subcommand == L"intirunners") {
+            if (!CurrentProcessOwnsGameLoop()) {
+                statusText = L"Inti Runners commands run in bge.game-loop";
+                return false;
+            }
+            std::vector<std::wstring> routedTokens(tokens.begin() + 1, tokens.end());
+            bool ok = ExecuteIntiGameModuleCommand(routedTokens, statusText);
+            logCommand(ok ? "game-inti" : "game-inti failed");
+            return ok;
+        }
         if (subcommand == L"define" || subcommand == L"start" || subcommand == L"status") {
             if (subcommand == L"define") {
                 std::wstring value;
@@ -8285,6 +9851,49 @@ void LoadBackgroundFromDialog()
     }
 }
 
+void SetVectorDragLimit(float maxMagnitude, float angleCenterRadians, float angleHalfWidthRadians)
+{
+    // Engine-neutral: store the bound for the interactive vector drag. Lock-free
+    // so a module may call this from inside its own object-mutex scope without
+    // deadlocking against ballConfigMutex.
+    g_vectorDragMaxMagnitude.store(maxMagnitude);
+    g_vectorDragAngleCenter.store(angleCenterRadians);
+    g_vectorDragAngleHalfWidth.store(angleHalfWidthRadians);
+    g_vectorDragConeActive.store(angleHalfWidthRadians > 0.0f);
+}
+
+void ClampVectorDragLocked(float& velocityX, float& velocityY)
+{
+    // Magnitude cap: limit how hard the arrow can be pulled.
+    const float maxMagnitude = g_vectorDragMaxMagnitude.load();
+    if (maxMagnitude > 0.0f) {
+        float magnitude = std::sqrt(velocityX * velocityX + velocityY * velocityY);
+        if (magnitude > maxMagnitude && magnitude > 1.0e-4f) {
+            float scale = maxMagnitude / magnitude;
+            velocityX *= scale;
+            velocityY *= scale;
+        }
+    }
+    // Angle-of-attack cap: fold the pull into a cone around a center heading.
+    if (g_vectorDragConeActive.load()) {
+        const float halfWidth = g_vectorDragAngleHalfWidth.load();
+        if (halfWidth > 0.0f && halfWidth < 3.14159265f) {
+            float magnitude = std::sqrt(velocityX * velocityX + velocityY * velocityY);
+            if (magnitude > 1.0e-3f) {
+                const float center = g_vectorDragAngleCenter.load();
+                float angle = std::atan2(velocityY, velocityX);
+                float delta = angle - center;
+                while (delta > 3.14159265f) { delta -= 6.28318531f; }
+                while (delta < -3.14159265f) { delta += 6.28318531f; }
+                if (delta > halfWidth) { angle = center + halfWidth; }
+                else if (delta < -halfWidth) { angle = center - halfWidth; }
+                velocityX = std::cos(angle) * magnitude;
+                velocityY = std::sin(angle) * magnitude;
+            }
+        }
+    }
+}
+
 bool TryStartVectorDrag(int x, int y)
 {
     if (!CurrentProcessOwnsGameLoop()) {
@@ -8301,7 +9910,12 @@ bool TryStartVectorDrag(int x, int y)
     float tipY = slot.y + slot.velocityY * 0.35f;
     float dx = static_cast<float>(x) - tipX;
     float dy = static_cast<float>(y) - tipY;
-    if (dx * dx + dy * dy > 24.0f * 24.0f) {
+    bool nearTip = (dx * dx + dy * dy <= 24.0f * 24.0f);
+    // Game-pull mode (a module set an arrow cone): a click anywhere in the play
+    // area starts the pull, snapping the vector toward the mouse so "you are in
+    // the game" immediately. Controller authoring (no cone) keeps the precise
+    // grab-the-tip behavior.
+    if (!nearTip && !g_vectorDragConeActive.load()) {
         return false;
     }
 
@@ -8362,6 +9976,7 @@ void UpdateVectorDrag(int x, int y)
         BgeObjectSlotState& slot = g_objectSlots[g_selectedObjectSlot];
         velocityX = (static_cast<float>(x) - slot.x) / 0.35f;
         velocityY = (static_cast<float>(y) - slot.y) / 0.35f;
+        ClampVectorDragLocked(velocityX, velocityY);
         slot.velocityX = velocityX;
         slot.velocityY = velocityY;
         g_ballVelocityX = velocityX;
@@ -8736,6 +10351,14 @@ bool HandleRendererKeyDown(WPARAM key)
 
     if (key == VK_ESCAPE) {
         HandleEscapeKey(g_hWnd);
+        return true;
+    }
+
+    BgeActiveGameModule activeGame = CurrentActiveGameModule();
+    if (activeGame == BgeActiveGameModule::Inti) {
+        return HandleIntiGameKeyDown(key);
+    }
+    if (activeGame == BgeActiveGameModule::Asteroid && HandleAsteroidGameKeyDown(key)) {
         return true;
     }
 
@@ -9124,7 +10747,7 @@ std::wstring MappingWindowText()
     text << L"  When object 1 is selected: A/D or Left/Right rotate, W/Up thrust, S/Down reverse, Space fires, H hyperspace, P pauses/resumes\r\n";
     text << L"  Bullets split large asteroids into smaller asteroids; edge policy switches to wrap\r\n\r\n";
     text << L"Plugin registry\r\n";
-    text << L"  Worker command: plugin list | plugin import <plugin-id> | plugin import-set asteroids | plugin explain <plugin-id> | plugin commands\r\n";
+    text << L"  Worker command: plugin list | plugin import <plugin-id> | plugin import-set asteroids|inti-chasqui | plugin explain <plugin-id> | plugin commands\r\n";
     text << L"  Worker command: inspect commands\r\n";
     text << L"  Controller command: game-loop: plugin import bge.piece.vector-ship\r\n";
     text << L"  Vector ship piece: plugin import bge.piece.vector-ship, then player-ship create --id player_ship --shape vector-ship --lives lives --input-profile arrows-space --fire shot --hyperspace H\r\n";
@@ -9133,6 +10756,10 @@ std::wstring MappingWindowText()
     text << L"  Counter capability: counter define score 0 min 0 | counter set score 100 | counter add score 20\r\n";
     text << L"  Scoreboard piece: plugin import bge.piece.scoreboard, then scoreboard create --counters score|high-score|lives|wave --anchor top-left --format SCORE:{score}|HIGH:{high-score}|LIVES:{lives}|WAVE:{wave}\r\n";
     text << L"  Title screen piece: plugin import bge.piece.title-screen, then title-screen create --text ASTEROIDS --subtitle PRESS_ENTER --start Enter --next playing --blink\r\n";
+    text << L"  Sprite animator piece: plugin import bge.piece.sprite-sheet-animator, then sprite-sheet create --id chasqui_base --image <png> --columns 8 --rows 1 --frame-size 128x128, animation-sequence create --id tier0 --sheet chasqui_base --frames 0|1|2|3 --fps 8 --loop, actor animation bind --id courier --tier-counter tier --map 0:tier0|1:tier1|2:tier2\r\n";
+    text << L"  Sprite Manager window: sprite-sheet window (load sheets, organize by group/combo/version/perspective)\r\n";
+    text << L"  Template command: sprite-sheet template --name stick-figure --id runner_base --columns 8 --rows 1 --frame-size 128x128 --perspective side\r\n";
+    text << L"  Catalog command: sprite-sheet catalog add --sheet runner_base --group runner --combo base --version 1 --perspective side\r\n";
     text << L"  Current phase executes title-screen, scoreboard, vector-ship, projectile, and breakable-rock-field pieces and discovers the other piece signatures\r\n\r\n";
     text << L"Edge policy\r\n";
     text << L"  Worker command: edge bounce | edge wrap | edge clamp | edge status\r\n";
@@ -9466,6 +11093,560 @@ LRESULT CALLBACK AsteroidAlphaWndProc(HWND hWnd, UINT message, WPARAM wParam, LP
     return DefWindowProcW(hWnd, message, wParam, lParam);
 }
 
+bool RegisterSpriteSheetManagerWindowClass()
+{
+    WNDCLASSEXW existing{};
+    if (GetClassInfoExW(hInst, kBgeSpriteManagerWindowClass, &existing)) {
+        return true;
+    }
+
+    WNDCLASSEXW windowClass{};
+    windowClass.cbSize = sizeof(windowClass);
+    windowClass.style = CS_HREDRAW | CS_VREDRAW;
+    windowClass.lpfnWndProc = SpriteManagerWndProc;
+    windowClass.hInstance = hInst;
+    windowClass.hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_BASICGAMEENGINE));
+    windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    windowClass.lpszClassName = kBgeSpriteManagerWindowClass;
+    windowClass.hIconSm = LoadIcon(hInst, MAKEINTRESOURCE(IDI_SMALL));
+    return RegisterClassExW(&windowClass) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+}
+
+void LayoutSpriteSheetManagerWindow(HWND hWnd)
+{
+    RECT client{};
+    GetClientRect(hWnd, &client);
+    int width = (std::max)(560, static_cast<int>(client.right - client.left));
+    int height = (std::max)(460, static_cast<int>(client.bottom - client.top));
+
+    if (g_spriteManagerStatus) SetWindowPos(g_spriteManagerStatus, nullptr, 16, 12, width - 32, 20, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_spriteManagerList) SetWindowPos(g_spriteManagerList, nullptr, 16, 40, width - 32, 128, SWP_NOZORDER | SWP_NOACTIVATE);
+
+    int top = 180;
+    int labelW = 72;
+    int editW = (width - 56 - labelW * 2) / 2;
+    int rightColX = 16 + labelW + editW + 24;
+
+    auto placePair = [&](HWND leftEdit, HWND rightEdit, int rowY, int rightWidth = -1) {
+        if (leftEdit) SetWindowPos(leftEdit, nullptr, 16 + labelW, rowY, editW, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+        if (rightEdit) SetWindowPos(rightEdit, nullptr, rightColX + labelW, rowY, rightWidth > 0 ? rightWidth : editW, 24, SWP_NOZORDER | SWP_NOACTIVATE);
+    };
+
+    placePair(g_spriteIdEdit, g_spriteImageEdit, top, editW);
+    placePair(g_spriteColumnsEdit, g_spriteRowsEdit, top + 34);
+    placePair(g_spriteFrameWEdit, g_spriteFrameHEdit, top + 68);
+    placePair(g_spriteGroupEdit, g_spriteComboEdit, top + 102);
+    placePair(g_spriteVersionEdit, g_spritePerspectiveEdit, top + 136, editW);
+
+    int buttonY = top + 178;
+    if (g_spriteImportPluginButton) SetWindowPos(g_spriteImportPluginButton, nullptr, 16, buttonY, 108, 28, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_spriteTemplateButton) SetWindowPos(g_spriteTemplateButton, nullptr, 132, buttonY, 104, 28, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_spriteCreateButton) SetWindowPos(g_spriteCreateButton, nullptr, 244, buttonY, 104, 28, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_spriteRegisterButton) SetWindowPos(g_spriteRegisterButton, nullptr, 356, buttonY, 128, 28, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_spriteRefreshButton) SetWindowPos(g_spriteRefreshButton, nullptr, 492, buttonY, 84, 28, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void RefreshSpriteSheetManagerWindow()
+{
+    if (!g_spriteManagerWindow || !IsWindow(g_spriteManagerWindow)) {
+        return;
+    }
+
+    std::vector<BgeSpriteSheetCatalogEntry> catalog;
+    size_t sheetCount = 0;
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        catalog = g_spriteSheetAnimatorState.catalogEntries;
+        sheetCount = g_spriteSheetAnimatorState.sheets.size();
+    }
+
+    if (g_spriteManagerList) {
+        SendMessageW(g_spriteManagerList, LB_RESETCONTENT, 0, 0);
+        for (const auto& entry : catalog) {
+            std::wstring line = entry.sheetId + L" | " + entry.groupName + L" / " + entry.comboName
+                + L" v" + std::to_wstring(entry.version) + L" | " + entry.perspective;
+            SendMessageW(g_spriteManagerList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(line.c_str()));
+        }
+    }
+    if (g_spriteManagerStatus) {
+        std::wstring status = L"Sprite sheets=" + std::to_wstring(sheetCount)
+            + L" | catalog=" + std::to_wstring(catalog.size())
+            + L" | organize with group/combo/version";
+        SetWindowTextW(g_spriteManagerStatus, status.c_str());
+    }
+}
+
+bool WriteStickFigureTemplateBmp(const std::wstring& path, int frameWidth, int frameHeight, int columns, int rows, const std::wstring& perspective)
+{
+    frameWidth = (std::max)(32, frameWidth);
+    frameHeight = (std::max)(32, frameHeight);
+    columns = (std::max)(1, columns);
+    rows = (std::max)(1, rows);
+
+    int imageWidth = frameWidth * columns;
+    int imageHeight = frameHeight * rows;
+    int rowBytesUnpadded = imageWidth * 3;
+    int rowBytes = (rowBytesUnpadded + 3) & ~3;
+    int imageSize = rowBytes * imageHeight;
+
+    std::vector<unsigned char> pixels(static_cast<size_t>(imageSize), 255);
+
+    auto pixelOffset = [&](int x, int y) -> size_t {
+        int clampedX = (std::max)(0, (std::min)(imageWidth - 1, x));
+        int clampedY = (std::max)(0, (std::min)(imageHeight - 1, y));
+        int bmpY = imageHeight - 1 - clampedY;
+        return static_cast<size_t>(bmpY * rowBytes + clampedX * 3);
+    };
+
+    auto putPixel = [&](int x, int y, unsigned char r, unsigned char g, unsigned char b) {
+        size_t offset = pixelOffset(x, y);
+        pixels[offset + 0] = b;
+        pixels[offset + 1] = g;
+        pixels[offset + 2] = r;
+    };
+
+    auto drawLine = [&](int x0, int y0, int x1, int y1, unsigned char r, unsigned char g, unsigned char b) {
+        int dx = std::abs(x1 - x0);
+        int sx = x0 < x1 ? 1 : -1;
+        int dy = -std::abs(y1 - y0);
+        int sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy;
+        while (true) {
+            putPixel(x0, y0, r, g, b);
+            if (x0 == x1 && y0 == y1) {
+                break;
+            }
+            int e2 = 2 * err;
+            if (e2 >= dy) {
+                err += dy;
+                x0 += sx;
+            }
+            if (e2 <= dx) {
+                err += dx;
+                y0 += sy;
+            }
+        }
+    };
+
+    auto drawCircle = [&](int cx, int cy, int radius, unsigned char r, unsigned char g, unsigned char b) {
+        int x = radius;
+        int y = 0;
+        int err = 0;
+        while (x >= y) {
+            putPixel(cx + x, cy + y, r, g, b);
+            putPixel(cx + y, cy + x, r, g, b);
+            putPixel(cx - y, cy + x, r, g, b);
+            putPixel(cx - x, cy + y, r, g, b);
+            putPixel(cx - x, cy - y, r, g, b);
+            putPixel(cx - y, cy - x, r, g, b);
+            putPixel(cx + y, cy - x, r, g, b);
+            putPixel(cx + x, cy - y, r, g, b);
+            y += 1;
+            if (err <= 0) {
+                err += 2 * y + 1;
+            }
+            else {
+                x -= 1;
+                err -= 2 * x + 1;
+            }
+        }
+    };
+
+    auto lowerPerspective = LowerArg(perspective);
+    float armBias = 0.0f;
+    float legBias = 0.0f;
+    if (lowerPerspective == L"front") {
+        armBias = 0.0f;
+        legBias = 0.0f;
+    }
+    else if (lowerPerspective == L"isometric") {
+        armBias = 0.18f;
+        legBias = 0.14f;
+    }
+    else {
+        armBias = 0.28f;
+        legBias = 0.2f;
+    }
+
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < columns; ++col) {
+            int left = col * frameWidth;
+            int top = row * frameHeight;
+            int cx = left + frameWidth / 2;
+            int headY = top + frameHeight / 5;
+            int neckY = top + frameHeight / 3;
+            int hipY = top + (frameHeight * 2) / 3;
+            int footY = top + frameHeight - frameHeight / 10;
+            int armSpan = static_cast<int>(frameWidth * (0.18f + armBias));
+            int legSpan = static_cast<int>(frameWidth * (0.12f + legBias));
+            int phase = (col + row * columns) % 4;
+            int swing = phase < 2 ? 1 : -1;
+
+            // Frame border guide to draw over in external editors.
+            for (int x = left; x < left + frameWidth; ++x) {
+                putPixel(x, top, 220, 220, 220);
+                putPixel(x, top + frameHeight - 1, 220, 220, 220);
+            }
+            for (int y = top; y < top + frameHeight; ++y) {
+                putPixel(left, y, 220, 220, 220);
+                putPixel(left + frameWidth - 1, y, 220, 220, 220);
+            }
+
+            drawCircle(cx, headY, (std::max)(4, frameWidth / 10), 30, 30, 30);
+            drawLine(cx, neckY, cx, hipY, 30, 30, 30);
+            drawLine(cx, neckY + frameHeight / 14, cx - armSpan, neckY + frameHeight / 10 + swing * 3, 30, 30, 30);
+            drawLine(cx, neckY + frameHeight / 14, cx + armSpan, neckY + frameHeight / 10 - swing * 3, 30, 30, 30);
+            drawLine(cx, hipY, cx - legSpan, footY - swing * 2, 30, 30, 30);
+            drawLine(cx, hipY, cx + legSpan, footY + swing * 2, 30, 30, 30);
+        }
+    }
+
+#pragma pack(push, 1)
+    struct BmpFileHeader {
+        unsigned short type;
+        unsigned int size;
+        unsigned short reserved1;
+        unsigned short reserved2;
+        unsigned int offBits;
+    };
+    struct BmpInfoHeader {
+        unsigned int size;
+        int width;
+        int height;
+        unsigned short planes;
+        unsigned short bitCount;
+        unsigned int compression;
+        unsigned int sizeImage;
+        int xPelsPerMeter;
+        int yPelsPerMeter;
+        unsigned int clrUsed;
+        unsigned int clrImportant;
+    };
+#pragma pack(pop)
+
+    static_assert(sizeof(BmpFileHeader) == 14, "BMP file header must be 14 bytes");
+    static_assert(sizeof(BmpInfoHeader) == 40, "BMP info header must be 40 bytes");
+
+    BmpFileHeader fileHeader{};
+    fileHeader.type = 0x4D42;
+    fileHeader.offBits = sizeof(BmpFileHeader) + sizeof(BmpInfoHeader);
+    fileHeader.size = fileHeader.offBits + static_cast<unsigned int>(imageSize);
+
+    BmpInfoHeader infoHeader{};
+    infoHeader.size = sizeof(BmpInfoHeader);
+    infoHeader.width = imageWidth;
+    infoHeader.height = imageHeight;
+    infoHeader.planes = 1;
+    infoHeader.bitCount = 24;
+    infoHeader.compression = 0;
+    infoHeader.sizeImage = static_cast<unsigned int>(imageSize);
+    infoHeader.xPelsPerMeter = 2835;
+    infoHeader.yPelsPerMeter = 2835;
+
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) {
+        return false;
+    }
+    out.write(reinterpret_cast<const char*>(&fileHeader), sizeof(fileHeader));
+    out.write(reinterpret_cast<const char*>(&infoHeader), sizeof(infoHeader));
+    out.write(reinterpret_cast<const char*>(pixels.data()), static_cast<std::streamsize>(pixels.size()));
+    return static_cast<bool>(out);
+}
+
+void GenerateSpriteTemplateFromManagerControls()
+{
+    auto readControlText = [](HWND control) -> std::wstring {
+        if (!control) return L"";
+        wchar_t buffer[1024]{};
+        GetWindowTextW(control, buffer, static_cast<int>(std::size(buffer)));
+        return TrimText(buffer);
+    };
+
+    std::wstring id = NormalizeTitleScreenText(readControlText(g_spriteIdEdit));
+    if (id.empty()) {
+        id = L"stick_template";
+        if (g_spriteIdEdit) SetWindowTextW(g_spriteIdEdit, id.c_str());
+    }
+
+    int columns = 8;
+    int rows = 1;
+    int frameW = 128;
+    int frameH = 128;
+    std::wstring perspective = NormalizeTitleScreenText(readControlText(g_spritePerspectiveEdit));
+    if (perspective.empty()) {
+        perspective = L"side";
+        if (g_spritePerspectiveEdit) SetWindowTextW(g_spritePerspectiveEdit, perspective.c_str());
+    }
+    TryParseIntArg(readControlText(g_spriteColumnsEdit), columns);
+    TryParseIntArg(readControlText(g_spriteRowsEdit), rows);
+    TryParseIntArg(readControlText(g_spriteFrameWEdit), frameW);
+    TryParseIntArg(readControlText(g_spriteFrameHEdit), frameH);
+
+    std::filesystem::path outputDir = std::filesystem::current_path() / "exports" / "sprites" / "templates";
+    std::error_code ec;
+    std::filesystem::create_directories(outputDir, ec);
+    std::wstring fileId = SanitizeFileToken(id);
+    std::wstring filePerspective = SanitizeFileToken(perspective);
+    std::filesystem::path outputPath = outputDir / (Narrow(fileId) + "." + Narrow(filePerspective) + ".stick-template.bmp");
+
+    if (!WriteStickFigureTemplateBmp(outputPath.wstring(), frameW, frameH, columns, rows, perspective)) {
+        SetCommandStatus(L"Sprite template write failed");
+        return;
+    }
+
+    if (g_spriteImageEdit) {
+        SetWindowTextW(g_spriteImageEdit, outputPath.wstring().c_str());
+    }
+    if (g_spriteGroupEdit) {
+        SetWindowTextW(g_spriteGroupEdit, L"template");
+    }
+    if (g_spriteComboEdit) {
+        SetWindowTextW(g_spriteComboEdit, L"stick");
+    }
+    SetCommandStatus(L"Sprite template ready: " + outputPath.wstring() + L" (draw over and click Load Sheet)");
+}
+
+void ApplySpriteSheetFromManagerControls()
+{
+    auto readControlText = [](HWND control) -> std::wstring {
+        if (!control) return L"";
+        wchar_t buffer[1024]{};
+        GetWindowTextW(control, buffer, static_cast<int>(std::size(buffer)));
+        return TrimText(buffer);
+    };
+
+    std::wstring id = NormalizeTitleScreenText(readControlText(g_spriteIdEdit));
+    std::wstring image = readControlText(g_spriteImageEdit);
+    std::wstring columns = readControlText(g_spriteColumnsEdit);
+    std::wstring rows = readControlText(g_spriteRowsEdit);
+    std::wstring frameW = readControlText(g_spriteFrameWEdit);
+    std::wstring frameH = readControlText(g_spriteFrameHEdit);
+
+    std::wstring statusText;
+    if (id.empty() || image.empty()) {
+        statusText = L"Sprite Manager: id and image are required";
+        SetCommandStatus(statusText);
+        return;
+    }
+
+    std::wstring command = L"sprite-sheet create --id " + CommandFileArg(id)
+        + L" --image " + CommandFileArg(image)
+        + L" --columns " + (columns.empty() ? L"8" : columns)
+        + L" --rows " + (rows.empty() ? L"1" : rows)
+        + L" --frame-size " + (frameW.empty() ? L"128" : frameW) + L"x" + (frameH.empty() ? L"128" : frameH)
+        + L" --alpha-source straight --alpha-cutoff 0.1 --preserve-alpha --transparent-background";
+
+    bool ok = ExecuteCommandText(command, statusText);
+    SetCommandStatus(statusText);
+    if (ok) {
+        RegisterSpriteSheetCatalogFromManagerControls();
+        RefreshSpriteSheetManagerWindow();
+    }
+}
+
+void RegisterSpriteSheetCatalogFromManagerControls()
+{
+    auto readControlText = [](HWND control) -> std::wstring {
+        if (!control) return L"";
+        wchar_t buffer[512]{};
+        GetWindowTextW(control, buffer, static_cast<int>(std::size(buffer)));
+        return TrimText(buffer);
+    };
+
+    std::wstring sheetId = NormalizeTitleScreenText(readControlText(g_spriteIdEdit));
+    std::wstring groupName = NormalizeTitleScreenText(readControlText(g_spriteGroupEdit));
+    std::wstring comboName = NormalizeTitleScreenText(readControlText(g_spriteComboEdit));
+    std::wstring versionText = readControlText(g_spriteVersionEdit);
+    std::wstring perspective = NormalizeTitleScreenText(readControlText(g_spritePerspectiveEdit));
+    int version = 1;
+    TryParseIntArg(versionText, version);
+    version = (std::max)(1, version);
+
+    if (sheetId.empty()) {
+        SetCommandStatus(L"Sprite Manager: sheet id required for catalog");
+        return;
+    }
+    if (groupName.empty()) groupName = L"default";
+    if (comboName.empty()) comboName = L"base";
+    if (perspective.empty()) perspective = L"side";
+
+    {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        BgeSpriteSheetCatalogEntry* existing = nullptr;
+        for (auto& entry : g_spriteSheetAnimatorState.catalogEntries) {
+            if (entry.sheetId == sheetId) {
+                existing = &entry;
+                break;
+            }
+        }
+        if (existing) {
+            existing->groupName = groupName;
+            existing->comboName = comboName;
+            existing->version = version;
+            existing->perspective = perspective;
+        }
+        else {
+            BgeSpriteSheetCatalogEntry entry;
+            entry.sheetId = sheetId;
+            entry.groupName = groupName;
+            entry.comboName = comboName;
+            entry.version = version;
+            entry.perspective = perspective;
+            g_spriteSheetAnimatorState.catalogEntries.push_back(entry);
+        }
+    }
+
+    SetCommandStatus(L"Sprite catalog saved: " + sheetId + L" -> " + groupName + L"/" + comboName + L" v" + std::to_wstring(version) + L" | " + perspective);
+    RefreshSpriteSheetManagerWindow();
+}
+
+void CreateSpriteSheetManagerWindowControls(HWND hWnd)
+{
+    g_spriteManagerStatus = CreateControl(hWnd, L"STATIC", L"Sprite Manager", 0, IDC_BGE_SPRITE_MANAGER_STATUS, 16, 12, 560, 20);
+    g_spriteManagerList = CreateControl(hWnd, L"LISTBOX", L"", WS_BORDER | WS_VSCROLL | LBS_NOINTEGRALHEIGHT, IDC_BGE_SPRITE_MANAGER_LIST, 16, 40, 560, 128);
+
+    CreateControl(hWnd, L"STATIC", L"Sheet ID", 0, 0, 16, 184, 72, 20);
+    g_spriteIdEdit = CreateControl(hWnd, L"EDIT", L"chasqui_base", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_SPRITE_ID, 88, 180, 180, 24);
+    CreateControl(hWnd, L"STATIC", L"Image", 0, 0, 292, 184, 72, 20);
+    g_spriteImageEdit = CreateControl(hWnd, L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_SPRITE_IMAGE, 364, 180, 200, 24);
+
+    CreateControl(hWnd, L"STATIC", L"Columns", 0, 0, 16, 218, 72, 20);
+    g_spriteColumnsEdit = CreateControl(hWnd, L"EDIT", L"8", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_SPRITE_COLUMNS, 88, 214, 180, 24);
+    CreateControl(hWnd, L"STATIC", L"Rows", 0, 0, 292, 218, 72, 20);
+    g_spriteRowsEdit = CreateControl(hWnd, L"EDIT", L"1", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_SPRITE_ROWS, 364, 214, 200, 24);
+
+    CreateControl(hWnd, L"STATIC", L"Frame W", 0, 0, 16, 252, 72, 20);
+    g_spriteFrameWEdit = CreateControl(hWnd, L"EDIT", L"128", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_SPRITE_FRAME_W, 88, 248, 180, 24);
+    CreateControl(hWnd, L"STATIC", L"Frame H", 0, 0, 292, 252, 72, 20);
+    g_spriteFrameHEdit = CreateControl(hWnd, L"EDIT", L"128", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_SPRITE_FRAME_H, 364, 248, 200, 24);
+
+    CreateControl(hWnd, L"STATIC", L"Group", 0, 0, 16, 286, 72, 20);
+    g_spriteGroupEdit = CreateControl(hWnd, L"EDIT", L"runner", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_SPRITE_GROUP, 88, 282, 180, 24);
+    CreateControl(hWnd, L"STATIC", L"Combo", 0, 0, 292, 286, 72, 20);
+    g_spriteComboEdit = CreateControl(hWnd, L"EDIT", L"base", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_SPRITE_COMBO, 364, 282, 200, 24);
+
+    CreateControl(hWnd, L"STATIC", L"Version", 0, 0, 16, 320, 72, 20);
+    g_spriteVersionEdit = CreateControl(hWnd, L"EDIT", L"1", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_SPRITE_VERSION, 88, 316, 96, 24);
+    CreateControl(hWnd, L"STATIC", L"Perspective", 0, 0, 292, 320, 72, 20);
+    g_spritePerspectiveEdit = CreateControl(hWnd, L"EDIT", L"side", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_SPRITE_PERSPECTIVE, 364, 316, 200, 24);
+
+    g_spriteImportPluginButton = CreateControl(hWnd, L"BUTTON", L"Import", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_SPRITE_IMPORT_PLUGIN, 16, 358, 108, 28);
+    g_spriteTemplateButton = CreateControl(hWnd, L"BUTTON", L"Template", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_SPRITE_TEMPLATE, 132, 358, 104, 28);
+    g_spriteCreateButton = CreateControl(hWnd, L"BUTTON", L"Load Sheet", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_SPRITE_CREATE, 244, 358, 104, 28);
+    g_spriteRegisterButton = CreateControl(hWnd, L"BUTTON", L"Save Catalog", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_SPRITE_REGISTER, 356, 358, 128, 28);
+    g_spriteRefreshButton = CreateControl(hWnd, L"BUTTON", L"Refresh", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_SPRITE_REFRESH, 492, 358, 84, 28);
+
+    LayoutSpriteSheetManagerWindow(hWnd);
+    RefreshSpriteSheetManagerWindow();
+}
+
+void ShowSpriteSheetManagerWindow()
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return;
+    }
+
+    if (g_spriteManagerWindow && IsWindow(g_spriteManagerWindow)) {
+        RefreshSpriteSheetManagerWindow();
+        ShowWindow(g_spriteManagerWindow, SW_SHOWNORMAL);
+        SetForegroundWindow(g_spriteManagerWindow);
+        return;
+    }
+
+    if (!RegisterSpriteSheetManagerWindowClass()) {
+        SetCommandStatus(L"Sprite Manager window unavailable");
+        return;
+    }
+
+    g_spriteManagerWindow = CreateWindowW(kBgeSpriteManagerWindowClass, L"BasicGameEngine - Sprite Sheet Manager", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+        CW_USEDEFAULT, 0, 620, 500, g_hWnd, nullptr, hInst, nullptr);
+    if (!g_spriteManagerWindow) {
+        SetCommandStatus(L"Sprite Manager window unavailable");
+        return;
+    }
+
+    ShowWindow(g_spriteManagerWindow, SW_SHOWNORMAL);
+    UpdateWindow(g_spriteManagerWindow);
+    SetForegroundWindow(g_spriteManagerWindow);
+    SetCommandStatus(L"Sprite Manager window open");
+}
+
+LRESULT CALLBACK SpriteManagerWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message) {
+    case WM_CREATE:
+        CreateSpriteSheetManagerWindowControls(hWnd);
+        return 0;
+
+    case WM_SIZE:
+        LayoutSpriteSheetManagerWindow(hWnd);
+        return 0;
+
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDC_BGE_SPRITE_IMPORT_PLUGIN) {
+            std::wstring statusText;
+            ExecuteCommandText(L"plugin import bge.piece.sprite-sheet-animator", statusText);
+            SetCommandStatus(statusText);
+            RefreshSpriteSheetManagerWindow();
+            return 0;
+        }
+        if (LOWORD(wParam) == IDC_BGE_SPRITE_CREATE) {
+            ApplySpriteSheetFromManagerControls();
+            return 0;
+        }
+        if (LOWORD(wParam) == IDC_BGE_SPRITE_TEMPLATE) {
+            GenerateSpriteTemplateFromManagerControls();
+            return 0;
+        }
+        if (LOWORD(wParam) == IDC_BGE_SPRITE_REGISTER) {
+            RegisterSpriteSheetCatalogFromManagerControls();
+            return 0;
+        }
+        if (LOWORD(wParam) == IDC_BGE_SPRITE_REFRESH) {
+            RefreshSpriteSheetManagerWindow();
+            return 0;
+        }
+        break;
+
+    case WM_KEYDOWN:
+        if (wParam == VK_ESCAPE) {
+            SendMessageW(hWnd, WM_CLOSE, 0, 0);
+            return 0;
+        }
+        break;
+
+    case WM_CLOSE:
+        ShowWindow(hWnd, SW_HIDE);
+        return 0;
+
+    case WM_DESTROY:
+        if (hWnd == g_spriteManagerWindow) {
+            g_spriteManagerWindow = nullptr;
+            g_spriteManagerStatus = nullptr;
+            g_spriteManagerList = nullptr;
+            g_spriteIdEdit = nullptr;
+            g_spriteImageEdit = nullptr;
+            g_spriteColumnsEdit = nullptr;
+            g_spriteRowsEdit = nullptr;
+            g_spriteFrameWEdit = nullptr;
+            g_spriteFrameHEdit = nullptr;
+            g_spriteGroupEdit = nullptr;
+            g_spriteComboEdit = nullptr;
+            g_spriteVersionEdit = nullptr;
+            g_spritePerspectiveEdit = nullptr;
+            g_spriteCreateButton = nullptr;
+            g_spriteRegisterButton = nullptr;
+            g_spriteImportPluginButton = nullptr;
+            g_spriteRefreshButton = nullptr;
+            g_spriteTemplateButton = nullptr;
+        }
+        return 0;
+    }
+
+    return DefWindowProcW(hWnd, message, wParam, lParam);
+}
+
 LRESULT CALLBACK CommandEditProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     if (message == WM_KEYDOWN && wParam == VK_RETURN) {
@@ -9553,8 +11734,9 @@ void CreateBallControls(HWND hWnd)
     g_velocityYEdit = CreateControl(hWnd, L"EDIT", L"135", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_BGE_VELOCITY_Y, 520, 5, 58, 24);
     g_applyVectorButton = CreateControl(hWnd, L"BUTTON", L"Set Vector", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_APPLY_VECTOR, 586, 5, 86, 24);
     g_loadBackgroundButton = CreateControl(hWnd, L"BUTTON", L"Background", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_LOAD_BACKGROUND, 680, 5, 96, 24);
-    g_openMappingButton = CreateControl(hWnd, L"BUTTON", L"Mapping", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_OPEN_MAPPING, 784, 5, 80, 24);
-    g_editModeStatus = CreateControl(hWnd, L"STATIC", L"Translate 1x", 0, IDC_BGE_EDIT_MODE_STATUS, 872, 9, 100, 20);
+    g_openMappingButton = CreateControl(hWnd, L"BUTTON", L"Mapping", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_OPEN_MAPPING, 784, 5, 72, 24);
+    g_openSpriteManagerButton = CreateControl(hWnd, L"BUTTON", L"Sprites", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_OPEN_SPRITE_MANAGER, 862, 5, 74, 24);
+    g_editModeStatus = CreateControl(hWnd, L"STATIC", L"Translate 1x", 0, IDC_BGE_EDIT_MODE_STATUS, 944, 9, 80, 20);
 
     CreateControl(hWnd, L"STATIC", L"Group", 0, 0, 8, 42, 44, 20);
     g_objectGroupCombo = CreateControl(hWnd, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, IDC_BGE_OBJECT_GROUP_COMBO, 58, 38, 132, 180);
@@ -10252,6 +12434,7 @@ void SyncBallControls()
     swprintf_s(value, L"%d", static_cast<int>(selectedSlot.colorB * 255.0f));
     if (g_colorBEdit) SetWindowTextW(g_colorBEdit, value);
     RefreshAsteroidAlphaWindow();
+    RefreshSpriteSheetManagerWindow();
 
     for (int index = 0; index < BGE_OBJECT_SLOT_COUNT; ++index) {
         wchar_t label[16]{};
@@ -10306,6 +12489,7 @@ void SyncBallControls()
         g_stopAnimationButton,
         g_loadBackgroundButton,
         g_openMappingButton,
+        g_openSpriteManagerButton,
         g_editModeStatus,
         g_velocityXEdit,
         g_velocityYEdit,
@@ -10989,6 +13173,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         case IDC_BGE_OPEN_MAPPING:
             ShowMappingWindow();
+            break;
+
+        case IDC_BGE_OPEN_SPRITE_MANAGER:
+            ShowSpriteSheetManagerWindow();
             break;
 
         case IDC_BGE_APPLY_VECTOR:
