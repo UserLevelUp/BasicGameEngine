@@ -1,0 +1,8 @@
+# Absent-safe witness recipe — S2 separation hardening.
+# Issues an inti command (which requires IntiGame.dll) followed by an
+# engine-neutral authoring command. With the DLL absent, the inti command
+# must fail with a visible "inti unavailable" status while the engine stays
+# alive and still executes the authoring command. With the DLL present, the
+# plugin loads and the photo-run starts normally.
+inti photo-run
+author start absent-safe-witness
