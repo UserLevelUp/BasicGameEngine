@@ -723,6 +723,7 @@ void GenerateSpriteTemplateFromManagerControls();
 bool WriteStickFigureTemplateBmp(const std::wstring& path, int frameWidth, int frameHeight, int columns, int rows, const std::wstring& perspective);
 BgeGameViewport CurrentGameViewport();
 BgeGameRuntime CreateGameRuntime();
+void SetGameSceneGeometry(const std::vector<BgeColorVertex>& vertices);
 void ActivateExclusiveGameModule(BgeActiveGameModule module, bool preserveTitleScreen);
 BgeActiveGameModule CurrentActiveGameModule();
 bool ExecuteAsteroidGameModuleCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
@@ -1673,8 +1674,10 @@ void ClearGameTitleScreen()
 
 void ActivateExclusiveGameModule(BgeActiveGameModule module, bool preserveTitleScreen)
 {
+    bool moduleChanged = false;
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
+        moduleChanged = g_activeGameModule != module;
         g_activeGameModule = module;
         if (module != BgeActiveGameModule::None) {
             g_vectorShipInputState = BgeVectorShipInputState{};
@@ -1688,6 +1691,13 @@ void ActivateExclusiveGameModule(BgeActiveGameModule module, bool preserveTitleS
             }
         }
         g_rendererStateDirty = true;
+    }
+    if (moduleChanged) {
+        // Exclusive means exclusive: the outgoing module's scene geometry
+        // (e.g. the Inti corridor/dot map) must not linger as a frozen ghost
+        // under the incoming module. Slots self-heal (every module's start
+        // rebuilds all slots) but geometry has no other owner-switch hook.
+        SetGameSceneGeometry(std::vector<BgeColorVertex>{});
     }
     InvalidateGameRenderer();
 }
@@ -1735,10 +1745,16 @@ BgeGameRuntime CreateGameRuntime()
 
 bool ExecuteAsteroidGameModuleCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
 {
+    // Activate BEFORE the command runs (mirror of the Inti path): the
+    // exclusive-switch ghost clear must precede the module building its
+    // scene, and the outgoing module must stop ticking before slots are
+    // rebuilt. Restore the previous module if the command fails.
+    BgeActiveGameModule previousModule = CurrentActiveGameModule();
+    ActivateExclusiveGameModule(BgeActiveGameModule::Asteroid, false);
     BgeGameRuntime runtime = CreateGameRuntime();
     bool ok = BgeAsteroidGameModule().OnCommand(runtime, tokens, statusText);
-    if (ok) {
-        ActivateExclusiveGameModule(BgeActiveGameModule::Asteroid, false);
+    if (!ok) {
+        ActivateExclusiveGameModule(previousModule, true);
     }
     return ok;
 }
@@ -1817,10 +1833,16 @@ bool ExecuteIntiGameModuleCommand(const std::vector<std::wstring>& tokens, std::
         statusText = L"inti unavailable - " + g_intiGameModuleLoadError;
         return false;
     }
+    // Activate BEFORE the command runs so the exclusive-switch ghost clear
+    // (previous module's scene geometry) happens before Inti builds its own
+    // scene; activating after would wipe the freshly built map. Restore the
+    // previous module if the command fails so a typo can't hijack the mode.
+    BgeActiveGameModule previousModule = CurrentActiveGameModule();
+    ActivateExclusiveGameModule(BgeActiveGameModule::Inti, true);
     BgeGameRuntime runtime = CreateGameRuntime();
     bool ok = intiModule->OnCommand(runtime, tokens, statusText);
-    if (ok) {
-        ActivateExclusiveGameModule(BgeActiveGameModule::Inti, true);
+    if (!ok) {
+        ActivateExclusiveGameModule(previousModule, true);
     }
     return ok;
 }
