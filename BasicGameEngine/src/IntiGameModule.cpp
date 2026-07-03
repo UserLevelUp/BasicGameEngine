@@ -1262,7 +1262,9 @@ private:
         photoTargetT_ = 0.0f;
         photoLastRoll_ = 0;
         photoQueuedTurnDir_ = 0;
-        photoAutoRun_ = true;
+        // Redline R1: the run must not start until the player commits a
+        // direction (Up/W forward, Down/S reverse, Space resume).
+        photoAutoRun_ = false;
         photoPauseAtNextDot_ = false;
         // Rest the courier at the nearest checkpoint node so it begins parked
         // at a tourist stop; the player aims a direction, then hits Space to go.
@@ -1334,7 +1336,7 @@ private:
                << L" | tourist-checkpoint " << photoVisitedCount_ << L"/" << photoCheckpoints_.size()
                << L" | path-dot " << photoDotsCollected_ << L"/" << photoDots_.size()
                << L" | source " << (photoSource_.empty() ? L"embedded" : photoSource_);
-        stream << L" | " << (photoTravelDir_ != 0 ? L"running" : L"paused");
+        stream << L" | " << (photoTravelDir_ != 0 ? L"running" : (photoAutoRun_ ? L"paused" : L"ready - press Up/W or Down/S to run"));
         if (photoQueuedTurnDir_ != 0 && photoNode_ < 0) {
             stream << L" | queued-turn " << (photoQueuedTurnDir_ > 0 ? L"right" : L"left");
         }
@@ -2760,7 +2762,8 @@ private:
         photoFacingDir_ = 1;
         photoTargetT_ = 0.0f;
         photoLastRoll_ = 0;
-        photoAutoRun_ = true;
+        // Redline R1: reset to input-gated idle; movement keys start the run.
+        photoAutoRun_ = false;
         photoPauseAtNextDot_ = false;
         photoVisitedCount_ = 0;
         photoDotsCollected_ = 0;
@@ -3617,7 +3620,7 @@ private:
     float photoTargetT_ = 0.0f;     // edge parameter the current step is animating toward
     int photoLastRoll_ = 0;         // retained for compatibility/legacy telemetry
     int photoQueuedTurnDir_ = 0;    // -1=queue left, +1=queue right at next junction
-    bool photoAutoRun_ = true;      // continuous movement mode (default on)
+    bool photoAutoRun_ = false;     // continuous movement mode (input-gated: off until a movement key)
     bool photoPauseAtNextDot_ = false; // space toggles pause on next step target
     // Pathing-UI redline (warp bge.engine.warp.inti-pathing-ui-redline).
     // Slice A plumbing: focused group + per-group candidate ids; styling
