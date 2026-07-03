@@ -132,6 +132,7 @@ constexpr int IDC_BGE_ASTEROID_APPLY_RGBA = 42924;
 constexpr int IDC_BGE_ASTEROID_APPLY_SHAPE = 42925;
 constexpr int IDC_BGE_ASTEROID_STATUS = 42926;
 constexpr int IDC_BGE_ASTEROID_GAME_PRESET = 42927;
+constexpr int IDC_BGE_SELECTED_GAME_COMBO = 42928;
 constexpr int IDC_BGE_ASTEROID_GAME_WORKER = 42930;
 constexpr int IDC_BGE_ASTEROID_FIRE = 42931;
 constexpr int IDC_BGE_ASTEROID_HYPERSPACE = 42932;
@@ -586,6 +587,7 @@ HWND g_asteroidAEdit = nullptr;
 HWND g_asteroidApplyRgbaButton = nullptr;
 HWND g_asteroidApplyShapeButton = nullptr;
 HWND g_asteroidStatus = nullptr;
+HWND g_selectedGameCombo = nullptr;
 HWND g_spriteManagerWindow = nullptr;
 HWND g_spriteManagerStatus = nullptr;
 HWND g_spriteManagerList = nullptr;
@@ -792,6 +794,7 @@ void SelectGhostGroupFromControls();
 void ToggleGhostGroupFromControls();
 void SetMainPlayerFromControls();
 void ExecuteAsteroidCommandFromControls(const wchar_t* commandText);
+void ExecuteSelectedGameFromControls();
 void SelectSoundSlotFromControls(int slotIndex);
 void AdvanceSoundSlotLoop();
 std::vector<std::wstring> TokenizeCommandText(const std::wstring& commandText);
@@ -12060,8 +12063,12 @@ void CreateBallControls(HWND hWnd)
         g_commandEditOriginalProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(g_commandEdit, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(CommandEditProc)));
     }
     g_runCommandButton = CreateControl(hWnd, L"BUTTON", L"Run", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_RUN_COMMAND, 310, 100, 46, 24);
-    g_asteroidGameWorkerButton = CreateControl(hWnd, L"BUTTON", L"Game", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_GAME_WORKER, 364, 100, 56, 24);
-    g_asteroidFireButton = CreateControl(hWnd, L"BUTTON", L"Fire", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_FIRE, 426, 100, 48, 24);
+    g_selectedGameCombo = CreateControl(hWnd, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, IDC_BGE_SELECTED_GAME_COMBO, 364, 100, 96, 120);
+    SendMessageW(g_selectedGameCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Asteroids"));
+    SendMessageW(g_selectedGameCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Inti"));
+    SendMessageW(g_selectedGameCombo, CB_SETCURSEL, 0, 0);
+    g_asteroidGameWorkerButton = CreateControl(hWnd, L"BUTTON", L"Game", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_GAME_WORKER, 466, 100, 56, 24);
+    g_asteroidFireButton = CreateControl(hWnd, L"BUTTON", L"Fire", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_FIRE, 528, 100, 48, 24);
     g_asteroidHyperspaceButton = CreateControl(hWnd, L"BUTTON", L"Hyper", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_HYPERSPACE, 480, 100, 62, 24);
     g_asteroidPauseButton = CreateControl(hWnd, L"BUTTON", L"Pause", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_PAUSE, 548, 100, 58, 24);
     g_asteroidResumeButton = CreateControl(hWnd, L"BUTTON", L"Resume", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_ASTEROID_RESUME, 612, 100, 70, 24);
@@ -12121,6 +12128,7 @@ void LayoutBallControls(HWND hWnd)
     placeRight(g_asteroidHyperspaceButton, 62, !tiny);
     placeRight(g_asteroidFireButton, 48);
     placeRight(g_asteroidGameWorkerButton, 56);
+    placeRight(g_selectedGameCombo, 96);
     placeRight(g_runCommandButton, 46);
 
     if (g_commandEdit) {
@@ -12677,6 +12685,23 @@ void ExecuteAsteroidCommandFromControls(const wchar_t* commandText)
     }
 }
 
+void ExecuteSelectedGameFromControls()
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        return;
+    }
+
+    LRESULT selection = g_selectedGameCombo ? SendMessageW(g_selectedGameCombo, CB_GETCURSEL, 0, 0) : 0;
+    const wchar_t* commandText = selection == 1 ? L"inti game" : L"asteroid game";
+
+    std::wstring statusText;
+    ExecuteCommandText(commandText, statusText);
+    SetCommandStatus(statusText);
+    if (g_hWnd) {
+        SetFocus(g_hWnd);
+    }
+}
+
 void SyncBallControls()
 {
     if (g_isController) {
@@ -12794,6 +12819,7 @@ void SyncBallControls()
         g_setPlayerButton,
         g_playerStatus,
         g_gameHudStatus,
+        g_selectedGameCombo,
         g_asteroidGameWorkerButton,
         g_asteroidFireButton,
         g_asteroidHyperspaceButton,
@@ -13489,7 +13515,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             break;
 
         case IDC_BGE_ASTEROID_GAME_WORKER:
-            ExecuteAsteroidCommandFromControls(L"asteroid game");
+            ExecuteSelectedGameFromControls();
             break;
 
         case IDC_BGE_ASTEROID_FIRE:

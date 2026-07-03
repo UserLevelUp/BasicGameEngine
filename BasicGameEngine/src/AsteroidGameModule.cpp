@@ -185,7 +185,7 @@ public:
             *runtime.mainPlayerGroupIndex = *runtime.activeObjectGroupIndex;
             *runtime.mainPlayerSlot = 0;
             *runtime.selectedObjectSlot = 0;
-            *runtime.objectSelectionActive = true;
+            *runtime.objectSelectionActive = false;
             if (runtime.setObjectKeyboardFocusLocked) {
                 runtime.setObjectKeyboardFocusLocked();
             }
@@ -1129,7 +1129,7 @@ private:
                 return false;
             }
             *runtime.selectedObjectSlot = *runtime.mainPlayerSlot;
-            *runtime.objectSelectionActive = true;
+            *runtime.objectSelectionActive = false;
             if (runtime.refreshSelectedObjectGlobalsLocked) {
                 runtime.refreshSelectedObjectGlobalsLocked();
             }
@@ -1158,7 +1158,7 @@ private:
                 *runtime.mainPlayerGroupIndex = *runtime.activeObjectGroupIndex;
                 *runtime.mainPlayerSlot = slotIndex;
                 *runtime.selectedObjectSlot = slotIndex;
-                *runtime.objectSelectionActive = true;
+                *runtime.objectSelectionActive = false;
                 ConfigureAsteroidGamePlayerLocked(runtime, slotIndex, viewport.width * 0.50f, viewport.playTop + viewport.playHeight * 0.50f);
                 ApplyAsteroidGamePlayerVisualLocked(runtime);
                 if (runtime.setObjectKeyboardFocusLocked) {
@@ -1515,7 +1515,7 @@ private:
         BgeApplyUfoViewMode(slot, ufoViewMode_, viewport.width, viewport.playTop, viewport.playHeight);
         ufoSlotIndex_ = slotIndex;
         *runtime.selectedObjectSlot = slotIndex;
-        *runtime.objectSelectionActive = true;
+        *runtime.objectSelectionActive = false;
         BgeUpdateCollisionFlags(*runtime.objectSlots);
         if (runtime.refreshSelectedObjectGlobalsLocked) {
             runtime.refreshSelectedObjectGlobalsLocked();
@@ -1627,7 +1627,7 @@ private:
         BgeApplyPlayerIconVisibilityMode(player, playerIconVisibilityMode_, respawnInvulnerableSeconds_ > 0.0f);
         ApplyAsteroidGamePlayerHeadingModeLocked(player);
         *runtime.selectedObjectSlot = playerSlot;
-        *runtime.objectSelectionActive = true;
+        *runtime.objectSelectionActive = false;
         statusText = L"Asteroid Game: player icon mode " + std::to_wstring(playerIconVisibilityMode_)
             + L" (" + BgePlayerIconVisibilityModeName(playerIconVisibilityMode_) + L") | "
             + BuildAsteroidGameTrialStatusTextLocked();
@@ -1643,7 +1643,7 @@ private:
         ConfigureAsteroidGamePlayerLocked(runtime, playerSlot, viewport.width * 0.50f, viewport.playTop + viewport.playHeight * 0.50f);
         respawnInvulnerableSeconds_ = BGE_ASTEROID_GAME_RESPAWN_INVULNERABLE_SECONDS;
         *runtime.selectedObjectSlot = playerSlot;
-        *runtime.objectSelectionActive = true;
+        *runtime.objectSelectionActive = false;
         ApplyAsteroidGamePlayerVisualLocked(runtime);
     }
 
@@ -1793,7 +1793,7 @@ private:
 
         respawnInvulnerableSeconds_ = BGE_ASTEROID_GAME_HYPERSPACE_INVULNERABLE_SECONDS;
         *runtime.selectedObjectSlot = playerSlot;
-        *runtime.objectSelectionActive = true;
+        *runtime.objectSelectionActive = false;
         ApplyAsteroidGamePlayerVisualLocked(runtime);
         return true;
     }
