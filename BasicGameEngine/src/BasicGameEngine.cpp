@@ -12064,6 +12064,7 @@ void CreateBallControls(HWND hWnd)
     }
     g_runCommandButton = CreateControl(hWnd, L"BUTTON", L"Run", BS_PUSHBUTTON | WS_TABSTOP, IDC_BGE_RUN_COMMAND, 310, 100, 46, 24);
     g_selectedGameCombo = CreateControl(hWnd, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, IDC_BGE_SELECTED_GAME_COMBO, 364, 100, 96, 120);
+    SendMessageW(g_selectedGameCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Basic Balls"));
     SendMessageW(g_selectedGameCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Asteroids"));
     SendMessageW(g_selectedGameCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Inti"));
     SendMessageW(g_selectedGameCombo, CB_SETCURSEL, 0, 0);
@@ -12692,7 +12693,18 @@ void ExecuteSelectedGameFromControls()
     }
 
     LRESULT selection = g_selectedGameCombo ? SendMessageW(g_selectedGameCombo, CB_GETCURSEL, 0, 0) : 0;
-    const wchar_t* commandText = selection == 1 ? L"inti game" : L"asteroid game";
+    if (selection == 0 || selection == CB_ERR) {
+        ActivateExclusiveGameModule(BgeActiveGameModule::None, true);
+        std::wstring statusText;
+        StartAnimationState(statusText);
+        SetCommandStatus(statusText);
+        if (g_hWnd) {
+            SetFocus(g_hWnd);
+        }
+        return;
+    }
+
+    const wchar_t* commandText = selection == 2 ? L"inti game" : L"asteroid game";
 
     std::wstring statusText;
     ExecuteCommandText(commandText, statusText);
