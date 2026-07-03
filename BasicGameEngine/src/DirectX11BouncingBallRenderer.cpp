@@ -119,6 +119,18 @@ bool DirectX11BouncingBallRenderer::Initialize(HWND hWnd)
         return false;
     }
 
+    // Match the DX12 renderer's rasterizer (CULL_MODE_NONE). The D3D11
+    // default culls back faces, which silently drops mixed-winding stroked
+    // glyphs (e.g. the Runner shape) that DX12 draws fine.
+    D3D11_RASTERIZER_DESC rasterizerDesc{};
+    rasterizerDesc.FillMode = D3D11_FILL_SOLID;
+    rasterizerDesc.CullMode = D3D11_CULL_NONE;
+    rasterizerDesc.DepthClipEnable = TRUE;
+    if (FAILED(device_->CreateRasterizerState(&rasterizerDesc, noCullRasterizerState_.GetAddressOf()))) {
+        lastError_ = L"Failed to create no-cull rasterizer state";
+        return false;
+    }
+
     initialized_ = true;
     return true;
 }
@@ -138,6 +150,7 @@ void DirectX11BouncingBallRenderer::Shutdown()
     spriteInputLayout_.Reset();
     spritePixelShader_.Reset();
     spriteVertexShader_.Reset();
+    noCullRasterizerState_.Reset();
     inputLayout_.Reset();
     alphaBlendState_.Reset();
     pixelShader_.Reset();
@@ -256,6 +269,9 @@ void DirectX11BouncingBallRenderer::Render()
         context_->OMSetBlendState(alphaBlendState_.Get(), blendFactor, 0xffffffff);
     }
     context_->RSSetViewports(1, &viewport_);
+    if (noCullRasterizerState_) {
+        context_->RSSetState(noCullRasterizerState_.Get());
+    }
     context_->IASetInputLayout(inputLayout_.Get());
     context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context_->IASetVertexBuffers(0, 1, vertexBuffers, &stride, &offset);

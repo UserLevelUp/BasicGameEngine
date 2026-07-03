@@ -77,6 +77,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11PixelShader> pixelShader_;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> inputLayout_;
     Microsoft::WRL::ComPtr<ID3D11BlendState> alphaBlendState_;
+    Microsoft::WRL::ComPtr<ID3D11RasterizerState> noCullRasterizerState_;
     Microsoft::WRL::ComPtr<ID3D11Buffer> vertexBuffer_;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> spriteVertexShader_;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> spritePixelShader_;
