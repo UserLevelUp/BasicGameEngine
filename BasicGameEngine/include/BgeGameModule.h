@@ -69,4 +69,14 @@ public:
 };
 
 BgeGameModule& BgeAsteroidGameModule();
-BgeGameModule& BgeIntiGameModule();
+
+// Hosted game plugin ABI. Game modules may ship as separate DLLs that the
+// engine discovers at runtime. A plugin DLL exports two extern "C" entry
+// points; the engine refuses to host the module unless the ABI versions
+// match exactly.
+//
+//   unsigned int BgeGameModuleAbiVersion();
+//   BgeGameModule* CreateBgeGameModule();
+constexpr unsigned int BGE_GAME_MODULE_ABI_VERSION = 1;
+using BgeGameModuleAbiVersionFn = unsigned int (*)();
+using BgeCreateGameModuleFn = BgeGameModule* (*)();

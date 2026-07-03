@@ -21,32 +21,32 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{7057351f-13be-4b8b-a7c5-46cf67628c02}</ProjectGuid>
-    <RootNamespace>BasicGameEngine</RootNamespace>
+    <ProjectGuid>{4c1f6a4e-2c8b-4f3d-9a71-b06e5a4f8d21}</ProjectGuid>
+    <RootNamespace>IntiGame</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -70,24 +70,25 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(ProjectDir)..\BasicGameEngine\x64\$(Configuration)\</OutDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(ProjectDir)..\BasicGameEngine\x64\$(Configuration)\</OutDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;INTIGAME_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <EnableModules>true</EnableModules>
-      <BuildStlModules>true</BuildStlModules>
-      <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
-      <ForceConformanceInForLoopScope>false</ForceConformanceInForLoopScope>
-      <RemoveUnreferencedCodeData>false</RemoveUnreferencedCodeData>
-      <LanguageStandard_C>stdc17</LanguageStandard_C>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>User32.lib;Gdi32.lib;Shell32.lib;Advapi32.lib;Ole32.lib;Windowscodecs.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -96,37 +97,32 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;INTIGAME_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>User32.lib;Gdi32.lib;Shell32.lib;Advapi32.lib;Ole32.lib;Windowscodecs.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;INTIGAME_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <EnableModules>true</EnableModules>
-      <BuildStlModules>true</BuildStlModules>
-      <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
-      <ForceConformanceInForLoopScope>false</ForceConformanceInForLoopScope>
-      <RemoveUnreferencedCodeData>false</RemoveUnreferencedCodeData>
-      <LanguageStandard_C>stdc17</LanguageStandard_C>
-      <AdditionalIncludeDirectories>$(WindowsSDK_IncludePath);$(DXSDK_DIR)Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>User32.lib;Gdi32.lib;Shell32.lib;Advapi32.lib;Ole32.lib;Windowscodecs.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -135,79 +131,22 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;INTIGAME_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>User32.lib;Gdi32.lib;Shell32.lib;Advapi32.lib;Ole32.lib;Windowscodecs.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="include\BasicGameEngine.h" />
-    <ClInclude Include="include\BasicGameRoleOperation.h" />
-    <ClInclude Include="include\BgeGameModule.h" />
-    <ClInclude Include="include\BgeScenePrimitives.h" />
-    <ClInclude Include="framework.h" />
-    <ClInclude Include="include\DirectX11BouncingBallOperation.h" />
-    <ClInclude Include="include\DirectX11BouncingBallRenderer.h" />
-    <ClInclude Include="include\DirectX12BouncingBallRenderer.h" />
-    <ClInclude Include="include\DirectXIncludes.h" />
-    <ClInclude Include="include\InterprocessComm.h" />
-    <ClInclude Include="include\InterprocessCommMgr.h" />
-    <ClInclude Include="Resource.h" />
-    <ClInclude Include="include\SharedMemoryData.h" />
-    <ClInclude Include="include\StatusBar.h" />
-    <ClInclude Include="include\StatusBarMgr.h" />
-    <ClInclude Include="targetver.h" />
-    <ClInclude Include="include\TaskBarMgr.h" />
-    <ClInclude Include="include\UserPrivilege.h" />
-    <ClInclude Include="include\UserPrivilegeMgr.h" />
-    <ClInclude Include="include\WindowMutex.h" />
-    <ClInclude Include="include\WindowMutexMgr.h" />
-    <ClInclude Include="include\BgeHierarchy.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="src\AsteroidGameModule.cpp" />
-    <ClCompile Include="src\BgeScenePrimitives.cpp" />
-    <ClCompile Include="src\BasicGameEngine.cpp" />
-    <ClCompile Include="src\BgeHierarchy.cpp" />
-    <ClCompile Include="src\DirectX11BouncingBallRenderer.cpp" />
-    <ClCompile Include="src\DirectX12BouncingBallRenderer.cpp" />
-    <ClCompile Include="src\InterprocessComm.cpp" />
-    <ClCompile Include="src\InterprocessCommMgr.cpp" />
-    <ClCompile Include="src\StatusBar.cpp" />
-    <ClCompile Include="src\StatusBarMgr.cpp" />
-    <ClCompile Include="src\TaskBarMgr.cpp" />
-    <ClCompile Include="src\UserPrivilege.cpp" />
-    <ClCompile Include="src\UserPrivilegeMgr.cpp" />
-    <ClCompile Include="src\WindowMutex.cpp" />
-    <ClCompile Include="src\WindowMutexMgr.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="BasicGameEngine.rc" />
-  </ItemGroup>
-  <ItemGroup>
-    <Image Include="BasicGameEngine.ico" />
-    <Image Include="small.ico" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\BasicGameEngine_UnitTest\BasicGameEngine_UnitTest.vcxproj">
-      <Project>{f8a3e592-77b2-4ca3-a566-d644a73fd623}</Project>
-    </ProjectReference>
-    <ProjectReference Include="..\OpNode\OpNode.vcxproj">
-      <Project>{bb84b704-82c7-4696-b2b4-b8b5b51f57f7}</Project>
-    </ProjectReference>
-    <ProjectReference Include="..\IntiGame\IntiGame.vcxproj">
-      <Project>{4c1f6a4e-2c8b-4f3d-9a71-b06e5a4f8d21}</Project>
-      <!-- Build-order only: the engine loads IntiGame.dll at runtime and must
-           never link against it, so the game stays a removable plugin. -->
-      <LinkLibraryDependencies>false</LinkLibraryDependencies>
-      <UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
-    </ProjectReference>
+    <ClCompile Include="IntiGameModule.cpp" />
+    <ClCompile Include="IntiGamePlugin.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

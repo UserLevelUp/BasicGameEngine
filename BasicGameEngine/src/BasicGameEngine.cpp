@@ -1743,10 +1743,82 @@ bool ExecuteAsteroidGameModuleCommand(const std::vector<std::wstring>& tokens, s
     return ok;
 }
 
+// Inti ships as a separate game plugin DLL (IntiGame.dll): BGE hosts it
+// through the BgeGameModule seam but contains no Inti game code. The loader
+// is absent-safe: if the DLL is missing or the ABI handshake fails, inti
+// commands report the reason instead of crashing the engine.
+static BgeGameModule* g_intiGameModule = nullptr;
+static bool g_intiGameModuleLoadAttempted = false;
+static std::wstring g_intiGameModuleLoadError;
+
+BgeGameModule* TryGetIntiGameModule()
+{
+    if (g_intiGameModuleLoadAttempted) {
+        return g_intiGameModule;
+    }
+    g_intiGameModuleLoadAttempted = true;
+
+    wchar_t modulePath[MAX_PATH] = L"";
+    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0) {
+        g_intiGameModuleLoadError = L"IntiGame.dll not loaded (exe path unavailable)";
+        return nullptr;
+    }
+    std::wstring dllPath = modulePath;
+    size_t lastSlash = dllPath.find_last_of(L"\\/");
+    if (lastSlash != std::wstring::npos) {
+        dllPath.erase(lastSlash + 1);
+    } else {
+        dllPath.clear();
+    }
+    dllPath += L"IntiGame.dll";
+
+    HMODULE pluginDll = LoadLibraryW(dllPath.c_str());
+    if (pluginDll == nullptr) {
+        g_intiGameModuleLoadError = L"IntiGame.dll not found next to the engine";
+        LogRendererMessage("[GameModule] IntiGame.dll not found; inti commands unavailable");
+        return nullptr;
+    }
+
+    auto abiVersionFn = reinterpret_cast<BgeGameModuleAbiVersionFn>(GetProcAddress(pluginDll, "BgeGameModuleAbiVersion"));
+    auto createFn = reinterpret_cast<BgeCreateGameModuleFn>(GetProcAddress(pluginDll, "CreateBgeGameModule"));
+    if (abiVersionFn == nullptr || createFn == nullptr) {
+        g_intiGameModuleLoadError = L"IntiGame.dll missing plugin entry points";
+        LogRendererMessage("[GameModule] IntiGame.dll missing BgeGameModuleAbiVersion/CreateBgeGameModule exports");
+        FreeLibrary(pluginDll);
+        return nullptr;
+    }
+
+    unsigned int pluginAbi = abiVersionFn();
+    if (pluginAbi != BGE_GAME_MODULE_ABI_VERSION) {
+        g_intiGameModuleLoadError = L"IntiGame.dll ABI version mismatch";
+        LogRendererMessage("[GameModule] IntiGame.dll ABI mismatch: plugin=" + std::to_string(pluginAbi)
+            + " engine=" + std::to_string(BGE_GAME_MODULE_ABI_VERSION));
+        FreeLibrary(pluginDll);
+        return nullptr;
+    }
+
+    g_intiGameModule = createFn();
+    if (g_intiGameModule == nullptr) {
+        g_intiGameModuleLoadError = L"IntiGame.dll returned no module";
+        LogRendererMessage("[GameModule] IntiGame.dll CreateBgeGameModule returned null");
+        FreeLibrary(pluginDll);
+        return nullptr;
+    }
+
+    LogRendererMessage("[GameModule] hosted game plugin loaded: IntiGame.dll (abi="
+        + std::to_string(pluginAbi) + ")");
+    return g_intiGameModule;
+}
+
 bool ExecuteIntiGameModuleCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
 {
+    BgeGameModule* intiModule = TryGetIntiGameModule();
+    if (intiModule == nullptr) {
+        statusText = L"inti unavailable - " + g_intiGameModuleLoadError;
+        return false;
+    }
     BgeGameRuntime runtime = CreateGameRuntime();
-    bool ok = BgeIntiGameModule().OnCommand(runtime, tokens, statusText);
+    bool ok = intiModule->OnCommand(runtime, tokens, statusText);
     if (ok) {
         ActivateExclusiveGameModule(BgeActiveGameModule::Inti, true);
     }
@@ -1766,9 +1838,14 @@ bool StartAsteroidGameMode(std::wstring& statusText)
 
 bool StartIntiGameMode(std::wstring& statusText)
 {
+    BgeGameModule* intiModule = TryGetIntiGameModule();
+    if (intiModule == nullptr) {
+        statusText = L"inti unavailable - " + g_intiGameModuleLoadError;
+        return false;
+    }
     ActivateExclusiveGameModule(BgeActiveGameModule::Inti, false);
     BgeGameRuntime runtime = CreateGameRuntime();
-    bool ok = BgeIntiGameModule().OnStart(runtime, statusText);
+    bool ok = intiModule->OnStart(runtime, statusText);
     if (!ok) {
         ActivateExclusiveGameModule(BgeActiveGameModule::None, true);
     }
@@ -1783,8 +1860,12 @@ bool HandleAsteroidGameKeyDown(WPARAM key)
 
 bool HandleIntiGameKeyDown(WPARAM key)
 {
+    BgeGameModule* intiModule = TryGetIntiGameModule();
+    if (intiModule == nullptr) {
+        return false;
+    }
     BgeGameRuntime runtime = CreateGameRuntime();
-    return BgeIntiGameModule().OnKeyDown(runtime, static_cast<unsigned int>(key));
+    return intiModule->OnKeyDown(runtime, static_cast<unsigned int>(key));
 }
 
 bool TickAsteroidGameMode(double deltaMilliseconds)
@@ -1795,8 +1876,12 @@ bool TickAsteroidGameMode(double deltaMilliseconds)
 
 bool TickIntiGameMode(double deltaMilliseconds)
 {
+    BgeGameModule* intiModule = TryGetIntiGameModule();
+    if (intiModule == nullptr) {
+        return false;
+    }
     BgeGameRuntime runtime = CreateGameRuntime();
-    return BgeIntiGameModule().OnTick(runtime, deltaMilliseconds);
+    return intiModule->OnTick(runtime, deltaMilliseconds);
 }
 
 bool TryGetCommandOptionValue(const std::vector<std::wstring>& tokens, const std::wstring& optionName, std::wstring& value)

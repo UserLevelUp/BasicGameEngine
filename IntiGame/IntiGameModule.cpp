@@ -1,4 +1,4 @@
-#include "../include/BgeGameModule.h"
+#include "../BasicGameEngine/include/BgeGameModule.h"
 
         // Number of dot-spaces along an edge (derived from its length so each
         // step aligns with the corridor dot rhythm seeded in geometry).
