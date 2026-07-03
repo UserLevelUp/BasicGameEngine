@@ -2665,12 +2665,6 @@ private:
                     events.push_back("bge.event.shot.composed " + NarrowStatus(checkpoint.name)
                         + " " + std::to_string(score));
                 }
-                if (photoVisitedCount_ >= static_cast<int>(photoCheckpoints_.size())) {
-                    photoComplete_ = true;
-                    // Do NOT stop the courier here: the area is complete but the
-                    // player still needs to run the corridor to the exit marker.
-                    events.push_back("[IntiRunners] photo run complete " + std::to_string(photoVisitedCount_));
-                }
             }
         }
 
@@ -2688,6 +2682,22 @@ private:
                 changed = true;
                 events.push_back("bge.event.photo-dot.collected " + std::to_string(photoDotsCollected_));
             }
+        }
+
+        // Redline R2: the area is complete only when every checkpoint is
+        // visited AND every corridor dot is collected. Dots lie along every
+        // path segment (including inner corridors), so this forces the whole
+        // pathing to be run before the exit unlocks - inner paths count.
+        if (!photoComplete_
+            && photoVisitedCount_ >= static_cast<int>(photoCheckpoints_.size())
+            && photoDotsCollected_ >= static_cast<int>(photoDots_.size())) {
+            photoComplete_ = true;
+            // Do NOT stop the courier here: the area is complete but the
+            // player still needs to run the corridor to the exit marker.
+            changed = true;
+            events.push_back("[IntiRunners] photo run complete " + std::to_string(photoVisitedCount_));
+            events.push_back("bge.event.photo.area-complete dots "
+                + std::to_string(photoDotsCollected_) + "/" + std::to_string(photoDots_.size()));
         }
 
         // Area exit: once the area is complete, stepping onto an exit marker
@@ -3509,7 +3519,8 @@ private:
                 }
             }
             if (hudStyle.showCards) {
-                stream << L" | card " << (photoComplete_ ? L"area-complete" : L"visit-all");
+                stream << L" | card " << (photoComplete_ ? L"area-complete"
+                    : (photoVisitedCount_ >= static_cast<int>(photoCheckpoints_.size()) ? L"collect-all-dots" : L"visit-all"));
                 if (!photoExits_.empty()) {
                     stream << L" | card " << (photoComplete_ ? L"take-exit" : L"exit-locked");
                 }
