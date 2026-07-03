@@ -1,0 +1,23 @@
+# Inti authoring toolbar - Slice B1 visible clickable author buttons witness.
+# Buttons are sugar over commands: each button binds a replayable BGE command.
+# The same game is still fully constructible from commands alone.
+plugin import-set inti-chasqui
+author start inti-toolbar
+author archetype inti-runner
+author group maps
+author bind background maps/machu-picchu.intimap
+author group paths
+author button add place-node
+author button bind place-node author place 0.50 0.50 new-node
+author button add link-path
+author button bind link-path author link hut-of-the-caretaker sun-gate
+author group triggers
+author button add add-shot
+author button bind add-shot author trigger sun-gate photo-claimed open-area-exit
+author group ui
+author button add ui-dots
+author button bind ui-dots inti ui-group dots
+author button add start-run
+author button bind start-run inti photo-run
+author button show
+author save inti-toolbar

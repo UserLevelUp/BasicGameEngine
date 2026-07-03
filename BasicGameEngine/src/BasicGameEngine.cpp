@@ -158,6 +158,13 @@ constexpr int IDC_BGE_SPRITE_IMPORT_PLUGIN = 42953;
 constexpr int IDC_BGE_SPRITE_REFRESH = 42954;
 constexpr int IDC_BGE_SPRITE_PERSPECTIVE = 42955;
 constexpr int IDC_BGE_SPRITE_TEMPLATE = 42956;
+constexpr int IDC_BGE_AUTHOR_BUTTON_BASE = 43000;
+constexpr int BGE_AUTHOR_BUTTON_MAX = 24;
+constexpr float BGE_AUTHOR_STRIP_BASE_INSET = 140.0f;
+constexpr int BGE_AUTHOR_STRIP_TOP = 144;
+constexpr int BGE_AUTHOR_BUTTON_HEIGHT = 24;
+constexpr int BGE_AUTHOR_BUTTON_GAP = 6;
+constexpr int BGE_AUTHOR_ROW_STRIDE = 30;
 constexpr ULONG_PTR BGE_COPYDATA_WORKER_COMMAND = 0xB6E00001;
 constexpr ULONG_PTR BGE_COPYDATA_WORKER_TELEMETRY = 0xB6E00002;
 constexpr int BGE_CONTROLLER_ARTIFACT_COUNT = 6;
@@ -619,6 +626,18 @@ std::wstring g_authorSessionName;
 std::wstring g_authorActiveGroup = L"objects";
 int g_authorToolCandidate = 0;
 std::vector<std::wstring> g_authorReceiptLog;
+
+// Slice B1 - visible clickable author buttons. Engine-neutral: a button is a
+// name + bound command + group; domains supply meaning via recipes/manifests.
+struct BgeAuthorButtonBinding {
+    std::wstring name;
+    std::wstring command;
+    std::wstring group;
+    HWND control = nullptr;
+};
+std::vector<BgeAuthorButtonBinding> g_authorButtons;
+bool g_authorButtonsVisible = true;
+std::wstring g_authorArchetype;
 BgeEditMode g_editMode = BgeEditMode::Translate;
 int g_editRateIndex = BGE_EDIT_RATE_DEFAULT_INDEX;
 
@@ -778,6 +797,10 @@ std::vector<std::wstring> TokenizeCommandText(const std::wstring& commandText);
 std::wstring JoinCommandTokens(const std::vector<std::wstring>& tokens, size_t firstIndex);
 void ExecuteCommandBarInput();
 bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusText);
+HWND CreateControl(HWND parent, const wchar_t* className, const wchar_t* text, DWORD style, int controlId, int x, int y, int width, int height);
+void RefreshAuthorButtonStrip();
+void ExecuteAuthorButtonClick(int buttonIndex);
+void ClearAuthorButtons();
 bool ExecuteControllerCommandText(const std::wstring& commandText, std::wstring& statusText);
 bool ExecuteBgeExportCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool QueueConstructionArtifactCommandsFromFile(const std::wstring& path, std::wstring& statusText);
@@ -5671,7 +5694,7 @@ bool ExecuteBgeInspectCommand(const std::vector<std::wstring>& tokens, std::wstr
 
 std::wstring BgeAuthorUsageText()
 {
-    return L"Use: author start <plugin-name> | author group objects|paths|triggers|ui|maps|buttons | author tool 0-9 | author place <x> <y> [name] | author link <a> <b> | author trigger <node> <event> <action> | author bind background <asset> | author button add <name> | author button bind <name> <command> [window] | author button group <name> <group> | author test | author save [name] | author package [name] | author warp";
+    return L"Use: author start <plugin-name> | author archetype <name> | author group objects|paths|triggers|ui|maps|buttons | author tool 0-9 | author place <x> <y> [name] | author link <a> <b> | author trigger <node> <event> <action> | author bind background <asset> | author button add <name> | author button bind <name> <command> [window] | author button group <name> <group> | author button show|hide | author test | author save [name] | author package [name] | author warp";
 }
 
 void RecordBgeAuthorReceipt(const std::wstring& eventName, const std::wstring& detail)
@@ -5717,6 +5740,14 @@ std::wstring BgeAuthorEnvelopeText(const std::wstring& packageName)
     text += L"receipt-count=" + std::to_wstring(g_authorReceiptLog.size()) + L"\r\n";
     for (size_t index = 0; index < g_authorReceiptLog.size(); ++index) {
         text += L"receipt." + std::to_wstring(index + 1) + L"=" + g_authorReceiptLog[index] + L"\r\n";
+    }
+    if (!g_authorArchetype.empty()) {
+        text += L"archetype=" + g_authorArchetype + L"\r\n";
+    }
+    text += L"button-count=" + std::to_wstring(g_authorButtons.size()) + L"\r\n";
+    for (size_t index = 0; index < g_authorButtons.size(); ++index) {
+        const BgeAuthorButtonBinding& binding = g_authorButtons[index];
+        text += L"button." + std::to_wstring(index + 1) + L"=" + binding.name + L" group=" + binding.group + L" command=" + binding.command + L"\r\n";
     }
     return text;
 }
@@ -5768,6 +5799,96 @@ bool SaveBgeAuthorEnvelope(const std::wstring& requestedName, bool packageBundle
     return true;
 }
 
+int FindAuthorButtonIndex(const std::wstring& name)
+{
+    for (size_t index = 0; index < g_authorButtons.size(); ++index) {
+        if (g_authorButtons[index].name == name) {
+            return static_cast<int>(index);
+        }
+    }
+    return -1;
+}
+
+void ClearAuthorButtons()
+{
+    for (BgeAuthorButtonBinding& binding : g_authorButtons) {
+        if (binding.control) {
+            DestroyWindow(binding.control);
+            binding.control = nullptr;
+        }
+    }
+    g_authorButtons.clear();
+    BgeSetRenderTopInset(BGE_AUTHOR_STRIP_BASE_INSET);
+    if (g_hWnd) {
+        InvalidateRect(g_hWnd, nullptr, FALSE);
+    }
+}
+
+void RefreshAuthorButtonStrip()
+{
+    if (g_playerRuntimeMode || g_isController || !CurrentProcessOwnsGameLoop() || !g_hWnd) {
+        return;
+    }
+
+    RECT client{};
+    GetClientRect(g_hWnd, &client);
+    int width = (std::max)(320, static_cast<int>(client.right - client.left));
+    int right = width - 8;
+    int x = 8;
+    int y = BGE_AUTHOR_STRIP_TOP;
+    int rows = g_authorButtons.empty() ? 0 : 1;
+
+    for (size_t index = 0; index < g_authorButtons.size() && index < BGE_AUTHOR_BUTTON_MAX; ++index) {
+        BgeAuthorButtonBinding& binding = g_authorButtons[index];
+        int buttonWidth = (std::max)(64, static_cast<int>(binding.name.size()) * 9 + 20);
+        if (!binding.control) {
+            binding.control = CreateControl(g_hWnd, L"BUTTON", binding.name.c_str(), BS_PUSHBUTTON | WS_TABSTOP,
+                IDC_BGE_AUTHOR_BUTTON_BASE + static_cast<int>(index), x, y, buttonWidth, BGE_AUTHOR_BUTTON_HEIGHT);
+        }
+        if (!binding.control) {
+            continue;
+        }
+        if (!g_authorButtonsVisible) {
+            ShowWindow(binding.control, SW_HIDE);
+            continue;
+        }
+        if (x + buttonWidth > right && x > 8) {
+            x = 8;
+            y += BGE_AUTHOR_ROW_STRIDE;
+            ++rows;
+        }
+        ShowWindow(binding.control, SW_SHOW);
+        SetWindowPos(binding.control, nullptr, x, y, buttonWidth, BGE_AUTHOR_BUTTON_HEIGHT, SWP_NOZORDER | SWP_NOACTIVATE);
+        x += buttonWidth + BGE_AUTHOR_BUTTON_GAP;
+    }
+
+    bool stripActive = g_authorButtonsVisible && !g_authorButtons.empty();
+    BgeSetRenderTopInset(stripActive
+        ? static_cast<float>(BGE_AUTHOR_STRIP_TOP + rows * BGE_AUTHOR_ROW_STRIDE)
+        : BGE_AUTHOR_STRIP_BASE_INSET);
+    InvalidateRect(g_hWnd, nullptr, FALSE);
+}
+
+void ExecuteAuthorButtonClick(int buttonIndex)
+{
+    if (buttonIndex < 0 || buttonIndex >= static_cast<int>(g_authorButtons.size())) {
+        return;
+    }
+
+    // Copy the binding: the bound command may mutate g_authorButtons.
+    BgeAuthorButtonBinding binding = g_authorButtons[buttonIndex];
+    std::wstring statusText;
+    if (binding.command.empty()) {
+        RecordBgeAuthorReceipt(L"bge.event.author.button.clicked", binding.name + L" (unbound)");
+        SetCommandStatus(L"Button '" + binding.name + L"' has no command; use author button bind " + binding.name + L" <command>");
+        return;
+    }
+
+    bool ok = ExecuteCommandText(binding.command, statusText);
+    RecordBgeAuthorReceipt(L"bge.event.author.button.clicked", binding.name + L" -> " + binding.command + (ok ? L"" : L" (failed)"));
+    SetCommandStatus(statusText);
+}
+
 bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
 {
     if (!CurrentProcessOwnsGameLoop()) {
@@ -5791,6 +5912,8 @@ bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstri
         g_authorActiveGroup = L"objects";
         g_authorToolCandidate = 0;
         g_authorReceiptLog.clear();
+        g_authorArchetype.clear();
+        ClearAuthorButtons();
         RecordBgeAuthorReceipt(L"bge.event.author.started", g_authorSessionName);
         statusText = L"Authoring: " + g_authorSessionName + L" | Arrows/WASD move, Space acts, Enter commits, M/Esc goes back, PgUp/PgDn cycles groups, 0-9 picks candidates";
         return true;
@@ -5882,13 +6005,46 @@ bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstri
         return true;
     }
 
+    if (subcommand == L"archetype") {
+        if (tokens.size() < 3) {
+            statusText = L"Use: author archetype <name>";
+            return false;
+        }
+        g_authorArchetype = LowerArg(JoinCommandTokens(tokens, 2));
+        RecordBgeAuthorReceipt(L"bge.event.author.archetype", g_authorArchetype);
+        statusText = L"Author archetype: " + g_authorArchetype;
+        return true;
+    }
+
     if (subcommand == L"button") {
+        if (tokens.size() < 3) {
+            statusText = L"Use: author button add|bind|group|show|hide ...";
+            return false;
+        }
+        std::wstring action = LowerArg(tokens[2]);
+        if (action == L"show" || action == L"hide") {
+            g_authorButtonsVisible = (action == L"show");
+            RefreshAuthorButtonStrip();
+            RecordBgeAuthorReceipt(L"bge.event.author.button.visibility", action);
+            statusText = g_authorButtonsVisible ? L"Author buttons shown" : L"Author buttons hidden";
+            return true;
+        }
         if (tokens.size() < 4) {
             statusText = L"Use: author button add|bind|group ...";
             return false;
         }
-        std::wstring action = LowerArg(tokens[2]);
         if (action == L"add") {
+            std::wstring name = tokens[3];
+            if (FindAuthorButtonIndex(name) >= 0) {
+                statusText = L"Author button exists: " + name;
+                return false;
+            }
+            if (g_authorButtons.size() >= BGE_AUTHOR_BUTTON_MAX) {
+                statusText = L"Author button limit reached (" + std::to_wstring(BGE_AUTHOR_BUTTON_MAX) + L")";
+                return false;
+            }
+            g_authorButtons.push_back({ name, L"", g_authorActiveGroup, nullptr });
+            RefreshAuthorButtonStrip();
             std::wstring detail = JoinCommandTokens(tokens, 3);
             RecordBgeAuthorReceipt(L"bge.event.author.button.added", detail);
             statusText = L"Author button added: " + detail;
@@ -5899,6 +6055,18 @@ bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstri
                 statusText = L"Use: author button bind <name> <command> [window]";
                 return false;
             }
+            std::wstring name = tokens[3];
+            int buttonIndex = FindAuthorButtonIndex(name);
+            if (buttonIndex < 0) {
+                if (g_authorButtons.size() >= BGE_AUTHOR_BUTTON_MAX) {
+                    statusText = L"Author button limit reached (" + std::to_wstring(BGE_AUTHOR_BUTTON_MAX) + L")";
+                    return false;
+                }
+                g_authorButtons.push_back({ name, L"", g_authorActiveGroup, nullptr });
+                buttonIndex = static_cast<int>(g_authorButtons.size()) - 1;
+            }
+            g_authorButtons[buttonIndex].command = JoinCommandTokens(tokens, 4);
+            RefreshAuthorButtonStrip();
             std::wstring detail = JoinCommandTokens(tokens, 3);
             RecordBgeAuthorReceipt(L"bge.event.author.button.bound", detail);
             statusText = L"Author button bound: " + detail;
@@ -5909,12 +6077,24 @@ bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstri
                 statusText = L"Use: author button group <name> <group>";
                 return false;
             }
+            std::wstring name = tokens[3];
+            int buttonIndex = FindAuthorButtonIndex(name);
+            if (buttonIndex < 0) {
+                if (g_authorButtons.size() >= BGE_AUTHOR_BUTTON_MAX) {
+                    statusText = L"Author button limit reached (" + std::to_wstring(BGE_AUTHOR_BUTTON_MAX) + L")";
+                    return false;
+                }
+                g_authorButtons.push_back({ name, L"", g_authorActiveGroup, nullptr });
+                buttonIndex = static_cast<int>(g_authorButtons.size()) - 1;
+            }
+            g_authorButtons[buttonIndex].group = LowerArg(tokens[4]);
+            RefreshAuthorButtonStrip();
             std::wstring detail = JoinCommandTokens(tokens, 3);
             RecordBgeAuthorReceipt(L"bge.event.author.button.grouped", detail);
             statusText = L"Author button grouped: " + detail;
             return true;
         }
-        statusText = L"Use: author button add|bind|group ...";
+        statusText = L"Use: author button add|bind|group|show|hide ...";
         return false;
     }
 
@@ -11845,6 +12025,8 @@ void LayoutBallControls(HWND hWnd)
     if (g_gameHudStatus) {
         SetWindowPos(g_gameHudStatus, nullptr, 8, 126, (std::max)(96, width - 16), 14, SWP_NOZORDER | SWP_NOACTIVATE);
     }
+
+    RefreshAuthorButtonStrip();
 }
 
 void UpdateControllerTargetLabel()
@@ -13142,6 +13324,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         if (wmId >= IDC_BGE_SOUND_SLOT_BASE && wmId < IDC_BGE_SOUND_SLOT_BASE + BGE_OBJECT_SLOT_COUNT) {
             SelectSoundSlotFromControls(wmId - IDC_BGE_SOUND_SLOT_BASE);
+            break;
+        }
+        if (wmId >= IDC_BGE_AUTHOR_BUTTON_BASE && wmId < IDC_BGE_AUTHOR_BUTTON_BASE + BGE_AUTHOR_BUTTON_MAX) {
+            ExecuteAuthorButtonClick(wmId - IDC_BGE_AUTHOR_BUTTON_BASE);
             break;
         }
 
