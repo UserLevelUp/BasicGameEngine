@@ -2456,12 +2456,17 @@ private:
                     ? "bge.event.photo.pause.requested"
                     : "bge.event.photo.pause.cleared");
             }
-            else {
-                photoAutoRun_ = true;
+            else if (photoAutoRun_) {
+                // Redline R1b: Space only resumes a run the player already
+                // armed with a movement key; from cold idle it stays put so
+                // Up/W / Down/S remain the only run-starting inputs.
                 photoPauseAtNextDot_ = false;
                 if (RollAndStartMoveLocked(viewport, false)) {
                     events.push_back("bge.event.photo.resumed");
                 }
+            }
+            else {
+                events.push_back("bge.event.photo.start.blocked space-requires-armed-run");
             }
             ConfigurePhotoRunSceneLocked(runtime, viewport);
             statusText = BuildPhotoRunStatusLocked();
