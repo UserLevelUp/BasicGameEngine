@@ -542,6 +542,10 @@ inline void BgeUpdateCollisionFlags(std::array<BgeObjectSlotState, SlotCount>& s
     }
 }
 
+inline constexpr int BGE_BACKGROUND_MAX_COLUMNS = 160;
+inline constexpr int BGE_BACKGROUND_MAX_ROWS = 90;
+inline constexpr int BGE_BACKGROUND_MAX_VERTEX_COUNT = BGE_BACKGROUND_MAX_COLUMNS * BGE_BACKGROUND_MAX_ROWS * 6;
+
 bool LoadBackgroundImageMesh(const std::wstring& path, std::vector<BgeColorVertex>& vertices, std::wstring& error);
 bool LoadImageRgbaPixels(const std::wstring& path, std::vector<std::uint8_t>& pixels, unsigned int& width, unsigned int& height, std::wstring& error);
 

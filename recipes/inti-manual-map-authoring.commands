@@ -1,0 +1,20 @@
+# Manual map authoring witness. The image is content; node placement is
+# deliberately human-authored through replayable commands.
+inti map create next-map "../../../exports/sprites/templates/User Level Up LLC Logo.png"
+inti map node add next-start 0.20 0.50
+inti map node add next-finish 0.80 0.50
+inti map path add next-start next-finish
+inti map save authoring/manual-map-smoke/next.intimap
+
+inti map create manual-map "../../../exports/sprites/templates/User Level Up LLC Logo.png"
+inti map node add start 0.15 0.50
+inti map powerup add sun-disc 0.50 0.50 courier-boost
+inti map node add gate 0.85 0.50
+inti map path add start sun-disc
+inti map path add sun-disc gate
+inti map exit add trail-gate 0.85 0.50 next.intimap
+inti map save authoring/manual-map-smoke/manual.intimap
+
+# Load the first authored map, then prove next.intimap resolves relative to it.
+inti map switch authoring/manual-map-smoke/manual.intimap
+inti map switch next.intimap

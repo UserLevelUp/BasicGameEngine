@@ -9,9 +9,6 @@
 #include <wrl/client.h>
 
 namespace {
-constexpr int kBackgroundColumns = 48;
-constexpr int kBackgroundRows = 27;
-
 void SetHresultError(const wchar_t* context, HRESULT result, std::wstring& error)
 {
     std::wstringstream stream;
@@ -111,6 +108,11 @@ bool LoadBackgroundImageMesh(const std::wstring& path, std::vector<BgeColorVerte
 {
     vertices.clear();
 
+    if (path.empty()) {
+        error.clear();
+        return true;
+    }
+
     std::vector<std::uint8_t> pixels;
     UINT width = 0;
     UINT height = 0;
@@ -118,21 +120,23 @@ bool LoadBackgroundImageMesh(const std::wstring& path, std::vector<BgeColorVerte
         return false;
     }
 
-    vertices.reserve(kBackgroundColumns * kBackgroundRows * 6);
-    for (int row = 0; row < kBackgroundRows; ++row) {
-        for (int column = 0; column < kBackgroundColumns; ++column) {
-            UINT sampleX = (std::min)(width - 1, static_cast<UINT>((static_cast<double>(column) + 0.5) * width / kBackgroundColumns));
-            UINT sampleY = (std::min)(height - 1, static_cast<UINT>((static_cast<double>(row) + 0.5) * height / kBackgroundRows));
+    int backgroundColumns = (std::min)(static_cast<int>(width), BGE_BACKGROUND_MAX_COLUMNS);
+    int backgroundRows = (std::min)(static_cast<int>(height), BGE_BACKGROUND_MAX_ROWS);
+    vertices.reserve(static_cast<std::size_t>(backgroundColumns) * static_cast<std::size_t>(backgroundRows) * 6u);
+    for (int row = 0; row < backgroundRows; ++row) {
+        for (int column = 0; column < backgroundColumns; ++column) {
+            UINT sampleX = (std::min)(width - 1, static_cast<UINT>((static_cast<double>(column) + 0.5) * width / backgroundColumns));
+            UINT sampleY = (std::min)(height - 1, static_cast<UINT>((static_cast<double>(row) + 0.5) * height / backgroundRows));
             size_t offset = (static_cast<size_t>(sampleY) * width + sampleX) * 4u;
 
             float red = pixels[offset] / 255.0f;
             float green = pixels[offset + 1] / 255.0f;
             float blue = pixels[offset + 2] / 255.0f;
 
-            float left = -1.0f + (static_cast<float>(column) / kBackgroundColumns) * 2.0f;
-            float right = -1.0f + (static_cast<float>(column + 1) / kBackgroundColumns) * 2.0f;
-            float top = 1.0f - (static_cast<float>(row) / kBackgroundRows) * 2.0f;
-            float bottom = 1.0f - (static_cast<float>(row + 1) / kBackgroundRows) * 2.0f;
+            float left = -1.0f + (static_cast<float>(column) / backgroundColumns) * 2.0f;
+            float right = -1.0f + (static_cast<float>(column + 1) / backgroundColumns) * 2.0f;
+            float top = 1.0f - (static_cast<float>(row) / backgroundRows) * 2.0f;
+            float bottom = 1.0f - (static_cast<float>(row + 1) / backgroundRows) * 2.0f;
             AddQuad(vertices, left, top, right, bottom, red, green, blue);
         }
     }

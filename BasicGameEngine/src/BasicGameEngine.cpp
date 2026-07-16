@@ -1735,6 +1735,14 @@ void SetGameSceneGeometry(const std::vector<BgeColorVertex>& vertices)
     g_sceneGeometry = vertices;
 }
 
+void SetGameBackgroundImage(const std::wstring& path)
+{
+    std::lock_guard<std::mutex> lock(ballConfigMutex);
+    g_backgroundImagePath = path;
+    g_backgroundImageDirty = true;
+    g_rendererStateDirty = true;
+}
+
 BgeGameRuntime CreateGameRuntime()
 {
     BgeGameRuntime runtime;
@@ -1760,6 +1768,7 @@ BgeGameRuntime CreateGameRuntime()
     runtime.clearTitleScreen = ClearGameTitleScreen;
     runtime.log = LogRendererMessage;
     runtime.setSceneGeometry = SetGameSceneGeometry;
+    runtime.setBackgroundImage = SetGameBackgroundImage;
     runtime.setVectorDragLimit = SetVectorDragLimit;
     return runtime;
 }
@@ -8946,10 +8955,6 @@ void ApplyBallStateToRenderer()
 
 void LoadBackgroundOnActiveRenderer(const std::wstring& path)
 {
-    if (path.empty()) {
-        return;
-    }
-
     bool loaded = false;
     std::wstring error;
     if (g_rendererApi.load() == BgeRendererApi::DirectX12) {
@@ -9235,7 +9240,7 @@ void ProcessPendingRendererCommands()
     if (stateDirty || switchRequested) {
         ApplyBallStateToRenderer();
     }
-    if ((backgroundImageDirty || switchRequested) && !backgroundImagePath.empty()) {
+    if (backgroundImageDirty || switchRequested) {
         LoadBackgroundOnActiveRenderer(backgroundImagePath);
     }
     if (resizeRequested) {

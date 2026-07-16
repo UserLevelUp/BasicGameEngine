@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <mutex>
 #include <random>
 #include <sstream>
@@ -103,6 +104,8 @@ struct IntiPhotoCheckpoint {
     float goldenAngleDeg = 0.0f;    // ideal approach heading, layout space (y-down)
     float toleranceDeg = 30.0f;     // half-width of the golden composition cone
     int compositionScore = -1;      // 0..100 once claimed; -1 = not composed yet
+    bool isPowerup = false;
+    std::wstring powerupEffect;
 };
 
 // A corridor edge between two named checkpoints. Rendered as a stone path
@@ -399,6 +402,7 @@ const wchar_t* IntiEmbeddedPhotoMap()
 bool ParseIntiPhotoMapStream(std::wistream& input,
                              std::wstring& mapId,
                              std::wstring& mapName,
+                             std::wstring& backgroundImage,
                              float& startX,
                              float& startY,
                              std::vector<IntiPhotoCheckpoint>& checkpoints,
@@ -426,6 +430,9 @@ bool ParseIntiPhotoMapStream(std::wistream& input,
                 mapName += tokens[i];
             }
         }
+        else if (key == L"background" && tokens.size() >= 2) {
+            backgroundImage = tokens[1];
+        }
         else if (key == L"start" && tokens.size() >= 3) {
             float x = 0.0f;
             float y = 0.0f;
@@ -437,14 +444,26 @@ bool ParseIntiPhotoMapStream(std::wistream& input,
         else if (key == L"checkpoint" && tokens.size() >= 4) {
             float x = 0.0f;
             float y = 0.0f;
-            if (checkpoints.size() < static_cast<std::size_t>(BGE_OBJECT_SLOT_COUNT - 1)
-                && TryParseIntiFloat(tokens[1], x)
+            if (TryParseIntiFloat(tokens[1], x)
                 && TryParseIntiFloat(tokens[2], y)) {
                 IntiPhotoCheckpoint checkpoint;
                 checkpoint.xFraction = ClampIntiFraction(x);
                 checkpoint.yFraction = ClampIntiFraction(y);
                 checkpoint.name = tokens[3];
                 checkpoint.visited = false;
+                checkpoints.push_back(checkpoint);
+            }
+        }
+        else if (key == L"powerup" && tokens.size() >= 4) {
+            float x = 0.0f;
+            float y = 0.0f;
+            if (TryParseIntiFloat(tokens[1], x) && TryParseIntiFloat(tokens[2], y)) {
+                IntiPhotoCheckpoint checkpoint;
+                checkpoint.xFraction = ClampIntiFraction(x);
+                checkpoint.yFraction = ClampIntiFraction(y);
+                checkpoint.name = tokens[3];
+                checkpoint.isPowerup = true;
+                checkpoint.powerupEffect = tokens.size() >= 5 ? tokens[4] : L"boost";
                 checkpoints.push_back(checkpoint);
             }
         }
@@ -657,6 +676,9 @@ public:
             }
             return ShowSection(runtime, IntiSection::Empire, statusText, NormalizeEmpireAction(action));
         }
+        if (subcommand == L"map") {
+            return ExecutePhotoMapCommand(runtime, tokens, argumentIndex, statusText);
+        }
         if (subcommand == L"chasqui" || subcommand == L"runners" || subcommand == L"messages" || subcommand == L"message") {
             std::wstring action = tokens.size() > argumentIndex ? LowerIntiArg(tokens[argumentIndex]) : L"";
             if ((action == L"run" || action == L"animate" || action == L"route" || action == L"path") && tokens.size() > argumentIndex + 1) {
@@ -721,7 +743,7 @@ public:
             return UnlockPhotoUiWinners(runtime, statusText);
         }
         if (subcommand == L"commands" || subcommand == L"help") {
-            statusText = L"Inti commands: inti photo-run [map.intimap] | inti main | inti tech list | inti empire path | inti chasqui run 120,240 300,240 420,320 [speed 220] [reverse-krebs] | inti ui-group dots|aim|hud | inti ui-candidate 0-9 | inti ui-lock [dots|aim|hud 0-9] | inti ui-unlock | inti end-turn | inti status";
+            statusText = L"Inti commands: inti photo-run [map.intimap] | inti map create|load|switch|node|powerup|path|exit|save | inti main | inti tech list | inti empire path | inti chasqui run 120,240 300,240 420,320 [speed 220] [reverse-krebs] | inti ui-group dots|aim|hud | inti ui-candidate 0-9 | inti ui-lock [dots|aim|hud 0-9] | inti ui-unlock | inti end-turn | inti status";
             if (runtime.setHud) {
                 runtime.setHud(statusText);
             }
@@ -1140,6 +1162,309 @@ private:
 
     // ----- inti photo-run (data-driven tourist maze, Level 1 arcade slice) -----
 
+    bool ExecutePhotoMapCommand(BgeGameRuntime& runtime,
+                                const std::vector<std::wstring>& tokens,
+                                std::size_t actionIndex,
+                                std::wstring& statusText)
+    {
+        if (tokens.size() <= actionIndex) {
+            statusText = L"Use: inti map create|load|switch|node|powerup|path|exit|save ...";
+            return false;
+        }
+        std::wstring action = LowerIntiArg(tokens[actionIndex]);
+        if (action == L"create") {
+            if (tokens.size() <= actionIndex + 2) {
+                statusText = L"Use: inti map create <map-id> <background-image>";
+                return false;
+            }
+            return CreatePhotoMap(runtime, tokens[actionIndex + 1], tokens[actionIndex + 2], statusText);
+        }
+        if (action == L"load" || action == L"switch") {
+            if (tokens.size() <= actionIndex + 1) {
+                statusText = L"Use: inti map load|switch <map.intimap>";
+                return false;
+            }
+            return StartPhotoRun(runtime, tokens[actionIndex + 1], statusText);
+        }
+        if (action == L"node" || action == L"powerup") {
+            if (tokens.size() <= actionIndex + 4 || LowerIntiArg(tokens[actionIndex + 1]) != L"add") {
+                statusText = action == L"powerup"
+                    ? L"Use: inti map powerup add <name> <x> <y> [effect]"
+                    : L"Use: inti map node add <name> <x> <y>";
+                return false;
+            }
+            float x = 0.0f;
+            float y = 0.0f;
+            if (!TryParseIntiFloat(tokens[actionIndex + 3], x)
+                || !TryParseIntiFloat(tokens[actionIndex + 4], y)
+                || x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f) {
+                statusText = L"Map node coordinates must be normalized values from 0 through 1";
+                return false;
+            }
+            std::wstring effect = tokens.size() > actionIndex + 5 ? tokens[actionIndex + 5] : L"boost";
+            return AddPhotoMapNode(runtime, tokens[actionIndex + 2], x, y, action == L"powerup", effect, statusText);
+        }
+        if (action == L"path") {
+            if (tokens.size() <= actionIndex + 3 || LowerIntiArg(tokens[actionIndex + 1]) != L"add") {
+                statusText = L"Use: inti map path add <node-a> <node-b>";
+                return false;
+            }
+            return AddPhotoMapPath(runtime, tokens[actionIndex + 2], tokens[actionIndex + 3], statusText);
+        }
+        if (action == L"exit") {
+            if (tokens.size() <= actionIndex + 5 || LowerIntiArg(tokens[actionIndex + 1]) != L"add") {
+                statusText = L"Use: inti map exit add <name> <x> <y> <next-map.intimap>";
+                return false;
+            }
+            float x = 0.0f;
+            float y = 0.0f;
+            if (!TryParseIntiFloat(tokens[actionIndex + 3], x)
+                || !TryParseIntiFloat(tokens[actionIndex + 4], y)
+                || x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f) {
+                statusText = L"Map exit coordinates must be normalized values from 0 through 1";
+                return false;
+            }
+            return AddPhotoMapExit(runtime, tokens[actionIndex + 2], x, y, tokens[actionIndex + 5], statusText);
+        }
+        if (action == L"save") {
+            if (tokens.size() <= actionIndex + 1) {
+                statusText = L"Use: inti map save <map.intimap>";
+                return false;
+            }
+            return SavePhotoMap(runtime, tokens[actionIndex + 1], statusText);
+        }
+        statusText = L"Use: inti map create|load|switch|node|powerup|path|exit|save ...";
+        return false;
+    }
+
+    bool CreatePhotoMap(BgeGameRuntime& runtime,
+                        const std::wstring& mapId,
+                        const std::wstring& backgroundImage,
+                        std::wstring& statusText)
+    {
+        std::wstring resolvedBackground;
+        if (!ResolvePhotoAssetPath(backgroundImage, std::filesystem::current_path().wstring(), resolvedBackground)) {
+            statusText = L"Map background not found: " + backgroundImage;
+            return false;
+        }
+
+        std::wstring hudText;
+        {
+            std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+            ResetStateLocked();
+            active_ = true;
+            section_ = IntiSection::PhotoRun;
+            photoMapId_ = mapId;
+            photoMapName_ = mapId;
+            photoSource_ = L"authoring";
+            photoMapDirectory_ = std::filesystem::current_path().wstring();
+            photoBackgroundAsset_ = backgroundImage;
+            photoBackgroundPath_ = resolvedBackground;
+            photoBackgroundDirty_ = true;
+            photoRunnerXf_ = 0.5f;
+            photoRunnerYf_ = 0.5f;
+            photoFacingX_ = 1.0f;
+            photoFacingY_ = 0.0f;
+            ConfigurePhotoRunSceneLocked(runtime, runtime.viewport ? runtime.viewport() : BgeGameViewport{});
+            statusText = L"Map created: " + mapId + L"; add nodes manually with inti map node add";
+            hudText = BuildHudLocked();
+        }
+        ApplyPhotoMapBackground(runtime);
+        if (runtime.log) {
+            runtime.log("bge.event.map.created " + NarrowStatus(mapId));
+        }
+        PublishRuntimeFeedback(runtime, statusText, hudText);
+        return true;
+    }
+
+    int PhotoCheckpointIndexByNameLocked(const std::wstring& name) const
+    {
+        for (std::size_t index = 0; index < photoCheckpoints_.size(); ++index) {
+            if (photoCheckpoints_[index].name == name) {
+                return static_cast<int>(index);
+            }
+        }
+        return -1;
+    }
+
+    bool AddPhotoMapNode(BgeGameRuntime& runtime,
+                         const std::wstring& name,
+                         float x,
+                         float y,
+                         bool isPowerup,
+                         const std::wstring& effect,
+                         std::wstring& statusText)
+    {
+        std::wstring hudText;
+        {
+            std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+            if (section_ != IntiSection::PhotoRun || PhotoCheckpointIndexByNameLocked(name) >= 0) {
+                statusText = section_ != IntiSection::PhotoRun
+                    ? L"Create or load a map before adding nodes"
+                    : L"Map node already exists: " + name;
+                return false;
+            }
+            IntiPhotoCheckpoint checkpoint;
+            checkpoint.name = name;
+            checkpoint.xFraction = x;
+            checkpoint.yFraction = y;
+            checkpoint.isPowerup = isPowerup;
+            checkpoint.powerupEffect = isPowerup ? effect : L"";
+            photoCheckpoints_.push_back(checkpoint);
+            BuildPhotoPathsAndDotsLocked(photoPathNames_);
+            if (photoCheckpoints_.size() == 1) {
+                PlaceRunnerAtNearestNodeLocked(x, y, runtime.viewport ? runtime.viewport() : BgeGameViewport{});
+            }
+            ConfigurePhotoRunSceneLocked(runtime, runtime.viewport ? runtime.viewport() : BgeGameViewport{});
+            statusText = std::wstring(isPowerup ? L"Power-up node added: " : L"Map node added: ") + name;
+            hudText = BuildHudLocked();
+        }
+        if (runtime.log) {
+            runtime.log(std::string(isPowerup ? "bge.event.map.powerup.added " : "bge.event.map.node.added ")
+                        + NarrowStatus(name));
+        }
+        PublishRuntimeFeedback(runtime, statusText, hudText);
+        return true;
+    }
+
+    bool AddPhotoMapPath(BgeGameRuntime& runtime,
+                         const std::wstring& first,
+                         const std::wstring& second,
+                         std::wstring& statusText)
+    {
+        std::wstring hudText;
+        {
+            std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+            if (PhotoCheckpointIndexByNameLocked(first) < 0 || PhotoCheckpointIndexByNameLocked(second) < 0 || first == second) {
+                statusText = L"Map path endpoints must be two different existing nodes";
+                return false;
+            }
+            photoPathNames_.push_back(IntiPhotoPathName{ first, second });
+            BuildPhotoPathsAndDotsLocked(photoPathNames_);
+            ConfigurePhotoRunSceneLocked(runtime, runtime.viewport ? runtime.viewport() : BgeGameViewport{});
+            statusText = L"Map path added: " + first + L" -> " + second;
+            hudText = BuildHudLocked();
+        }
+        if (runtime.log) {
+            runtime.log("bge.event.map.path.added " + NarrowStatus(first) + " " + NarrowStatus(second));
+        }
+        PublishRuntimeFeedback(runtime, statusText, hudText);
+        return true;
+    }
+
+    bool AddPhotoMapExit(BgeGameRuntime& runtime,
+                         const std::wstring& name,
+                         float x,
+                         float y,
+                         const std::wstring& nextMap,
+                         std::wstring& statusText)
+    {
+        std::wstring hudText;
+        {
+            std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+            if (section_ != IntiSection::PhotoRun) {
+                statusText = L"Create or load a map before adding exits";
+                return false;
+            }
+            IntiPhotoExit exit;
+            exit.name = name;
+            exit.xFraction = x;
+            exit.yFraction = y;
+            exit.nextMap = nextMap;
+            photoExits_.push_back(exit);
+            ConfigurePhotoRunSceneLocked(runtime, runtime.viewport ? runtime.viewport() : BgeGameViewport{});
+            statusText = L"Map exit added: " + name + L" -> " + nextMap;
+            hudText = BuildHudLocked();
+        }
+        if (runtime.log) {
+            runtime.log("bge.event.map.exit.added " + NarrowStatus(name) + " " + NarrowStatus(nextMap));
+        }
+        PublishRuntimeFeedback(runtime, statusText, hudText);
+        return true;
+    }
+
+    bool SavePhotoMap(BgeGameRuntime& runtime, const std::wstring& requestedPath, std::wstring& statusText)
+    {
+        std::filesystem::path outputPath(requestedPath);
+        std::error_code pathError;
+        std::filesystem::path absoluteOutputPath = std::filesystem::absolute(outputPath, pathError).lexically_normal();
+        if (pathError) {
+            absoluteOutputPath = outputPath.lexically_normal();
+            pathError.clear();
+        }
+        std::filesystem::path outputDirectory = absoluteOutputPath.has_parent_path()
+            ? absoluteOutputPath.parent_path()
+            : std::filesystem::current_path();
+        std::wstring backgroundForSave;
+        std::wstring mapText;
+        {
+            std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+            if (section_ != IntiSection::PhotoRun) {
+                statusText = L"Create or load a map before saving";
+                return false;
+            }
+            std::wstringstream stream;
+            stream << std::fixed << std::setprecision(6);
+            stream << L"map " << photoMapId_ << L" " << photoMapName_ << L"\n";
+            backgroundForSave = photoBackgroundAsset_;
+            if (!photoBackgroundPath_.empty()) {
+                std::error_code relativeError;
+                std::filesystem::path relativeBackground = std::filesystem::relative(
+                    std::filesystem::path(photoBackgroundPath_), outputDirectory, relativeError);
+                if (!relativeError && !relativeBackground.empty()) {
+                    backgroundForSave = relativeBackground.generic_wstring();
+                }
+            }
+            if (!backgroundForSave.empty()) {
+                stream << L"background " << backgroundForSave << L"\n";
+            }
+            stream << L"start " << photoRunnerXf_ << L" " << photoRunnerYf_ << L"\n";
+            for (const IntiPhotoCheckpoint& checkpoint : photoCheckpoints_) {
+                stream << (checkpoint.isPowerup ? L"powerup " : L"checkpoint ")
+                       << checkpoint.xFraction << L" " << checkpoint.yFraction << L" " << checkpoint.name;
+                if (checkpoint.isPowerup) {
+                    stream << L" " << (checkpoint.powerupEffect.empty() ? L"boost" : checkpoint.powerupEffect);
+                }
+                stream << L"\n";
+                if (checkpoint.hasShot) {
+                    stream << L"shot " << checkpoint.name << L" golden-angle " << checkpoint.goldenAngleDeg
+                           << L" tolerance " << checkpoint.toleranceDeg << L"\n";
+                }
+            }
+            for (const IntiPhotoPathName& path : photoPathNames_) {
+                stream << L"path " << path.a << L" " << path.b << L"\n";
+            }
+            for (const IntiPhotoExit& exit : photoExits_) {
+                stream << L"exit " << exit.xFraction << L" " << exit.yFraction << L" "
+                       << exit.nextMap << L" " << exit.name << L"\n";
+            }
+            mapText = stream.str();
+        }
+
+        std::error_code ec;
+        if (outputPath.has_parent_path()) {
+            std::filesystem::create_directories(outputPath.parent_path(), ec);
+        }
+        std::wofstream output(outputPath, std::ios::trunc);
+        if (ec || !output.is_open()) {
+            statusText = L"Could not save map: " + outputPath.wstring();
+            return false;
+        }
+        output << mapText;
+        output.close();
+        {
+            std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+            photoSource_ = absoluteOutputPath.wstring();
+            photoMapDirectory_ = outputDirectory.wstring();
+            photoBackgroundAsset_ = backgroundForSave;
+        }
+        statusText = L"Map saved: " + outputPath.wstring();
+        if (runtime.log) {
+            runtime.log("bge.event.map.saved " + NarrowStatus(outputPath.wstring()));
+        }
+        return true;
+    }
+
     bool StartPhotoRun(BgeGameRuntime& runtime, const std::wstring& mapPath, std::wstring& statusText)
     {
         if (!IntiRuntimeReady(runtime)) {
@@ -1166,6 +1491,8 @@ private:
             hudText = BuildHudLocked();
         }
 
+        ApplyPhotoMapBackground(runtime);
+
         if (runtime.clearTitleScreen) {
             runtime.clearTitleScreen();
         }
@@ -1178,10 +1505,19 @@ private:
         return true;
     }
 
-    bool ResolvePhotoMapPath(const std::wstring& requestedPath, std::wstring& resolved) const
+    bool ResolvePhotoAssetPath(const std::wstring& requestedPath,
+                               const std::wstring& baseDirectory,
+                               std::wstring& resolved) const
     {
         std::vector<std::wstring> candidates;
         if (!requestedPath.empty()) {
+            std::filesystem::path requested(requestedPath);
+            if (requested.is_absolute()) {
+                candidates.push_back(requestedPath);
+            }
+            if (!baseDirectory.empty()) {
+                candidates.push_back((std::filesystem::path(baseDirectory) / requested).wstring());
+            }
             candidates.push_back(requestedPath);
             candidates.push_back(L"maps/" + requestedPath);
             candidates.push_back(L"BasicGameEngine/maps/" + requestedPath);
@@ -1196,17 +1532,25 @@ private:
         for (const std::wstring& candidate : candidates) {
             std::filesystem::path path(candidate);
             if (std::filesystem::exists(path, ec) && std::filesystem::is_regular_file(path, ec)) {
-                resolved = candidate;
+                std::filesystem::path absolutePath = std::filesystem::absolute(path, ec);
+                resolved = (ec ? path : absolutePath).lexically_normal().wstring();
                 return true;
             }
+            ec.clear();
         }
         return false;
+    }
+
+    bool ResolvePhotoMapPath(const std::wstring& requestedPath, std::wstring& resolved) const
+    {
+        return ResolvePhotoAssetPath(requestedPath, photoMapDirectory_, resolved);
     }
 
     bool LoadPhotoRunMapLocked(const std::wstring& requestedPath, const BgeGameViewport& viewport)
     {
         std::wstring mapId = L"custom";
         std::wstring mapName = L"Tourist Map";
+        std::wstring backgroundImage;
         float startX = 0.5f;
         float startY = 0.5f;
         std::vector<IntiPhotoCheckpoint> checkpoints;
@@ -1220,7 +1564,7 @@ private:
             std::filesystem::path mapFsPath(resolved);
             std::wifstream file(mapFsPath);
             if (file.is_open()) {
-                parsed = ParseIntiPhotoMapStream(file, mapId, mapName, startX, startY, checkpoints, pathNames, exits);
+                parsed = ParseIntiPhotoMapStream(file, mapId, mapName, backgroundImage, startX, startY, checkpoints, pathNames, exits);
                 if (parsed) {
                     source = resolved;
                 }
@@ -1230,10 +1574,11 @@ private:
             std::wstringstream embedded(IntiEmbeddedPhotoMap());
             mapId = L"machu-picchu";
             mapName = L"Machu Picchu Citadel";
+            backgroundImage.clear();
             checkpoints.clear();
             pathNames.clear();
             exits.clear();
-            parsed = ParseIntiPhotoMapStream(embedded, mapId, mapName, startX, startY, checkpoints, pathNames, exits);
+            parsed = ParseIntiPhotoMapStream(embedded, mapId, mapName, backgroundImage, startX, startY, checkpoints, pathNames, exits);
             source = L"embedded";
         }
         if (!parsed) {
@@ -1243,8 +1588,21 @@ private:
         photoMapId_ = mapId;
         photoMapName_ = mapName;
         photoSource_ = source;
+        if (source != L"embedded") {
+            photoMapDirectory_ = std::filesystem::path(source).parent_path().wstring();
+        }
+        else {
+            photoMapDirectory_.clear();
+        }
+        photoBackgroundAsset_ = backgroundImage;
+        photoBackgroundPath_.clear();
+        if (!backgroundImage.empty()) {
+            ResolvePhotoAssetPath(backgroundImage, photoMapDirectory_, photoBackgroundPath_);
+        }
+        photoBackgroundDirty_ = true;
         photoCheckpoints_ = std::move(checkpoints);
         photoExits_ = std::move(exits);
+        photoPathNames_ = pathNames;
         BuildPhotoPathsAndDotsLocked(pathNames);
         photoRunnerXf_ = startX;
         photoRunnerYf_ = startY;
@@ -1278,6 +1636,21 @@ private:
         photoComposedCount_ = 0;
         photoLastComposeName_.clear();
         return true;
+    }
+
+    void ApplyPhotoMapBackground(BgeGameRuntime& runtime)
+    {
+        if (!photoBackgroundDirty_) {
+            return;
+        }
+        photoBackgroundDirty_ = false;
+        if (runtime.setBackgroundImage) {
+            runtime.setBackgroundImage(photoBackgroundPath_);
+        }
+        if (runtime.log) {
+            runtime.log("bge.event.map.background " + NarrowStatus(photoMapId_)
+                        + " " + NarrowStatus(photoBackgroundPath_.empty() ? L"(clear)" : photoBackgroundPath_));
+        }
     }
 
     // Resolve corridor edges from checkpoint names to indices and seed each
@@ -1440,7 +1813,7 @@ private:
         const IntiPhotoDotUiStyle& dotStyle = ActivePhotoDotUiStyle(effectiveCandidates);
         const IntiPhotoAimUiStyle& aimStyle = ActivePhotoAimUiStyle(effectiveCandidates);
         std::vector<BgeColorVertex> geometry;
-        geometry.reserve((photoPaths_.size() + photoDots_.size() + photoExits_.size()) * 6);
+        geometry.reserve((photoPaths_.size() + photoDots_.size() + photoCheckpoints_.size() + photoExits_.size()) * 6);
 
         // Corridor path lines (dim stone color, drawn first / underneath).
         for (const IntiPhotoPath& edge : photoPaths_) {
@@ -1471,6 +1844,28 @@ private:
                                 dotStyle.remainingHalfPx,
                                 dotStyle.remainingR, dotStyle.remainingG,
                                 dotStyle.remainingB, dotStyle.remainingA);
+            }
+        }
+
+        // Map nodes live in scene geometry rather than object slots, so a
+        // hand-authored maze is not capped at nine nodes. Power-up nodes are
+        // larger and carry an effect identifier emitted when collected.
+        for (const IntiPhotoCheckpoint& checkpoint : photoCheckpoints_) {
+            if (checkpoint.isPowerup) {
+                AppendPhotoQuad(geometry, viewport, checkpoint.xFraction, checkpoint.yFraction,
+                                checkpoint.visited ? 9.0f : 15.0f,
+                                checkpoint.visited ? 0.34f : 1.00f,
+                                checkpoint.visited ? 0.55f : 0.32f,
+                                checkpoint.visited ? 0.62f : 0.88f,
+                                checkpoint.visited ? 0.55f : 1.00f);
+            }
+            else {
+                AppendPhotoQuad(geometry, viewport, checkpoint.xFraction, checkpoint.yFraction,
+                                checkpoint.visited ? 7.0f : 11.0f,
+                                checkpoint.visited ? 0.40f : 1.00f,
+                                checkpoint.visited ? 0.86f : 0.82f,
+                                checkpoint.visited ? 0.52f : 0.28f,
+                                checkpoint.visited ? 0.55f : 1.00f);
             }
         }
 
@@ -2083,29 +2478,6 @@ private:
             slots[static_cast<std::size_t>(index)] = BgeObjectSlotState{};
         }
 
-        int slotIndex = 1;
-        for (const IntiPhotoCheckpoint& checkpoint : photoCheckpoints_) {
-            if (slotIndex >= BGE_OBJECT_SLOT_COUNT) {
-                break;
-            }
-            BgeObjectSlotState& slot = slots[static_cast<std::size_t>(slotIndex)];
-            slot.visible = true;
-            slot.x = width * checkpoint.xFraction;
-            slot.y = playTop + playHeight * checkpoint.yFraction;
-            slot.velocityX = 0.0f;
-            slot.velocityY = 0.0f;
-            slot.radius = checkpoint.visited ? 12.0f : 16.0f;
-            slot.colorR = checkpoint.visited ? 0.40f : 1.00f;
-            slot.colorG = checkpoint.visited ? 0.86f : 0.82f;
-            slot.colorB = checkpoint.visited ? 0.52f : 0.28f;
-            slot.colorA = checkpoint.visited ? 0.70f : 1.0f;
-            slot.shape = BgeObjectShape::Ball;
-            slot.kind = BgeObjectKind::Generic;
-            slot.renderStyle = checkpoint.visited ? BgeObjectRenderStyle::Filled : BgeObjectRenderStyle::Outline;
-            slot.outlineThickness = 2.2f;
-            ++slotIndex;
-        }
-
         BgeObjectSlotState& courier = slots[0];
         courier.visible = true;
         courier.x = width * photoRunnerXf_;
@@ -2578,6 +2950,7 @@ private:
             }
         }
         if (changed) {
+            ApplyPhotoMapBackground(runtime);
             if (runtime.log) {
                 for (const std::string& message : events) {
                     runtime.log(message);
@@ -2652,6 +3025,10 @@ private:
                 changed = true;
                 events.push_back("bge.event.checkpoint.visited " + NarrowStatus(checkpoint.name));
                 events.push_back("bge.event.photo.claimed " + NarrowStatus(checkpoint.name) + " camera snap");
+                if (checkpoint.isPowerup) {
+                    events.push_back("bge.event.powerup.collected " + NarrowStatus(checkpoint.name)
+                        + " " + NarrowStatus(checkpoint.powerupEffect.empty() ? L"boost" : checkpoint.powerupEffect));
+                }
                 if (checkpoint.hasShot) {
                     // Un-distort the pixel-space arrival facing back to layout
                     // space so the golden angle is resolution-independent and
@@ -2755,12 +3132,17 @@ private:
         runnerRouteTotalDistance_ = 0.0f;
         runnerSeconds_ = 0.0;
         photoCheckpoints_.clear();
+        photoPathNames_.clear();
         photoPaths_.clear();
         photoDots_.clear();
         photoExits_.clear();
         photoMapId_.clear();
         photoMapName_.clear();
         photoSource_.clear();
+        photoMapDirectory_.clear();
+        photoBackgroundAsset_.clear();
+        photoBackgroundPath_.clear();
+        photoBackgroundDirty_ = true;
         photoPendingExit_.clear();
         photoRunnerXf_ = 0.5f;
         photoRunnerYf_ = 0.5f;
@@ -3608,12 +3990,17 @@ private:
     float runnerRouteTotalDistance_ = 0.0f;
     double runnerSeconds_ = 0.0;
     std::vector<IntiPhotoCheckpoint> photoCheckpoints_;
+    std::vector<IntiPhotoPathName> photoPathNames_;
     std::vector<IntiPhotoPath> photoPaths_;
     std::vector<IntiPhotoDot> photoDots_;
     std::vector<IntiPhotoExit> photoExits_;
     std::wstring photoMapId_;
     std::wstring photoMapName_;
     std::wstring photoSource_;
+    std::wstring photoMapDirectory_;
+    std::wstring photoBackgroundAsset_;
+    std::wstring photoBackgroundPath_;
+    bool photoBackgroundDirty_ = false;
     std::wstring photoPendingExit_;
     float photoRunnerXf_ = 0.5f;
     float photoRunnerYf_ = 0.5f;

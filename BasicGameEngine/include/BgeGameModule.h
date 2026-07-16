@@ -46,6 +46,11 @@ struct BgeGameRuntime {
     // vector to clear. Does NOT consume object slots.
     void (*setSceneGeometry)(const std::vector<BgeColorVertex>& vertices) = nullptr;
 
+    // Engine-neutral background underlay channel. Paths are resolved by the
+    // calling module or recipe; an empty path clears the current underlay.
+    // Loading is deferred to the game-loop renderer command phase.
+    void (*setBackgroundImage)(const std::wstring& path) = nullptr;
+
     // Engine-neutral bound on the interactive vector drag (the "pull the
     // arrow" gesture that sets the selected object's velocity). A module may
     // cap how hard the arrow can be pulled (maxMagnitude, pixels/sec; <= 0 =
@@ -77,6 +82,6 @@ BgeGameModule& BgeAsteroidGameModule();
 //
 //   unsigned int BgeGameModuleAbiVersion();
 //   BgeGameModule* CreateBgeGameModule();
-constexpr unsigned int BGE_GAME_MODULE_ABI_VERSION = 1;
+constexpr unsigned int BGE_GAME_MODULE_ABI_VERSION = 2;
 using BgeGameModuleAbiVersionFn = unsigned int (*)();
 using BgeCreateGameModuleFn = BgeGameModule* (*)();

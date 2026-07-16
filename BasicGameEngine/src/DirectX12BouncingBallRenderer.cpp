@@ -10,7 +10,7 @@
 
 namespace {
 constexpr int kBallSegments = 48;
-constexpr int kBackgroundVertexCapacity = 48 * 27 * 6;
+constexpr int kBackgroundVertexCapacity = BGE_BACKGROUND_MAX_VERTEX_COUNT;
 constexpr int kSceneGeometryVertexCapacity = 8192;
 constexpr int kArrowVertexCapacity = 9;
 constexpr int kOverlayTextVertexCapacity = 32000;
