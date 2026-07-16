@@ -313,6 +313,18 @@ struct BgeAnimationSequenceState {
     bool loop = false;
 };
 
+struct BgeAnimationModeBinding {
+    std::wstring modeId;
+    std::wstring sequenceId;
+};
+
+struct BgeAnimationProfileState {
+    std::wstring id;
+    std::wstring defaultSequenceId;
+    std::wstring activeModeId;
+    std::vector<BgeAnimationModeBinding> modeBindings;
+};
+
 struct BgeTierSequenceBinding {
     int tier = 0;
     std::wstring sequenceId;
@@ -320,6 +332,8 @@ struct BgeTierSequenceBinding {
 
 struct BgeActorAnimationBindingState {
     std::wstring actorId;
+    std::wstring profileId;
+    std::wstring activeModeId;
     std::wstring tierCounter;
     std::vector<BgeTierSequenceBinding> tierMap;
     std::wstring currentSequenceId;
@@ -341,6 +355,7 @@ struct BgeSpriteSheetAnimatorState {
     bool active = false;
     std::vector<BgeSpriteSheetState> sheets;
     std::vector<BgeAnimationSequenceState> sequences;
+    std::vector<BgeAnimationProfileState> profiles;
     std::vector<BgeActorAnimationBindingState> actorBindings;
     std::vector<BgeSpriteSheetCatalogEntry> catalogEntries;
     uint64_t replayTraceStep = 0;
@@ -749,12 +764,15 @@ bool ExecuteBgeVectorShipCommand(const std::vector<std::wstring>& tokens, std::w
 bool ExecuteBgeSoundCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeSpriteSheetCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeAnimationSequenceCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
+bool ExecuteBgeAnimationProfileCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeActorAnimationCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText);
 bool TryParseIntPairArg(const std::wstring& text, int& first, int& second);
 BgeSpriteSheetState* FindSpriteSheetMutable(const std::wstring& id);
 BgeAnimationSequenceState* FindAnimationSequenceMutable(const std::wstring& id);
+BgeAnimationProfileState* FindAnimationProfileMutable(const std::wstring& id);
 BgeActorAnimationBindingState* FindActorAnimationBindingMutable(const std::wstring& actorId);
+std::wstring ResolveAnimationProfileSequence(const BgeAnimationProfileState& profile, const std::wstring& modeId);
 void AppendSpriteReplayDeterminismTraceLocked(BgeActorAnimationBindingState& binding, const std::wstring& eventKind);
 std::wstring SpriteReplayDeterminismProofSummaryLocked(const BgeActorAnimationBindingState& binding);
 std::wstring BuildSpriteReplayDeterminismProofText();
@@ -2191,6 +2209,17 @@ BgeAnimationSequenceState* FindAnimationSequenceMutable(const std::wstring& id)
     return nullptr;
 }
 
+BgeAnimationProfileState* FindAnimationProfileMutable(const std::wstring& id)
+{
+    std::wstring requested = LowerArg(id);
+    for (auto& profile : g_spriteSheetAnimatorState.profiles) {
+        if (LowerArg(profile.id) == requested) {
+            return &profile;
+        }
+    }
+    return nullptr;
+}
+
 BgeActorAnimationBindingState* FindActorAnimationBindingMutable(const std::wstring& actorId)
 {
     std::wstring requested = LowerArg(actorId);
@@ -2200,6 +2229,24 @@ BgeActorAnimationBindingState* FindActorAnimationBindingMutable(const std::wstri
         }
     }
     return nullptr;
+}
+
+std::wstring ResolveAnimationProfileSequence(const BgeAnimationProfileState& profile, const std::wstring& modeId)
+{
+    std::wstring candidate = NormalizeTitleScreenText(modeId);
+    while (!candidate.empty()) {
+        for (const auto& binding : profile.modeBindings) {
+            if (LowerArg(binding.modeId) == LowerArg(candidate)) {
+                return binding.sequenceId;
+            }
+        }
+        size_t separator = candidate.rfind(L'.');
+        if (separator == std::wstring::npos) {
+            break;
+        }
+        candidate = candidate.substr(0, separator);
+    }
+    return profile.defaultSequenceId;
 }
 
 void AppendSpriteReplayDeterminismTraceLocked(BgeActorAnimationBindingState& binding, const std::wstring& eventKind)
@@ -3915,6 +3962,49 @@ bool ExecuteBgeSpriteSheetCommand(const std::vector<std::wstring>& tokens, std::
         return true;
     }
 
+    if (subcommand == L"rename") {
+        std::wstring sheetId;
+        std::wstring renamedId;
+        if (TryGetCommandOptionValue(tokens, L"--id", sheetId)) {
+            sheetId = NormalizeTitleScreenText(sheetId);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--to", renamedId)) {
+            renamedId = NormalizeTitleScreenText(renamedId);
+        }
+        if (sheetId.empty() || renamedId.empty()) {
+            statusText = L"Use: sprite-sheet rename --id <old-id> --to <new-id>";
+            return false;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            BgeSpriteSheetState* sheet = FindSpriteSheetMutable(sheetId);
+            if (!sheet) {
+                statusText = L"Sprite sheet not found: " + sheetId;
+                return false;
+            }
+            if (LowerArg(sheetId) != LowerArg(renamedId) && FindSpriteSheetMutable(renamedId)) {
+                statusText = L"Sprite sheet id already exists: " + renamedId;
+                return false;
+            }
+            sheet->id = renamedId;
+            for (auto& sequence : g_spriteSheetAnimatorState.sequences) {
+                if (LowerArg(sequence.sheetId) == LowerArg(sheetId)) {
+                    sequence.sheetId = renamedId;
+                }
+            }
+            for (auto& catalogEntry : g_spriteSheetAnimatorState.catalogEntries) {
+                if (LowerArg(catalogEntry.sheetId) == LowerArg(sheetId)) {
+                    catalogEntry.sheetId = renamedId;
+                }
+            }
+            g_rendererStateDirty = true;
+        }
+        RefreshSpriteSheetManagerWindow();
+        statusText = L"Sprite sheet renamed: " + sheetId + L" -> " + renamedId;
+        return true;
+    }
+
     if (subcommand != L"create" && subcommand != L"define") {
         statusText = L"Use: sprite-sheet create --id chasqui_base --image <png> --columns 8 --rows 1 --frame-size 128x128 --alpha-source straight|premultiplied --alpha-cutoff 0.0 --transparent-background";
         return false;
@@ -4038,6 +4128,58 @@ bool ExecuteBgeAnimationSequenceCommand(const std::vector<std::wstring>& tokens,
         return true;
     }
 
+    if (subcommand == L"rename") {
+        std::wstring sequenceId;
+        std::wstring renamedId;
+        if (TryGetCommandOptionValue(tokens, L"--id", sequenceId)) {
+            sequenceId = NormalizeTitleScreenText(sequenceId);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--to", renamedId)) {
+            renamedId = NormalizeTitleScreenText(renamedId);
+        }
+        if (sequenceId.empty() || renamedId.empty()) {
+            statusText = L"Use: animation-sequence rename --id <old-id> --to <new-id>";
+            return false;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            BgeAnimationSequenceState* sequence = FindAnimationSequenceMutable(sequenceId);
+            if (!sequence) {
+                statusText = L"Animation sequence not found: " + sequenceId;
+                return false;
+            }
+            if (LowerArg(sequenceId) != LowerArg(renamedId) && FindAnimationSequenceMutable(renamedId)) {
+                statusText = L"Animation sequence id already exists: " + renamedId;
+                return false;
+            }
+            sequence->id = renamedId;
+            for (auto& profile : g_spriteSheetAnimatorState.profiles) {
+                if (LowerArg(profile.defaultSequenceId) == LowerArg(sequenceId)) {
+                    profile.defaultSequenceId = renamedId;
+                }
+                for (auto& modeBinding : profile.modeBindings) {
+                    if (LowerArg(modeBinding.sequenceId) == LowerArg(sequenceId)) {
+                        modeBinding.sequenceId = renamedId;
+                    }
+                }
+            }
+            for (auto& binding : g_spriteSheetAnimatorState.actorBindings) {
+                if (LowerArg(binding.currentSequenceId) == LowerArg(sequenceId)) {
+                    binding.currentSequenceId = renamedId;
+                }
+                for (auto& tierBinding : binding.tierMap) {
+                    if (LowerArg(tierBinding.sequenceId) == LowerArg(sequenceId)) {
+                        tierBinding.sequenceId = renamedId;
+                    }
+                }
+            }
+            g_rendererStateDirty = true;
+        }
+        statusText = L"Animation sequence renamed: " + sequenceId + L" -> " + renamedId;
+        return true;
+    }
+
     if (subcommand != L"create" && subcommand != L"define") {
         statusText = L"Use: animation-sequence create --id tier0 --sheet chasqui_base --frames 0|1|2|3 --fps 8 --loop";
         return false;
@@ -4105,6 +4247,147 @@ bool ExecuteBgeAnimationSequenceCommand(const std::vector<std::wstring>& tokens,
     return true;
 }
 
+bool ExecuteBgeAnimationProfileCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
+{
+    if (!CurrentProcessOwnsGameLoop()) {
+        statusText = L"animation-profile commands run in bge.game-loop";
+        return false;
+    }
+    if (!BgePluginAlreadyImported(L"bge.piece.sprite-sheet-animator")) {
+        statusText = L"Import sprite animator first: plugin import bge.piece.sprite-sheet-animator";
+        return false;
+    }
+
+    std::wstring action = tokens.size() >= 2 ? LowerArg(tokens[1]) : L"status";
+    if (action == L"status" || action == L"list") {
+        std::lock_guard<std::mutex> lock(ballConfigMutex);
+        statusText = L"Animation profiles: " + std::to_wstring(static_cast<int>(g_spriteSheetAnimatorState.profiles.size()));
+        return true;
+    }
+
+    std::wstring profileId;
+    std::wstring value;
+    if (TryGetCommandOptionValue(tokens, L"--id", value)) {
+        profileId = NormalizeTitleScreenText(value);
+    }
+    if (profileId.empty()) {
+        statusText = L"animation-profile: --id required";
+        return false;
+    }
+
+    if (action == L"create") {
+        std::wstring defaultSequenceId;
+        if (TryGetCommandOptionValue(tokens, L"--default", value)) {
+            defaultSequenceId = NormalizeTitleScreenText(value);
+        }
+        if (defaultSequenceId.empty()) {
+            statusText = L"animation-profile create: --default required";
+            return false;
+        }
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            if (!FindAnimationSequenceMutable(defaultSequenceId)) {
+                statusText = L"animation-profile create: unknown sequence " + defaultSequenceId;
+                return false;
+            }
+            BgeAnimationProfileState* profile = FindAnimationProfileMutable(profileId);
+            if (!profile) {
+                BgeAnimationProfileState created;
+                created.id = profileId;
+                g_spriteSheetAnimatorState.profiles.push_back(created);
+                profile = &g_spriteSheetAnimatorState.profiles.back();
+            }
+            profile->defaultSequenceId = defaultSequenceId;
+            if (profile->activeModeId.empty()) {
+                profile->activeModeId = L"default";
+            }
+            g_spriteSheetAnimatorState.active = true;
+            g_rendererStateDirty = true;
+        }
+        statusText = L"Animation profile defined: " + profileId + L" default=" + defaultSequenceId;
+        return true;
+    }
+
+    if (action == L"mode" && tokens.size() >= 3 && LowerArg(tokens[2]) == L"set") {
+        std::wstring modeId;
+        std::wstring sequenceId;
+        if (TryGetCommandOptionValue(tokens, L"--mode", value)) {
+            modeId = NormalizeTitleScreenText(value);
+        }
+        if (TryGetCommandOptionValue(tokens, L"--sequence", value)) {
+            sequenceId = NormalizeTitleScreenText(value);
+        }
+        if (modeId.empty() || sequenceId.empty()) {
+            statusText = L"Use: animation-profile mode set --id <profile> --mode <motion.terrain.mood> --sequence <sequence>";
+            return false;
+        }
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            BgeAnimationProfileState* profile = FindAnimationProfileMutable(profileId);
+            if (!profile) {
+                statusText = L"Animation profile not found: " + profileId;
+                return false;
+            }
+            if (!FindAnimationSequenceMutable(sequenceId)) {
+                statusText = L"animation-profile mode set: unknown sequence " + sequenceId;
+                return false;
+            }
+            BgeAnimationModeBinding* existing = nullptr;
+            for (auto& modeBinding : profile->modeBindings) {
+                if (LowerArg(modeBinding.modeId) == LowerArg(modeId)) {
+                    existing = &modeBinding;
+                    break;
+                }
+            }
+            if (existing) {
+                existing->sequenceId = sequenceId;
+            }
+            else {
+                profile->modeBindings.push_back({ modeId, sequenceId });
+            }
+            g_rendererStateDirty = true;
+        }
+        statusText = L"Animation profile mode set: " + profileId + L" " + modeId + L" -> " + sequenceId;
+        return true;
+    }
+
+    if (action == L"rename") {
+        std::wstring renamedId;
+        if (TryGetCommandOptionValue(tokens, L"--to", value)) {
+            renamedId = NormalizeTitleScreenText(value);
+        }
+        if (renamedId.empty()) {
+            statusText = L"Use: animation-profile rename --id <old-id> --to <new-id>";
+            return false;
+        }
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            BgeAnimationProfileState* profile = FindAnimationProfileMutable(profileId);
+            if (!profile) {
+                statusText = L"Animation profile not found: " + profileId;
+                return false;
+            }
+            if (LowerArg(profileId) != LowerArg(renamedId) && FindAnimationProfileMutable(renamedId)) {
+                statusText = L"Animation profile id already exists: " + renamedId;
+                return false;
+            }
+            profile->id = renamedId;
+            for (auto& binding : g_spriteSheetAnimatorState.actorBindings) {
+                if (LowerArg(binding.profileId) == LowerArg(profileId)) {
+                    binding.profileId = renamedId;
+                }
+            }
+            g_rendererStateDirty = true;
+        }
+        statusText = L"Animation profile renamed: " + profileId + L" -> " + renamedId;
+        SendWorkerTelemetry(L"game-event", L"bge.event.sprite.profile.renamed", statusText);
+        return true;
+    }
+
+    statusText = L"Use: animation-profile create|mode set|rename|status";
+    return false;
+}
+
 bool ExecuteBgeActorAnimationCommand(const std::vector<std::wstring>& tokens, std::wstring& statusText)
 {
     if (!CurrentProcessOwnsGameLoop()) {
@@ -4135,6 +4418,8 @@ bool ExecuteBgeActorAnimationCommand(const std::vector<std::wstring>& tokens, st
                 return false;
             }
             statusText = L"Actor animation status: id=" + binding->actorId
+                + L" profile=" + (binding->profileId.empty() ? L"(none)" : binding->profileId)
+                + L" mode=" + (binding->activeModeId.empty() ? L"(default)" : binding->activeModeId)
                 + L" seq=" + (binding->currentSequenceId.empty() ? L"(none)" : binding->currentSequenceId)
                 + L" tier=" + std::to_wstring(binding->currentTier)
                 + L" frame=" + std::to_wstring(binding->currentFrameIndex)
@@ -4148,8 +4433,8 @@ bool ExecuteBgeActorAnimationCommand(const std::vector<std::wstring>& tokens, st
         return true;
     }
 
-    if (action != L"bind" && action != L"redline") {
-        statusText = L"Use: actor animation bind --id courier --tier-counter tier --map 0:tier0|1:tier1|2:tier2";
+    if (action != L"bind" && action != L"redline" && action != L"auto") {
+        statusText = L"Use: actor animation bind|auto|redline --id courier";
         return false;
     }
 
@@ -4163,6 +4448,75 @@ bool ExecuteBgeActorAnimationCommand(const std::vector<std::wstring>& tokens, st
         return false;
     }
 
+    if (action == L"auto") {
+        std::wstring autoStatus;
+        {
+            std::lock_guard<std::mutex> lock(ballConfigMutex);
+            BgeActorAnimationBindingState* binding = FindActorAnimationBindingMutable(actorId);
+            if (!binding) {
+                BgeActorAnimationBindingState created;
+                created.actorId = actorId;
+                g_spriteSheetAnimatorState.actorBindings.push_back(created);
+                binding = &g_spriteSheetAnimatorState.actorBindings.back();
+            }
+
+            std::wstring profileId = binding->profileId;
+            if (TryGetCommandOptionValue(tokens, L"--profile", value)) {
+                profileId = NormalizeTitleScreenText(value);
+            }
+            BgeAnimationProfileState* profile = FindAnimationProfileMutable(profileId);
+            if (!profile) {
+                statusText = L"actor animation auto: profile required";
+                return false;
+            }
+
+            std::wstring modeId;
+            if (TryGetCommandOptionValue(tokens, L"--mode", value)) {
+                modeId = NormalizeTitleScreenText(value);
+            }
+            if (modeId.empty()) {
+                const std::wstring contextOptions[] = { L"--motion", L"--terrain", L"--mood", L"--capability" };
+                for (const auto& option : contextOptions) {
+                    if (TryGetCommandOptionValue(tokens, option, value)) {
+                        std::wstring part = NormalizeTitleScreenText(value);
+                        if (!part.empty()) {
+                            modeId += modeId.empty() ? part : L"." + part;
+                        }
+                    }
+                }
+            }
+            if (modeId.empty()) {
+                modeId = profile->activeModeId.empty() ? L"default" : profile->activeModeId;
+            }
+            std::wstring sequenceId = ResolveAnimationProfileSequence(*profile, modeId);
+            if (sequenceId.empty() || !FindAnimationSequenceMutable(sequenceId)) {
+                statusText = L"actor animation auto: profile has no usable sequence";
+                return false;
+            }
+            bool sequenceChanged = LowerArg(binding->currentSequenceId) != LowerArg(sequenceId);
+            binding->profileId = profile->id;
+            binding->activeModeId = modeId;
+            profile->activeModeId = modeId;
+            binding->currentSequenceId = sequenceId;
+            if (sequenceChanged) {
+                binding->frameCursor = 0;
+                binding->frameAccumulatorSeconds = 0.0f;
+                binding->currentFrameIndex = 0;
+                binding->groupIndex = 0;
+                binding->groupLocalIndex = 0;
+                binding->globalFrameIndex = 0;
+                AppendSpriteReplayDeterminismTraceLocked(*binding, L"profile.mode.selected");
+            }
+            g_spriteSheetAnimatorState.active = true;
+            g_rendererStateDirty = true;
+            autoStatus = L"Actor animation auto: " + actorId + L" profile=" + profile->id + L" mode=" + modeId + L" sequence=" + sequenceId;
+        }
+        statusText = autoStatus;
+        SendWorkerTelemetry(L"game-event", L"bge.event.sprite.profile.mode.changed", statusText);
+        SendWorkerTelemetry(L"game-event", L"bge.event.sprite.auto.selected", statusText);
+        return true;
+    }
+
     {
         std::lock_guard<std::mutex> lock(ballConfigMutex);
         BgeActorAnimationBindingState* binding = FindActorAnimationBindingMutable(actorId);
@@ -4174,6 +4528,17 @@ bool ExecuteBgeActorAnimationCommand(const std::vector<std::wstring>& tokens, st
         }
 
         if (action == L"bind") {
+            if (TryGetCommandOptionValue(tokens, L"--profile", value)) {
+                std::wstring profileId = NormalizeTitleScreenText(value);
+                BgeAnimationProfileState* profile = FindAnimationProfileMutable(profileId);
+                if (!profile) {
+                    statusText = L"actor animation bind: unknown profile " + profileId;
+                    return false;
+                }
+                binding->profileId = profile->id;
+                binding->activeModeId = profile->activeModeId;
+                binding->currentSequenceId = ResolveAnimationProfileSequence(*profile, profile->activeModeId);
+            }
             if (TryGetCommandOptionValue(tokens, L"--tier-counter", value)) {
                 binding->tierCounter = NormalizeTitleScreenText(value);
             }
@@ -4524,30 +4889,28 @@ bool TickBgeSpriteSheetAnimator(double deltaMilliseconds)
         float deltaSeconds = static_cast<float>((std::max)(0.0, deltaMilliseconds) / 1000.0);
 
         for (auto& binding : g_spriteSheetAnimatorState.actorBindings) {
-            if (binding.tierMap.empty()) {
-                continue;
-            }
-
-            int tierValue = 0;
-            if (!binding.tierCounter.empty()) {
-                const BgeCounterState* tierCounter = FindBgeCounterMutable(binding.tierCounter);
-                if (tierCounter) {
-                    tierValue = tierCounter->value;
-                }
-            }
-            binding.currentTier = tierValue;
-
             std::wstring nextSequenceId = binding.currentSequenceId;
-            bool exactTierMatch = false;
-            for (const auto& entry : binding.tierMap) {
-                if (entry.tier == tierValue) {
-                    nextSequenceId = entry.sequenceId;
-                    exactTierMatch = true;
-                    break;
+            if (!binding.tierMap.empty()) {
+                int tierValue = 0;
+                if (!binding.tierCounter.empty()) {
+                    const BgeCounterState* tierCounter = FindBgeCounterMutable(binding.tierCounter);
+                    if (tierCounter) {
+                        tierValue = tierCounter->value;
+                    }
                 }
-            }
-            if (!exactTierMatch && !binding.tierMap.empty() && nextSequenceId.empty()) {
-                nextSequenceId = binding.tierMap.front().sequenceId;
+                binding.currentTier = tierValue;
+
+                bool exactTierMatch = false;
+                for (const auto& entry : binding.tierMap) {
+                    if (entry.tier == tierValue) {
+                        nextSequenceId = entry.sequenceId;
+                        exactTierMatch = true;
+                        break;
+                    }
+                }
+                if (!exactTierMatch && nextSequenceId.empty()) {
+                    nextSequenceId = binding.tierMap.front().sequenceId;
+                }
             }
             if (nextSequenceId.empty()) {
                 continue;
@@ -7744,7 +8107,7 @@ std::vector<std::wstring> BuildExportFeatureSetLedger(const std::vector<std::wst
         else if (verb == L"title-screen") {
             AddExportFeatureSet(features, L"bge.piece.title-screen");
         }
-        else if (verb == L"sprite-sheet" || verb == L"animation-sequence") {
+        else if (verb == L"sprite-sheet" || verb == L"animation-sequence" || verb == L"animation-profile") {
             AddExportFeatureSet(features, L"bge.piece.sprite-sheet-animator");
         }
         else if (verb == L"actor" && tokens.size() >= 2 && LowerArg(tokens[1]) == L"animation") {
@@ -7938,6 +8301,16 @@ std::vector<std::wstring> BuildExportCommandsFromCurrentState()
         commands.push_back(command);
     }
 
+    for (const BgeAnimationProfileState& profile : spriteAnimator.profiles) {
+        commands.push_back(L"animation-profile create --id " + CommandFileArg(profile.id)
+            + L" --default " + CommandFileArg(profile.defaultSequenceId));
+        for (const BgeAnimationModeBinding& modeBinding : profile.modeBindings) {
+            commands.push_back(L"animation-profile mode set --id " + CommandFileArg(profile.id)
+                + L" --mode " + CommandFileArg(modeBinding.modeId)
+                + L" --sequence " + CommandFileArg(modeBinding.sequenceId));
+        }
+    }
+
     for (const BgeActorAnimationBindingState& binding : spriteAnimator.actorBindings) {
         std::wstring mapText;
         for (size_t mapIndex = 0; mapIndex < binding.tierMap.size(); ++mapIndex) {
@@ -7949,7 +8322,15 @@ std::vector<std::wstring> BuildExportCommandsFromCurrentState()
         std::wstring command = L"actor animation bind --id " + CommandFileArg(binding.actorId)
             + L" --tier-counter " + CommandFileArg(binding.tierCounter)
             + L" --map " + CommandFileArg(mapText);
+        if (!binding.profileId.empty()) {
+            command += L" --profile " + CommandFileArg(binding.profileId);
+        }
         commands.push_back(command);
+
+        if (!binding.profileId.empty() && !binding.activeModeId.empty()) {
+            commands.push_back(L"actor animation auto --id " + CommandFileArg(binding.actorId)
+                + L" --mode " + CommandFileArg(binding.activeModeId));
+        }
 
         if (binding.redlineEnabled || !binding.redlineShow.empty() || !binding.redlineColor.empty()) {
             std::wstring redlineCommand = L"actor animation redline --id " + CommandFileArg(binding.actorId);
@@ -9222,6 +9603,12 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
     if (command == L"animation-sequence") {
         bool ok = ExecuteBgeAnimationSequenceCommand(tokens, statusText);
         logCommand(ok ? "animation-sequence" : "animation-sequence failed");
+        return ok;
+    }
+
+    if (command == L"animation-profile") {
+        bool ok = ExecuteBgeAnimationProfileCommand(tokens, statusText);
+        logCommand(ok ? "animation-profile" : "animation-profile failed");
         return ok;
     }
 
