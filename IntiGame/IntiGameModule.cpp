@@ -29,6 +29,8 @@ constexpr int BGE_INTI_UI_GROUP_COUNT = 3;
 constexpr float BGE_INTI_ROUTE_DEFAULT_SPEED = 130.0f;
 constexpr float BGE_INTI_ROUTE_TRAIL_SPEED = 185.0f;
 constexpr float BGE_INTI_ROUTE_REVERSE_KREBS_BONUS = 95.0f;
+constexpr int BGE_INTI_PHOTO_DOT_POINTS = 10;
+constexpr int BGE_INTI_PHOTO_POWERUP_POINTS = 50;
 
 // Tech-gated bound on the arrow-pull (the engine-neutral vector drag). Base
 // values are tight; each completed tech raises the magnitude cap and widens
@@ -1708,6 +1710,7 @@ private:
         stream << L"inti photo-run | " << photoMapName_
                << L" | tourist-checkpoint " << photoVisitedCount_ << L"/" << photoCheckpoints_.size()
                << L" | path-dot " << photoDotsCollected_ << L"/" << photoDots_.size()
+             << L" | score " << photoScore_
                << L" | source " << (photoSource_.empty() ? L"embedded" : photoSource_);
         stream << L" | " << (photoTravelDir_ != 0 ? L"running" : (photoAutoRun_ ? L"paused" : L"ready - press Up/W or Down/S to run"));
         if (photoQueuedTurnDir_ != 0 && photoNode_ < 0) {
@@ -3026,8 +3029,12 @@ private:
                 events.push_back("bge.event.checkpoint.visited " + NarrowStatus(checkpoint.name));
                 events.push_back("bge.event.photo.claimed " + NarrowStatus(checkpoint.name) + " camera snap");
                 if (checkpoint.isPowerup) {
+                    photoScore_ += BGE_INTI_PHOTO_POWERUP_POINTS;
                     events.push_back("bge.event.powerup.collected " + NarrowStatus(checkpoint.name)
                         + " " + NarrowStatus(checkpoint.powerupEffect.empty() ? L"boost" : checkpoint.powerupEffect));
+                    events.push_back("bge.event.collectible.collected powerup " + NarrowStatus(checkpoint.name)
+                        + " points " + std::to_string(BGE_INTI_PHOTO_POWERUP_POINTS)
+                        + " total " + std::to_string(photoScore_));
                 }
                 if (checkpoint.hasShot) {
                     // Un-distort the pixel-space arrival facing back to layout
@@ -3061,8 +3068,12 @@ private:
             if (dx * dx + dy * dy <= dotRadius * dotRadius) {
                 dot.collected = true;
                 ++photoDotsCollected_;
+                photoScore_ += BGE_INTI_PHOTO_DOT_POINTS;
                 changed = true;
                 events.push_back("bge.event.photo-dot.collected " + std::to_string(photoDotsCollected_));
+                events.push_back("bge.event.collectible.collected dot " + std::to_string(photoDotsCollected_)
+                    + " points " + std::to_string(BGE_INTI_PHOTO_DOT_POINTS)
+                    + " total " + std::to_string(photoScore_));
             }
         }
 
@@ -3164,6 +3175,7 @@ private:
         photoPauseAtNextDot_ = false;
         photoVisitedCount_ = 0;
         photoDotsCollected_ = 0;
+        photoScore_ = 0;
         photoComplete_ = false;
         photoLastComposition_ = -1;
         photoCompositionTotal_ = 0;
@@ -4044,6 +4056,7 @@ private:
     std::wstring photoLastComposeName_;  // site of the last composed shot
     int photoVisitedCount_ = 0;
     int photoDotsCollected_ = 0;
+    int photoScore_ = 0;
     bool photoComplete_ = false;
 };
 

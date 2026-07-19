@@ -15,6 +15,7 @@
 #include <cwctype>
 #include <fstream>      // Pass A: bge.toml config reader
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <memory>
@@ -644,6 +645,21 @@ std::wstring g_authorActiveGroup = L"objects";
 int g_authorToolCandidate = 0;
 std::vector<std::wstring> g_authorReceiptLog;
 
+enum class BgeAuthorPlacementMode {
+    None,
+    CommandTemplate,
+};
+
+struct BgeAuthorPlacementState {
+    BgeAuthorPlacementMode mode = BgeAuthorPlacementMode::None;
+    std::wstring toolId;
+    std::wstring namePrefix;
+    std::wstring commandTemplate;
+    unsigned int nextOrdinal = 1;
+};
+
+BgeAuthorPlacementState g_authorPlacement;
+
 // Slice B1 - visible clickable author buttons. Engine-neutral: a button is a
 // name + bound command + group; domains supply meaning via recipes/manifests.
 struct BgeAuthorButtonBinding {
@@ -859,6 +875,7 @@ int ArtifactIndexForRole(const std::wstring& role);
 LRESULT CALLBACK CommandEditProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 bool HandleWorkerCommandCopyData(COPYDATASTRUCT* copyData);
 bool HandleControllerTelemetryCopyData(COPYDATASTRUCT* copyData);
+bool TryHandleAuthorPlacementClick(int x, int y);
 bool TryStartVectorDrag(int x, int y);
 bool TrySelectObjectAtPoint(int x, int y);
 void UpdateVectorDrag(int x, int y);
@@ -6176,7 +6193,7 @@ bool ExecuteBgeInspectCommand(const std::vector<std::wstring>& tokens, std::wstr
 
 std::wstring BgeAuthorUsageText()
 {
-    return L"Use: author start <plugin-name> | author archetype <name> | author group objects|paths|triggers|ui|maps|buttons | author tool 0-9 | author place <x> <y> [name] | author link <a> <b> | author trigger <node> <event> <action> | author bind background <asset> | author button add <name> | author button bind <name> <command> [window] | author button group <name> <group> | author button show|hide | author test | author save [name] | author package [name] | author warp";
+    return L"Use: author start <plugin-name> | author archetype <name> | author group objects|paths|triggers|ui|maps|buttons | author tool 0-9 | author placement arm <tool-id> <name-prefix> <command-template> | author placement cancel | author place <x> <y> [name] | author link <a> <b> | author trigger <node> <event> <action> | author bind background <asset> | author button add <name> | author button bind <name> <command> [window] | author button group <name> <group> | author button show|hide | author test | author save [name] | author package [name] | author warp";
 }
 
 void RecordBgeAuthorReceipt(const std::wstring& eventName, const std::wstring& detail)
@@ -6395,6 +6412,7 @@ bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstri
         g_authorToolCandidate = 0;
         g_authorReceiptLog.clear();
         g_authorArchetype.clear();
+        g_authorPlacement = {};
         ClearAuthorButtons();
         RecordBgeAuthorReceipt(L"bge.event.author.started", g_authorSessionName);
         statusText = L"Authoring: " + g_authorSessionName + L" | Arrows/WASD move, Space acts, Enter commits, M/Esc goes back, PgUp/PgDn cycles groups, 0-9 picks candidates";
@@ -6403,7 +6421,9 @@ bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstri
 
     if (subcommand == L"status") {
         statusText = g_authorSessionActive
-            ? L"Authoring " + BgeAuthorSessionLabel() + L" group=" + g_authorActiveGroup + L" tool=" + std::to_wstring(g_authorToolCandidate) + L" receipts=" + std::to_wstring(g_authorReceiptLog.size())
+            ? L"Authoring " + BgeAuthorSessionLabel() + L" group=" + g_authorActiveGroup + L" tool=" + std::to_wstring(g_authorToolCandidate)
+                + L" placement=" + (g_authorPlacement.mode == BgeAuthorPlacementMode::None ? L"none" : g_authorPlacement.toolId)
+                + L" receipts=" + std::to_wstring(g_authorReceiptLog.size())
             : L"Authoring inactive";
         return true;
     }
@@ -6437,6 +6457,44 @@ bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstri
         g_authorToolCandidate = candidate;
         RecordBgeAuthorReceipt(L"bge.event.author.tool", std::to_wstring(candidate));
         statusText = L"Author tool candidate: " + std::to_wstring(candidate);
+        return true;
+    }
+
+    if (subcommand == L"placement") {
+        std::wstring action = tokens.size() >= 3 ? LowerArg(tokens[2]) : L"status";
+        if (action == L"cancel" || action == L"off") {
+            std::wstring previousTool = g_authorPlacement.toolId;
+            g_authorPlacement = {};
+            RecordBgeAuthorReceipt(L"bge.event.author.placement.cancelled", previousTool);
+            statusText = L"Author placement cancelled";
+            return true;
+        }
+        if (action == L"status") {
+            statusText = g_authorPlacement.mode == BgeAuthorPlacementMode::None
+                ? L"Author placement inactive"
+                : L"Author placement armed: " + g_authorPlacement.toolId + L" next=" + g_authorPlacement.namePrefix + L"-" + std::to_wstring(g_authorPlacement.nextOrdinal);
+            return true;
+        }
+        if (action != L"arm" || tokens.size() < 6) {
+            statusText = L"Use: author placement arm <tool-id> <name-prefix> <command-template containing {name} {x} {y}> | author placement cancel";
+            return false;
+        }
+
+        std::wstring commandTemplate = JoinCommandTokens(tokens, 5);
+        if (commandTemplate.find(L"{name}") == std::wstring::npos
+            || commandTemplate.find(L"{x}") == std::wstring::npos
+            || commandTemplate.find(L"{y}") == std::wstring::npos) {
+            statusText = L"Placement command template must contain {name}, {x}, and {y}";
+            return false;
+        }
+
+        g_authorPlacement.mode = BgeAuthorPlacementMode::CommandTemplate;
+        g_authorPlacement.toolId = LowerArg(tokens[3]);
+        g_authorPlacement.namePrefix = SanitizeFileToken(tokens[4]);
+        g_authorPlacement.commandTemplate = commandTemplate;
+        g_authorPlacement.nextOrdinal = 1;
+        RecordBgeAuthorReceipt(L"bge.event.author.placement.armed", g_authorPlacement.toolId + L" -> " + commandTemplate);
+        statusText = L"Author placement armed: " + g_authorPlacement.toolId;
         return true;
     }
 
@@ -6602,6 +6660,57 @@ bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstri
 
     statusText = BgeAuthorUsageText();
     return false;
+}
+
+void ReplaceBgeAuthorPlacementToken(std::wstring& text, const std::wstring& token, const std::wstring& value)
+{
+    size_t offset = 0;
+    while ((offset = text.find(token, offset)) != std::wstring::npos) {
+        text.replace(offset, token.size(), value);
+        offset += value.size();
+    }
+}
+
+std::wstring ExpandBgeAuthorPlacementCommand(const BgeAuthorPlacementState& placement, const std::wstring& name, float normalizedX, float normalizedY)
+{
+    std::wostringstream xText;
+    xText << std::fixed << std::setprecision(6) << normalizedX;
+    std::wostringstream yText;
+    yText << std::fixed << std::setprecision(6) << normalizedY;
+
+    std::wstring command = placement.commandTemplate;
+    ReplaceBgeAuthorPlacementToken(command, L"{name}", name);
+    ReplaceBgeAuthorPlacementToken(command, L"{x}", xText.str());
+    ReplaceBgeAuthorPlacementToken(command, L"{y}", yText.str());
+    return command;
+}
+
+bool TryHandleAuthorPlacementClick(int x, int y)
+{
+    if (!CurrentProcessOwnsGameLoop() || g_playerRuntimeMode || !g_authorSessionActive
+        || g_authorPlacement.mode == BgeAuthorPlacementMode::None || !g_hWnd) {
+        return false;
+    }
+
+    BgeGameViewport viewport = CurrentGameViewport();
+    if (x < 0 || static_cast<float>(x) > viewport.width
+        || static_cast<float>(y) < viewport.playTop || static_cast<float>(y) > viewport.height) {
+        return false;
+    }
+
+    float normalizedX = ClampFloat(static_cast<float>(x) / viewport.width, 0.0f, 1.0f);
+    float normalizedY = ClampFloat((static_cast<float>(y) - viewport.playTop) / viewport.playHeight, 0.0f, 1.0f);
+    std::wstring name = g_authorPlacement.namePrefix + L"-" + std::to_wstring(g_authorPlacement.nextOrdinal);
+    std::wstring expandedCommand = ExpandBgeAuthorPlacementCommand(g_authorPlacement, name, normalizedX, normalizedY);
+    std::wstring commandStatus;
+    bool ok = ExecuteCommandText(expandedCommand, commandStatus);
+
+    RecordBgeAuthorReceipt(L"bge.event.author.map-placement", expandedCommand + (ok ? L"" : L" (failed)"));
+    SetCommandStatus(L"Author placement: " + expandedCommand + (commandStatus.empty() ? L"" : L" | " + commandStatus));
+    if (ok) {
+        ++g_authorPlacement.nextOrdinal;
+    }
+    return true;
 }
 
 bool TryParseFloatArg(const std::wstring& text, float& value)
@@ -13664,6 +13773,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         int x = GET_X_LPARAM(lParam);
         int y = GET_Y_LPARAM(lParam);
+        if (TryHandleAuthorPlacementClick(x, y)) {
+            break;
+        }
         if (TrySelectObjectAtPoint(x, y)) {
             break;
         }
