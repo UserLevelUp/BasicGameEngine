@@ -2,3 +2,4 @@
 
 ## Project Guidelines
 - The user uses the term "eventness" to mean a system of focusing on an interest/lane, then collapsing or completing it when completed or no longer interesting; it can be tacked onto a normal filesystem in a mirrored location and exposed across directories by recur, using hierarchical names like prefix.base.suffix[.expanding eventness][.ext] and prefix.base.suffix[.collapsing eventness][.ext], while keeping source files pure.
+- Recur's hierarchical naming and eventness should support focused development and work observability across core components, core plugins, optional loadable plugins, and a command layer that instantiates plugin behavior and supports creating games without conflating structural hierarchy with lifecycle ownership. An eventual deliberately opinionated UI should present grouped command sets.

@@ -68,6 +68,37 @@ void OpNode::RemoveOperation(const std::shared_ptr<IOperate>& operation) {
     operations_.remove_if([&](const std::shared_ptr<IOperate>& op) { return op == operation; });
 }
 
+void OpNode::ClearOperations() {
+    operations_.clear();
+}
+
+int OpNode::OperationsCount() const {
+    return static_cast<int>(operations_.size());
+}
+
+std::list<std::string> OpNode::GetKeys() const {
+    std::list<std::string> keys;
+    for (const auto& attribute : attributes_) {
+        keys.push_back(attribute.first);
+    }
+    return keys;
+}
+
+std::list<std::shared_ptr<OpNode>> OpNode::Find(const std::string& searchText, int index) {
+    std::list<std::shared_ptr<OpNode>> matches;
+    if (index < 0) {
+        return matches;
+    }
+    if (name_.find(searchText, static_cast<size_t>(index)) != std::string::npos) {
+        matches.push_back(shared_from_this());
+    }
+    for (const auto& child : children_) {
+        auto childMatches = child->Find(searchText, index);
+        matches.splice(matches.end(), childMatches);
+    }
+    return matches;
+}
+
 void OpNode::SetAttribute(const std::string& key, const std::string& value) {
     attributes_[key] = value;
 }

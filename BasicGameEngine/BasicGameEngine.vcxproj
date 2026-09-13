@@ -29,26 +29,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -70,6 +70,12 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -120,7 +126,7 @@
       <ForceConformanceInForLoopScope>false</ForceConformanceInForLoopScope>
       <RemoveUnreferencedCodeData>false</RemoveUnreferencedCodeData>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
-      <AdditionalIncludeDirectories>$(WindowsSDK_IncludePath);$(DXSDK_DIR)Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(WindowsSDK_IncludePath);$(DXSDK_DIR)Include;$(ProjectDir)..\third_party\dear-imgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -150,6 +156,7 @@
     <ClInclude Include="include\BasicGameEngine.h" />
     <ClInclude Include="include\BasicGameRoleOperation.h" />
     <ClInclude Include="include\BgeGameModule.h" />
+    <ClInclude Include="include\BgeDearImGuiAdapter.h" />
     <ClInclude Include="include\BgeScenePrimitives.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="include\DirectX11BouncingBallOperation.h" />
@@ -173,6 +180,7 @@
   <ItemGroup>
     <ClCompile Include="src\AsteroidGameModule.cpp" />
     <ClCompile Include="src\BgeScenePrimitives.cpp" />
+    <ClCompile Include="src\BgeDearImGuiAdapter.cpp" />
     <ClCompile Include="src\BasicGameEngine.cpp" />
     <ClCompile Include="src\BgeHierarchy.cpp" />
     <ClCompile Include="src\DirectX11BouncingBallRenderer.cpp" />
@@ -186,6 +194,13 @@
     <ClCompile Include="src\UserPrivilegeMgr.cpp" />
     <ClCompile Include="src\WindowMutex.cpp" />
     <ClCompile Include="src\WindowMutexMgr.cpp" />
+    <ClCompile Include="..\third_party\dear-imgui\imgui.cpp" />
+    <ClCompile Include="..\third_party\dear-imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\third_party\dear-imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\third_party\dear-imgui\imgui_widgets.cpp" />
+    <ClCompile Include="..\third_party\dear-imgui\backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="..\third_party\dear-imgui\backends\imgui_impl_dx11.cpp" />
+    <ClCompile Include="..\third_party\dear-imgui\backends\imgui_impl_dx12.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="BasicGameEngine.rc" />

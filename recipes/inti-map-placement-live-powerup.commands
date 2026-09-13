@@ -1,0 +1,5 @@
+# Live map-placement witness: Julia posts a real play-area click after this
+# command-backed power-up template is armed.
+author start inti-map-placement-live-powerup
+inti map create live-placement-powerup "../../../exports/sprites/templates/User Level Up LLC Logo.png"
+author placement arm powerup witness-powerup "inti map powerup add {name} {x} {y} courier-boost"

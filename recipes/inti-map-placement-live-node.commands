@@ -1,0 +1,5 @@
+# Live map-placement witness: Julia posts a real play-area click after this
+# command-backed normal-node template is armed.
+author start inti-map-placement-live-node
+inti map create live-placement-node "../../../exports/sprites/templates/User Level Up LLC Logo.png"
+author placement arm node witness-node "inti map node add {name} {x} {y}"

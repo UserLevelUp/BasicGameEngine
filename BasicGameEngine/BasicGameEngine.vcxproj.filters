@@ -69,6 +69,9 @@
     <ClInclude Include="include\BgeGameModule.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\BgeDearImGuiAdapter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="include\BgeScenePrimitives.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -87,6 +90,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\BgeScenePrimitives.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\BgeDearImGuiAdapter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\BasicGameEngine.cpp">
@@ -126,6 +132,27 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\DirectX12BouncingBallRenderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\dear-imgui\imgui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\dear-imgui\imgui_draw.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\dear-imgui\imgui_tables.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\dear-imgui\imgui_widgets.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\dear-imgui\backends\imgui_impl_win32.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\dear-imgui\backends\imgui_impl_dx11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\dear-imgui\backends\imgui_impl_dx12.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

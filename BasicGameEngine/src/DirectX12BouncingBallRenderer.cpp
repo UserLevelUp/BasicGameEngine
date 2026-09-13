@@ -1,4 +1,5 @@
 #include "../include/DirectX12BouncingBallRenderer.h"
+#include "../include/BgeDearImGuiAdapter.h"
 
 #include <algorithm>
 #include <array>
@@ -80,6 +81,10 @@ void DirectX12BouncingBallRenderer::Shutdown()
         WaitForGpu();
     }
     initialized_ = false;
+    if (dearImGuiAdapter_) {
+        dearImGuiAdapter_->DetachRenderer();
+        dearImGuiAdapter_ = nullptr;
+    }
 
     if (vertexBuffer_ && vertexBufferData_) {
         vertexBuffer_->Unmap(0, nullptr);
@@ -118,6 +123,10 @@ void DirectX12BouncingBallRenderer::Resize()
     }
 
     WaitForGpu();
+    const bool reattachDearImGui = dearImGuiAdapter_ && dearImGuiAdapter_->IsVisible();
+    if (reattachDearImGui) {
+        dearImGuiAdapter_->DetachRenderer();
+    }
     for (auto& target : renderTargets_) target.Reset();
 
     HRESULT result = swapChain_->ResizeBuffers(FrameCount, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
@@ -128,6 +137,9 @@ void DirectX12BouncingBallRenderer::Resize()
 
     frameIndex_ = swapChain_->GetCurrentBackBufferIndex();
     CreateRenderTargets();
+    if (reattachDearImGui) {
+        dearImGuiAdapter_->AttachDirectX12(device_.Get(), commandQueue_.Get(), DXGI_FORMAT_R8G8B8A8_UNORM);
+    }
 }
 
 void DirectX12BouncingBallRenderer::Tick(double deltaMilliseconds)
@@ -227,6 +239,10 @@ void DirectX12BouncingBallRenderer::Render()
         commandList_->DrawInstanced(static_cast<UINT>(vertexCount), 1, 0, 0);
     }
 
+    if (dearImGuiAdapter_) {
+        dearImGuiAdapter_->RenderDirectX12(commandList_.Get());
+    }
+
     D3D12_RESOURCE_BARRIER toPresent = toRenderTarget;
     toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
     toPresent.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
@@ -243,6 +259,20 @@ void DirectX12BouncingBallRenderer::Render()
     swapChain_->Present(1, 0);
     WaitForGpu();
     frameIndex_ = swapChain_->GetCurrentBackBufferIndex();
+}
+
+void DirectX12BouncingBallRenderer::SetDearImGuiAdapter(BgeDearImGuiAdapter* adapter)
+{
+    if (dearImGuiAdapter_ == adapter) {
+        return;
+    }
+    if (dearImGuiAdapter_) {
+        dearImGuiAdapter_->DetachRenderer();
+    }
+    dearImGuiAdapter_ = adapter;
+    if (dearImGuiAdapter_ && initialized_) {
+        dearImGuiAdapter_->AttachDirectX12(device_.Get(), commandQueue_.Get(), DXGI_FORMAT_R8G8B8A8_UNORM);
+    }
 }
 
 void DirectX12BouncingBallRenderer::AddBall()

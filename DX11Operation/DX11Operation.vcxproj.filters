@@ -32,7 +32,7 @@
     <ClCompile Include="pch.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DirextXOperation.cpp">
+    <ClCompile Include="DirectXOperation.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

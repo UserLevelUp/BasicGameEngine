@@ -71,6 +71,14 @@ public:
     virtual bool OnCommand(BgeGameRuntime& runtime, const std::vector<std::wstring>& tokens, std::wstring& statusText) = 0;
     virtual bool OnKeyDown(BgeGameRuntime& runtime, unsigned int key) = 0;
     virtual bool OnTick(BgeGameRuntime& runtime, double deltaMilliseconds) = 0;
+    virtual bool HitTestNamedPoint(BgeGameRuntime& runtime, float normalizedX, float normalizedY, std::wstring& pointName)
+    {
+        (void)runtime;
+        (void)normalizedX;
+        (void)normalizedY;
+        pointName.clear();
+        return false;
+    }
 };
 
 BgeGameModule& BgeAsteroidGameModule();
@@ -82,6 +90,6 @@ BgeGameModule& BgeAsteroidGameModule();
 //
 //   unsigned int BgeGameModuleAbiVersion();
 //   BgeGameModule* CreateBgeGameModule();
-constexpr unsigned int BGE_GAME_MODULE_ABI_VERSION = 2;
+constexpr unsigned int BGE_GAME_MODULE_ABI_VERSION = 3;
 using BgeGameModuleAbiVersionFn = unsigned int (*)();
 using BgeCreateGameModuleFn = BgeGameModule* (*)();

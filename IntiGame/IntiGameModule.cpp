@@ -745,7 +745,7 @@ public:
             return UnlockPhotoUiWinners(runtime, statusText);
         }
         if (subcommand == L"commands" || subcommand == L"help") {
-            statusText = L"Inti commands: inti photo-run [map.intimap] | inti map create|load|switch|node|powerup|path|exit|save | inti main | inti tech list | inti empire path | inti chasqui run 120,240 300,240 420,320 [speed 220] [reverse-krebs] | inti ui-group dots|aim|hud | inti ui-candidate 0-9 | inti ui-lock [dots|aim|hud 0-9] | inti ui-unlock | inti end-turn | inti status";
+            statusText = L"Inti commands: inti photo-run [map.intimap] | inti map create|load|switch|node|powerup|path|exit|validate|save | inti main | inti tech list | inti empire path | inti chasqui run 120,240 300,240 420,320 [speed 220] [reverse-krebs] | inti ui-group dots|aim|hud | inti ui-candidate 0-9 | inti ui-lock [dots|aim|hud 0-9] | inti ui-unlock | inti end-turn | inti status";
             if (runtime.setHud) {
                 runtime.setHud(statusText);
             }
@@ -855,6 +855,40 @@ public:
             }
         }
         return dirty;
+    }
+
+    bool HitTestNamedPoint(BgeGameRuntime& runtime, float normalizedX, float normalizedY, std::wstring& pointName) override
+    {
+        pointName.clear();
+        if (!runtime.objectMutex || !runtime.viewport) {
+            return false;
+        }
+        const BgeGameViewport viewport = runtime.viewport();
+        const float width = (std::max)(1.0f, viewport.width);
+        const float playHeight = (std::max)(1.0f, viewport.playHeight);
+        constexpr float hitRadiusPixels = 18.0f;
+        const float hitRadiusSquared = hitRadiusPixels * hitRadiusPixels;
+        std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+        if (!active_ || section_ != IntiSection::PhotoRun) {
+            return false;
+        }
+        float nearestDistanceSquared = hitRadiusSquared;
+        int nearestIndex = -1;
+        for (std::size_t index = 0; index < photoCheckpoints_.size(); ++index) {
+            const IntiPhotoCheckpoint& checkpoint = photoCheckpoints_[index];
+            const float dx = (checkpoint.xFraction - normalizedX) * width;
+            const float dy = (checkpoint.yFraction - normalizedY) * playHeight;
+            const float distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared <= nearestDistanceSquared) {
+                nearestDistanceSquared = distanceSquared;
+                nearestIndex = static_cast<int>(index);
+            }
+        }
+        if (nearestIndex < 0) {
+            return false;
+        }
+        pointName = photoCheckpoints_[static_cast<std::size_t>(nearestIndex)].name;
+        return true;
     }
 
 private:
@@ -1170,7 +1204,7 @@ private:
                                 std::wstring& statusText)
     {
         if (tokens.size() <= actionIndex) {
-            statusText = L"Use: inti map create|load|switch|node|powerup|path|exit|save ...";
+            statusText = L"Use: inti map create|load|switch|node|powerup|path|exit|validate|save ...";
             return false;
         }
         std::wstring action = LowerIntiArg(tokens[actionIndex]);
@@ -1228,6 +1262,9 @@ private:
             }
             return AddPhotoMapExit(runtime, tokens[actionIndex + 2], x, y, tokens[actionIndex + 5], statusText);
         }
+        if (action == L"validate") {
+            return ValidatePhotoMap(runtime, statusText);
+        }
         if (action == L"save") {
             if (tokens.size() <= actionIndex + 1) {
                 statusText = L"Use: inti map save <map.intimap>";
@@ -1235,7 +1272,7 @@ private:
             }
             return SavePhotoMap(runtime, tokens[actionIndex + 1], statusText);
         }
-        statusText = L"Use: inti map create|load|switch|node|powerup|path|exit|save ...";
+        statusText = L"Use: inti map create|load|switch|node|powerup|path|exit|validate|save ...";
         return false;
     }
 
@@ -1383,6 +1420,89 @@ private:
         }
         PublishRuntimeFeedback(runtime, statusText, hudText);
         return true;
+    }
+
+    bool ValidatePhotoMap(BgeGameRuntime& runtime, std::wstring& statusText)
+    {
+        std::vector<std::wstring> diagnostics;
+        {
+            std::lock_guard<std::mutex> lock(*runtime.objectMutex);
+            const std::size_t checkpointCount = photoCheckpoints_.size();
+            std::vector<std::vector<int>> adjacency(checkpointCount);
+            for (std::size_t pathIndex = 0; pathIndex < photoPathNames_.size(); ++pathIndex) {
+                const IntiPhotoPathName& path = photoPathNames_[pathIndex];
+                const int first = PhotoCheckpointIndexByNameLocked(path.a);
+                const int second = PhotoCheckpointIndexByNameLocked(path.b);
+                if (first < 0 || second < 0 || first == second) {
+                    diagnostics.push_back(L"invalid path endpoint");
+                    continue;
+                }
+                bool duplicate = false;
+                for (std::size_t previousIndex = 0; previousIndex < pathIndex; ++previousIndex) {
+                    const IntiPhotoPathName& previous = photoPathNames_[previousIndex];
+                    if ((path.a == previous.a && path.b == previous.b) || (path.a == previous.b && path.b == previous.a)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (duplicate) {
+                    diagnostics.push_back(L"duplicate edge " + path.a + L" " + path.b);
+                    continue;
+                }
+                adjacency[static_cast<std::size_t>(first)].push_back(second);
+                adjacency[static_cast<std::size_t>(second)].push_back(first);
+            }
+
+            if (photoNode_ < 0 || photoNode_ >= static_cast<int>(checkpointCount)) {
+                diagnostics.push_back(L"start connectivity missing start node");
+            }
+            else {
+                if (checkpointCount > 1 && adjacency[static_cast<std::size_t>(photoNode_)].empty()) {
+                    diagnostics.push_back(L"start connectivity start has no path");
+                }
+                std::vector<bool> visited(checkpointCount, false);
+                std::vector<int> pending{ photoNode_ };
+                visited[static_cast<std::size_t>(photoNode_)] = true;
+                for (std::size_t pendingIndex = 0; pendingIndex < pending.size(); ++pendingIndex) {
+                    for (int neighbor : adjacency[static_cast<std::size_t>(pending[pendingIndex])]) {
+                        if (!visited[static_cast<std::size_t>(neighbor)]) {
+                            visited[static_cast<std::size_t>(neighbor)] = true;
+                            pending.push_back(neighbor);
+                        }
+                    }
+                }
+                for (std::size_t index = 0; index < checkpointCount; ++index) {
+                    if (!visited[index]) {
+                        diagnostics.push_back(L"unreachable node " + photoCheckpoints_[index].name);
+                    }
+                }
+            }
+
+            for (const IntiPhotoExit& exit : photoExits_) {
+                bool attached = false;
+                for (const IntiPhotoCheckpoint& checkpoint : photoCheckpoints_) {
+                    if (std::fabs(exit.xFraction - checkpoint.xFraction) <= 0.0001f
+                        && std::fabs(exit.yFraction - checkpoint.yFraction) <= 0.0001f) {
+                        attached = true;
+                        break;
+                    }
+                }
+                if (!attached) {
+                    diagnostics.push_back(L"unattached exit " + exit.name);
+                }
+            }
+        }
+
+        std::wstringstream summary;
+        summary << (diagnostics.empty() ? L"Map validation passed" : L"Map validation failed");
+        for (const std::wstring& diagnostic : diagnostics) {
+            summary << L": " << diagnostic;
+        }
+        statusText = summary.str();
+        if (runtime.log) {
+            runtime.log("bge.event.map.validation " + std::string(diagnostics.empty() ? "valid " : "invalid ") + NarrowStatus(statusText));
+        }
+        return diagnostics.empty();
     }
 
     bool SavePhotoMap(BgeGameRuntime& runtime, const std::wstring& requestedPath, std::wstring& statusText)

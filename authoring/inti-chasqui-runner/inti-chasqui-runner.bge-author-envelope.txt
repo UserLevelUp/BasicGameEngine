@@ -20,3 +20,5 @@ receipt.13=bge.event.author.button.added start-run
 receipt.14=bge.event.author.button.bound start-run inti photo-run maps/machu-picchu.intimap game-loop
 receipt.15=bge.event.author.tested inti-chasqui-runner
 receipt.16=bge.event.author.saved inti-chasqui-runner
+button-count=1
+button.1=start-run group=buttons command=inti photo-run maps/machu-picchu.intimap game-loop

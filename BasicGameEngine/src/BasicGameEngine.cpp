@@ -1,3 +1,4 @@
+#include "../include/BgeDearImGuiAdapter.h"
 // BasicGameEngine.cpp : Defines the entry point for the application.
 
 #include "../include/StatusBarMgr.h"
@@ -63,6 +64,15 @@ WCHAR szWindowClass[MAX_LOADSTRING];
 std::thread gameThread;        // Game loop thread
 std::mutex gameLoopMutex;      // Mutex for synchronizing game loop
 std::mutex ballConfigMutex;
+
+std::unique_ptr<BgeDearImGuiAdapter> g_dearImGuiAdapter;
+bool g_dearImGuiAttachRequested = false;
+
+std::string Narrow(const std::wstring& value);
+void InitializeDearImGuiAdapter(HWND hWnd);
+void ShutdownDearImGuiAdapter();
+void AttachDearImGuiToActiveRenderer();
+bool HandleDearImGuiMessage(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 bool isFocused = true;         // Indicates whether this instance is focused
 bool shouldRun = true;         // Controls the main game loop
 bool isPaused = false;         // Indicates whether the game is paused
@@ -195,6 +205,7 @@ enum class BgeEditMode {
     Translate,
     Resize,
     Rotate,
+    Resolution,
 };
 
 enum class BgeKeyboardFocus {
@@ -648,6 +659,7 @@ std::vector<std::wstring> g_authorReceiptLog;
 enum class BgeAuthorPlacementMode {
     None,
     CommandTemplate,
+    EndpointLink,
 };
 
 struct BgeAuthorPlacementState {
@@ -655,6 +667,7 @@ struct BgeAuthorPlacementState {
     std::wstring toolId;
     std::wstring namePrefix;
     std::wstring commandTemplate;
+    std::wstring pendingEndpoint;
     unsigned int nextOrdinal = 1;
 };
 
@@ -734,6 +747,7 @@ bool CommitMarkedObjectDeletes(std::wstring& statusText);
 bool UndoLastDeleteAction(std::wstring& statusText);
 bool HandleEditorShortcutKey(HWND sourceWindow, WPARAM key);
 void InitializeSelectedRenderer(HWND hWnd);
+
 void ShutdownActiveRenderer();
 void ResizeActiveRenderer();
 void TickActiveRenderer(double deltaMilliseconds);
@@ -873,8 +887,74 @@ std::wstring HideCommandDetail(const std::wstring& role);
 std::wstring RoleShortName(const std::wstring& role);
 int ArtifactIndexForRole(const std::wstring& role);
 LRESULT CALLBACK CommandEditProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+void InitializeDearImGuiAdapter(HWND hWnd)
+{
+    if (!g_dearImGuiAdapter) {
+        g_dearImGuiAdapter = std::make_unique<BgeDearImGuiAdapter>();
+        if (!g_dearImGuiAdapter->Initialize(hWnd)) {
+            g_dearImGuiAdapter.reset();
+            return;
+        }
+        g_dearImGuiAdapter->SetCommandCallback([](const std::wstring& actionId, const std::wstring& command) {
+            std::wstring statusText;
+            const bool ok = ExecuteCommandText(command, statusText);
+            LogRendererMessage("[BgeCommandUi] bge.event.command-ui.action id=" + Narrow(actionId)
+                + " command=" + Narrow(command) + (ok ? " result=ok" : " result=failed"));
+            SetCommandStatus(statusText);
+        });
+        g_dearImGuiAdapter->SetDiagnosticCallback([](const std::wstring& message) {
+            LogRendererMessage("[BgeCommandUi] " + Narrow(message));
+        });
+    }
+}
+
+void ShutdownDearImGuiAdapter()
+{
+    if (g_dearImGuiAdapter) {
+        g_dearImGuiAdapter->Shutdown();
+        g_dearImGuiAdapter.reset();
+    }
+}
+
+void AttachDearImGuiToActiveRenderer()
+{
+    if (!g_dearImGuiAdapter) {
+        return;
+    }
+    if (g_rendererApi.load() == BgeRendererApi::DirectX12) {
+        if (g_directX12Renderer) {
+            g_directX12Renderer->SetDearImGuiAdapter(g_dearImGuiAdapter.get());
+        }
+    }
+    else if (g_directX11Renderer) {
+        g_directX11Renderer->SetDearImGuiAdapter(g_dearImGuiAdapter.get());
+    }
+}
+
+bool HandleDearImGuiMessage(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    if (!g_dearImGuiAdapter) {
+        return false;
+    }
+    if (message == WM_CAPTURECHANGED) {
+        return false;
+    }
+    if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_MOUSEMOVE) {
+        LogRendererMessage("[BgeCommandUi] Mouse msg=" + std::to_string(message) + " x=" + std::to_string(LOWORD(lParam)) + " y=" + std::to_string(HIWORD(lParam)));
+    }
+    const bool wasVisible = g_dearImGuiAdapter->IsVisible();
+    const bool captured = g_dearImGuiAdapter->HandleWin32Message(hWnd, message, wParam, lParam);
+    if (wasVisible && !g_dearImGuiAdapter->IsVisible()) {
+        ClearBgeVectorShipInputState();
+        SetCommandStatus(L"Dear ImGui command UI spike hidden");
+        LogRendererMessage("[BgeCommandUi] bge.event.command-ui.spike hidden reason=escape");
+    }
+    return captured;
+}
+
 bool HandleWorkerCommandCopyData(COPYDATASTRUCT* copyData);
 bool HandleControllerTelemetryCopyData(COPYDATASTRUCT* copyData);
+BgeGameModule* ResolveActiveAuthorGameModule();
 bool TryHandleAuthorPlacementClick(int x, int y);
 bool TryStartVectorDrag(int x, int y);
 bool TrySelectObjectAtPoint(int x, int y);
@@ -893,8 +973,171 @@ bool StepAnimationOneTick(std::wstring& statusText);
 bool HandleRendererKeyDown(WPARAM key);
 bool HandleRendererKeyUp(WPARAM key);
 void CycleEditMode(int direction);
+
+struct BgeResolutionPreset {
+    int width;
+    int height;
+};
+
+constexpr std::array<BgeResolutionPreset, 8> BGE_RENDER_RESOLUTION_PRESETS = {{
+    { 640, 480 },
+    { 800, 600 },
+    { 1024, 768 },
+    { 1280, 720 },
+    { 1600, 900 },
+    { 1920, 1080 },
+    { 2560, 1440 },
+    { 3840, 2160 },
+}};
+
+constexpr int BGE_MIN_RENDER_WIDTH = 320;
+constexpr int BGE_MIN_RENDER_HEIGHT = 240;
+constexpr int BGE_MAX_RENDER_WIDTH = 7680;
+constexpr int BGE_MAX_RENDER_HEIGHT = 4320;
+
+std::wstring CurrentGameClientResolutionText()
+{
+    RECT client{};
+    if (!g_hWnd || !GetClientRect(g_hWnd, &client)) {
+        return L"unavailable";
+    }
+    return std::to_wstring(client.right - client.left) + L"x" + std::to_wstring(client.bottom - client.top);
+}
+
+bool IsSupportedGameClientResolution(int width, int height)
+{
+    return width >= BGE_MIN_RENDER_WIDTH && height >= BGE_MIN_RENDER_HEIGHT
+        && width <= BGE_MAX_RENDER_WIDTH && height <= BGE_MAX_RENDER_HEIGHT;
+}
+
+std::filesystem::path BgeUserSettingsPath()
+{
+    wchar_t* overridePath = nullptr;
+    size_t len = 0;
+    if (_wdupenv_s(&overridePath, &len, L"BGE_SETTINGS_PATH") == 0 && overridePath) {
+        if (*overridePath) {
+            std::filesystem::path p(overridePath);
+            free(overridePath);
+            return p;
+        }
+        free(overridePath);
+    }
+    wchar_t* localAppData = nullptr;
+    if (_wdupenv_s(&localAppData, &len, L"LOCALAPPDATA") == 0 && localAppData) {
+        if (*localAppData) {
+            std::filesystem::path p = std::filesystem::path(localAppData) / L"BasicGameEngine" / L"settings.ini";
+            free(localAppData);
+            return p;
+        }
+        free(localAppData);
+    }
+    return std::filesystem::path(L"settings.ini");
+}
+
+void SaveRememberedGameClientResolution(int width, int height)
+{
+    std::filesystem::path path = BgeUserSettingsPath();
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::wstring widthStr = std::to_wstring(width);
+    std::wstring heightStr = std::to_wstring(height);
+    WritePrivateProfileStringW(L"RenderResolution", L"resolution_width", widthStr.c_str(), path.c_str());
+    WritePrivateProfileStringW(L"RenderResolution", L"resolution_height", heightStr.c_str(), path.c_str());
+    LogRendererMessage("[BgeSettings] bge.event.renderer.resolution.remembered " + std::to_string(width) + " " + std::to_string(height));
+}
+
+bool LoadRememberedGameClientResolution(int& width, int& height)
+{
+    std::filesystem::path path = BgeUserSettingsPath();
+    if (!std::filesystem::exists(path)) {
+        return false;
+    }
+    int w = GetPrivateProfileIntW(L"RenderResolution", L"resolution_width", 0, path.c_str());
+    int h = GetPrivateProfileIntW(L"RenderResolution", L"resolution_height", 0, path.c_str());
+    if (IsSupportedGameClientResolution(w, h)) {
+        width = w;
+        height = h;
+        LogRendererMessage("[BgeSettings] bge.event.renderer.resolution.restored " + std::to_string(width) + " " + std::to_string(height));
+        return true;
+    }
+    return false;
+}
+
+bool SetGameClientResolution(int width, int height, std::wstring& statusText)
+{
+    if (!IsSupportedGameClientResolution(width, height)) {
+        statusText = L"Unsupported resolution: " + std::to_wstring(width) + L"x" + std::to_wstring(height);
+        return false;
+    }
+    if (!g_hWnd) {
+        statusText = L"Window unavailable";
+        return false;
+    }
+
+    RECT windowRect{};
+    RECT clientRect{};
+    GetWindowRect(g_hWnd, &windowRect);
+    GetClientRect(g_hWnd, &clientRect);
+
+    DWORD style = static_cast<DWORD>(GetWindowLongPtrW(g_hWnd, GWL_STYLE));
+    DWORD exStyle = static_cast<DWORD>(GetWindowLongPtrW(g_hWnd, GWL_EXSTYLE));
+    BOOL hasMenu = GetMenu(g_hWnd) != nullptr;
+
+    RECT targetRect = { 0, 0, width, height };
+    AdjustWindowRectEx(&targetRect, style, hasMenu, exStyle);
+
+    int newWindowWidth = targetRect.right - targetRect.left;
+    int newWindowHeight = targetRect.bottom - targetRect.top;
+
+    SetWindowPos(g_hWnd, nullptr, windowRect.left, windowRect.top, newWindowWidth, newWindowHeight,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+
+    g_rendererResizeRequested = true;
+    ResizeActiveRenderer();
+
+    SaveRememberedGameClientResolution(width, height);
+    LogRendererMessage("[BgeRender] bge.event.renderer.resolution.changed " + std::to_string(width) + " " + std::to_string(height));
+    statusText = L"Render resolution set to " + std::to_wstring(width) + L"x" + std::to_wstring(height);
+    return true;
+}
+
+bool StepGameClientResolution(int direction, std::wstring& statusText)
+{
+    RECT client{};
+    if (!g_hWnd || !GetClientRect(g_hWnd, &client)) {
+        statusText = L"Window unavailable";
+        return false;
+    }
+    int currentWidth = client.right - client.left;
+    int currentHeight = client.bottom - client.top;
+    long long currentArea = static_cast<long long>(currentWidth) * currentHeight;
+
+    if (direction > 0) {
+        for (const auto& preset : BGE_RENDER_RESOLUTION_PRESETS) {
+            if (static_cast<long long>(preset.width) * preset.height > currentArea) {
+                return SetGameClientResolution(preset.width, preset.height, statusText);
+            }
+        }
+        statusText = L"Render resolution already at the highest preset: " + CurrentGameClientResolutionText();
+        return true;
+    }
+
+    for (auto preset = BGE_RENDER_RESOLUTION_PRESETS.rbegin(); preset != BGE_RENDER_RESOLUTION_PRESETS.rend(); ++preset) {
+        if (static_cast<long long>(preset->width) * preset->height < currentArea) {
+            return SetGameClientResolution(preset->width, preset->height, statusText);
+        }
+    }
+    statusText = L"Render resolution already at the lowest preset: " + CurrentGameClientResolutionText();
+    return true;
+}
+
 bool SetEditModeFromText(const std::wstring& modeText);
 std::wstring EditModeName(BgeEditMode mode);
+bool SetGameClientResolution(int width, int height, std::wstring& statusText);
+bool StepGameClientResolution(int direction, std::wstring& statusText);
+std::wstring CurrentGameClientResolutionText();
+bool LoadRememberedGameClientResolution(int& width, int& height);
+void SaveRememberedGameClientResolution(int width, int height);
 float CurrentEditRateMultiplier();
 std::wstring EditRateLabel();
 void AdjustEditRate(int direction);
@@ -5792,6 +6035,8 @@ std::wstring EditModeName(BgeEditMode mode)
         return L"Resize";
     case BgeEditMode::Rotate:
         return L"Rotate";
+    case BgeEditMode::Resolution:
+        return L"Resolution";
     }
     return L"Translate";
 }
@@ -5811,7 +6056,9 @@ std::wstring EditRateLabel()
 void UpdateEditModeStatus()
 {
     if (g_editModeStatus) {
-        std::wstring label = EditModeName(g_editMode) + L" " + EditRateLabel();
+        std::wstring label = g_editMode == BgeEditMode::Resolution
+            ? L"Resolution " + CurrentGameClientResolutionText()
+            : EditModeName(g_editMode) + L" " + EditRateLabel();
         SetWindowTextW(g_editModeStatus, label.c_str());
     }
 }
@@ -5827,6 +6074,9 @@ bool SetEditModeFromText(const std::wstring& modeText)
     }
     else if (lower == L"rotate" || lower == L"turn") {
         g_editMode = BgeEditMode::Rotate;
+    }
+    else if (lower == L"resolution") {
+        g_editMode = BgeEditMode::Resolution;
     }
     else {
         return false;
@@ -6193,7 +6443,7 @@ bool ExecuteBgeInspectCommand(const std::vector<std::wstring>& tokens, std::wstr
 
 std::wstring BgeAuthorUsageText()
 {
-    return L"Use: author start <plugin-name> | author archetype <name> | author group objects|paths|triggers|ui|maps|buttons | author tool 0-9 | author placement arm <tool-id> <name-prefix> <command-template> | author placement cancel | author place <x> <y> [name] | author link <a> <b> | author trigger <node> <event> <action> | author bind background <asset> | author button add <name> | author button bind <name> <command> [window] | author button group <name> <group> | author button show|hide | author test | author save [name] | author package [name] | author warp";
+    return L"Use: author start <plugin-name> | author archetype <name> | author group objects|paths|triggers|ui|maps|buttons | author tool 0-9 | author placement arm <tool-id> <name-prefix> <command-template> | author placement link <tool-id> <command-template> | author placement cancel | author place <x> <y> [name] | author link <a> <b> | author trigger <node> <event> <action> | author bind background <asset> | author button add <name> | author button bind <name> <command> [window] | author button group <name> <group> | author button show|hide | author test | author save [name] | author package [name] | author warp";
 }
 
 void RecordBgeAuthorReceipt(const std::wstring& eventName, const std::wstring& detail)
@@ -6475,8 +6725,29 @@ bool ExecuteBgeAuthorCommand(const std::vector<std::wstring>& tokens, std::wstri
                 : L"Author placement armed: " + g_authorPlacement.toolId + L" next=" + g_authorPlacement.namePrefix + L"-" + std::to_wstring(g_authorPlacement.nextOrdinal);
             return true;
         }
+        if (action == L"link") {
+            if (tokens.size() < 5) {
+                statusText = L"Use: author placement link <tool-id> <command-template containing {a} and {b}>";
+                return false;
+            }
+            std::wstring commandTemplate = JoinCommandTokens(tokens, 4);
+            if (commandTemplate.find(L"{a}") == std::wstring::npos
+                || commandTemplate.find(L"{b}") == std::wstring::npos) {
+                statusText = L"Placement link template must contain {a} and {b}";
+                return false;
+            }
+            g_authorPlacement.mode = BgeAuthorPlacementMode::EndpointLink;
+            g_authorPlacement.toolId = LowerArg(tokens[3]);
+            g_authorPlacement.namePrefix.clear();
+            g_authorPlacement.commandTemplate = commandTemplate;
+            g_authorPlacement.pendingEndpoint.clear();
+            g_authorPlacement.nextOrdinal = 1;
+            RecordBgeAuthorReceipt(L"bge.event.author.placement.armed", g_authorPlacement.toolId + L" -> " + commandTemplate);
+            statusText = L"Author placement armed: " + g_authorPlacement.toolId;
+            return true;
+        }
         if (action != L"arm" || tokens.size() < 6) {
-            statusText = L"Use: author placement arm <tool-id> <name-prefix> <command-template containing {name} {x} {y}> | author placement cancel";
+            statusText = L"Use: author placement arm <tool-id> <name-prefix> <command-template containing {name} {x} {y}> | author placement link <tool-id> <command-template containing {a} {b}> | author placement cancel";
             return false;
         }
 
@@ -6685,6 +6956,17 @@ std::wstring ExpandBgeAuthorPlacementCommand(const BgeAuthorPlacementState& plac
     return command;
 }
 
+BgeGameModule* ResolveActiveAuthorGameModule()
+{
+    if (CurrentActiveGameModule() == BgeActiveGameModule::Inti) {
+        return TryGetIntiGameModule();
+    }
+    if (CurrentActiveGameModule() == BgeActiveGameModule::Asteroid) {
+        return &BgeAsteroidGameModule();
+    }
+    return TryGetIntiGameModule();
+}
+
 bool TryHandleAuthorPlacementClick(int x, int y)
 {
     if (!CurrentProcessOwnsGameLoop() || g_playerRuntimeMode || !g_authorSessionActive
@@ -6700,6 +6982,39 @@ bool TryHandleAuthorPlacementClick(int x, int y)
 
     float normalizedX = ClampFloat(static_cast<float>(x) / viewport.width, 0.0f, 1.0f);
     float normalizedY = ClampFloat((static_cast<float>(y) - viewport.playTop) / viewport.playHeight, 0.0f, 1.0f);
+
+    if (g_authorPlacement.mode == BgeAuthorPlacementMode::EndpointLink) {
+        BgeGameModule* gameModule = ResolveActiveAuthorGameModule();
+        if (gameModule != nullptr) {
+            BgeGameRuntime runtime = CreateGameRuntime();
+            std::wstring pointName;
+            if (gameModule->HitTestNamedPoint(runtime, normalizedX, normalizedY, pointName) && !pointName.empty()) {
+                RecordBgeAuthorReceipt(L"bge.event.author.link.endpoint", pointName);
+                if (g_authorPlacement.pendingEndpoint.empty()) {
+                    g_authorPlacement.pendingEndpoint = pointName;
+                    SetCommandStatus(L"Author link start: " + pointName);
+                    return true;
+                }
+
+                std::wstring endpointA = g_authorPlacement.pendingEndpoint;
+                std::wstring endpointB = pointName;
+                g_authorPlacement.pendingEndpoint.clear();
+
+                std::wstring expandedCommand = g_authorPlacement.commandTemplate;
+                ReplaceBgeAuthorPlacementToken(expandedCommand, L"{a}", endpointA);
+                ReplaceBgeAuthorPlacementToken(expandedCommand, L"{b}", endpointB);
+
+                std::wstring commandStatus;
+                bool ok = ExecuteCommandText(expandedCommand, commandStatus);
+
+                RecordBgeAuthorReceipt(L"bge.event.author.map-link", expandedCommand + (ok ? L"" : L" (failed)"));
+                SetCommandStatus(L"Author link: " + expandedCommand + (commandStatus.empty() ? L"" : L" | " + commandStatus));
+                return true;
+            }
+        }
+        return true;
+    }
+
     std::wstring name = g_authorPlacement.namePrefix + L"-" + std::to_wstring(g_authorPlacement.nextOrdinal);
     std::wstring expandedCommand = ExpandBgeAuthorPlacementCommand(g_authorPlacement, name, normalizedX, normalizedY);
     std::wstring commandStatus;
@@ -9612,9 +9927,88 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
     };
 
     if (command == L"help" || command == L"?") {
-        statusText = L"author start/group/tool/save | inti title | asteroid game | plugin import/import-set | player-ship create | projectile create | ufo create | counter define/set | scoreboard create | title-screen create | sprite-sheet create|template|catalog|window | animation-sequence create | actor animation bind | export executable | inspect commands | mapping";
+        statusText = L"ui-spike dear-imgui show|hide|status | resolution status/set/next/prev | author start/group/tool/save | inti title | asteroid game | plugin import/import-set | player-ship create | projectile create | ufo create | counter define/set | scoreboard create | title-screen create | sprite-sheet create|template|catalog|window | animation-sequence create | actor animation bind | export executable | inspect commands | mapping";
         logCommand("help");
         return true;
+    }
+
+    if (command == L"resolution" || command == L"render-resolution") {
+        if (!CurrentProcessOwnsGameLoop()) {
+            statusText = L"Resolution commands run in bge.game-loop";
+            return false;
+        }
+        std::wstring action = tokens.size() > 1 ? LowerArg(tokens[1]) : L"status";
+        if (action == L"status") {
+            statusText = L"Render resolution: " + CurrentGameClientResolutionText();
+            logCommand("resolution-status");
+            return true;
+        }
+        if (action == L"next" || action == L"up" || action == L"increase") {
+            bool ok = StepGameClientResolution(1, statusText);
+            logCommand(ok ? "resolution-next" : "resolution-next failed");
+            return ok;
+        }
+        if (action == L"prev" || action == L"previous" || action == L"down" || action == L"decrease") {
+            bool ok = StepGameClientResolution(-1, statusText);
+            logCommand(ok ? "resolution-prev" : "resolution-prev failed");
+            return ok;
+        }
+        std::size_t valueIndex = action == L"set" ? 2 : 1;
+        int width = 0;
+        int height = 0;
+        if (tokens.size() > valueIndex + 1 && TryParseIntArg(tokens[valueIndex], width) && TryParseIntArg(tokens[valueIndex + 1], height)) {
+            bool ok = SetGameClientResolution(width, height, statusText);
+            logCommand(ok ? "resolution-set" : "resolution-set failed");
+            return ok;
+        }
+        statusText = L"Use: resolution status|set <width> <height>|next|prev";
+        logCommand("resolution-failed");
+        return false;
+    }
+
+
+    if (command == L"ui-spike") {
+        if (!CurrentProcessOwnsGameLoop() || g_playerRuntimeMode) {
+            statusText = L"Command UI spikes run in the non-player bge.game-loop";
+            return false;
+        }
+        std::wstring targetToolkit = tokens.size() > 1 ? LowerArg(tokens[1]) : L"dear-imgui";
+        std::wstring action = tokens.size() > 2 ? LowerArg(tokens[2]) : L"show";
+        if (targetToolkit != L"dear-imgui") {
+            statusText = L"Supported command-ui toolkit: dear-imgui";
+            return false;
+        }
+        if (!g_dearImGuiAdapter) {
+            InitializeDearImGuiAdapter(g_hWnd);
+            AttachDearImGuiToActiveRenderer();
+        }
+        if (action == L"show") {
+            g_dearImGuiAttachRequested = true;
+            AttachDearImGuiToActiveRenderer();
+            g_dearImGuiAdapter->SetVisible(true);
+            ClearBgeVectorShipInputState();
+            const std::string rendererName = g_rendererApi.load() == BgeRendererApi::DirectX12 ? "directx12" : "directx11";
+            LogRendererMessage("[BgeCommandUi] bge.event.command-ui.spike shown renderer=" + rendererName);
+            statusText = L"Dear ImGui command UI spike shown";
+            logCommand("ui-spike-show");
+            return true;
+        }
+        if (action == L"hide") {
+            g_dearImGuiAdapter->SetVisible(false);
+            ClearBgeVectorShipInputState();
+            LogRendererMessage("[BgeCommandUi] bge.event.command-ui.spike hidden reason=command");
+            statusText = L"Dear ImGui command UI spike hidden";
+            logCommand("ui-spike-hide");
+            return true;
+        }
+        if (action == L"status") {
+            const bool visible = g_dearImGuiAdapter && g_dearImGuiAdapter->IsVisible();
+            statusText = visible ? L"Dear ImGui command UI spike is visible" : L"Dear ImGui command UI spike is hidden";
+            logCommand("ui-spike-status");
+            return true;
+        }
+        statusText = L"ui-spike dear-imgui show|hide|status";
+        return false;
     }
 
     if (command == L"author") {
@@ -9810,7 +10204,7 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
             CycleEditMode(-1);
         }
         else if (!SetEditModeFromText(modeArg)) {
-            statusText = L"Use: mode translate|resize|rotate";
+            statusText = L"Use: mode translate|resize|rotate|resolution";
             return false;
         }
         logCommand("mode=" + Narrow(EditModeName(g_editMode)));
@@ -11079,6 +11473,14 @@ bool CloseWindowFromEscape(HWND sourceWindow)
 
 bool HandleEscapeKey(HWND sourceWindow)
 {
+    if (g_dearImGuiAdapter && g_dearImGuiAdapter->IsVisible()) {
+        g_dearImGuiAdapter->SetVisible(false);
+        ClearBgeVectorShipInputState();
+        SetCommandStatus(L"Dear ImGui command UI spike hidden");
+        LogRendererMessage("[BgeCommandUi] bge.event.command-ui.spike hidden reason=escape");
+        return true;
+    }
+
     HWND targetWindow = sourceWindow ? GetAncestor(sourceWindow, GA_ROOT) : g_hWnd;
     if (!targetWindow) {
         targetWindow = g_hWnd;
@@ -11143,6 +11545,21 @@ bool HandleRendererKeyDown(WPARAM key)
     if (key == VK_ESCAPE) {
         HandleEscapeKey(g_hWnd);
         return true;
+    }
+
+    if (g_editMode == BgeEditMode::Resolution) {
+        if (key == L'W' || key == L'D') {
+            std::wstring statusText;
+            StepGameClientResolution(1, statusText);
+            SetCommandStatus(statusText);
+            return true;
+        }
+        if (key == L'A' || key == L'S') {
+            std::wstring statusText;
+            StepGameClientResolution(-1, statusText);
+            SetCommandStatus(statusText);
+            return true;
+        }
     }
 
     BgeActiveGameModule activeGame = CurrentActiveGameModule();
@@ -13719,8 +14136,24 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
     hInst = hInstance; // Store instance handle in our global variable
 
+    int initialWidth = 980;
+    int initialHeight = 720;
+    if (CurrentProcessOwnsGameLoop()) {
+        int rememberedWidth = 0;
+        int rememberedHeight = 0;
+        if (LoadRememberedGameClientResolution(rememberedWidth, rememberedHeight)) {
+            initialWidth = rememberedWidth;
+            initialHeight = rememberedHeight;
+        }
+    }
+
+    RECT targetRect = { 0, 0, initialWidth, initialHeight };
+    AdjustWindowRectEx(&targetRect, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, !g_playerRuntimeMode, 0);
+    int winWidth = targetRect.right - targetRect.left;
+    int winHeight = targetRect.bottom - targetRect.top;
+
     HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-        CW_USEDEFAULT, 0, 980, 720, nullptr, nullptr, hInstance, nullptr);
+        CW_USEDEFAULT, 0, winWidth, winHeight, nullptr, nullptr, hInstance, nullptr);
 
     if (!hWnd)
     {
@@ -13728,6 +14161,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     }
 
     g_hWnd = hWnd; // Store the handle in a global variable
+    InitializeDearImGuiAdapter(g_hWnd);
 
     if (g_playerRuntimeMode) {
         SetMenu(hWnd, nullptr);
@@ -13757,6 +14191,9 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 // Window Procedure to handle window events
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    if (HandleDearImGuiMessage(hWnd, message, wParam, lParam)) {
+        return 0;
+    }
     switch (message)
     {
     case WM_CLOSE:
@@ -14134,6 +14571,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     break;
 
     case WM_DESTROY:
+        ShutdownDearImGuiAdapter();
         PostQuitMessage(0);
         break;
 

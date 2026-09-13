@@ -1,4 +1,5 @@
 #include "../include/DirectX11BouncingBallRenderer.h"
+#include "../include/BgeDearImGuiAdapter.h"
 
 #include <algorithm>
 #include <array>
@@ -138,6 +139,10 @@ bool DirectX11BouncingBallRenderer::Initialize(HWND hWnd)
 void DirectX11BouncingBallRenderer::Shutdown()
 {
     initialized_ = false;
+    if (dearImGuiAdapter_) {
+        dearImGuiAdapter_->DetachRenderer();
+        dearImGuiAdapter_ = nullptr;
+    }
     if (context_) {
         context_->ClearState();
     }
@@ -174,6 +179,10 @@ void DirectX11BouncingBallRenderer::Resize()
         return;
     }
 
+    const bool reattachDearImGui = dearImGuiAdapter_ && dearImGuiAdapter_->IsVisible();
+    if (reattachDearImGui) {
+        dearImGuiAdapter_->DetachRenderer();
+    }
     if (context_) {
         ID3D11RenderTargetView* nullTarget = nullptr;
         context_->OMSetRenderTargets(1, &nullTarget, nullptr);
@@ -187,6 +196,9 @@ void DirectX11BouncingBallRenderer::Resize()
     }
 
     CreateRenderTarget();
+    if (reattachDearImGui && renderTargetView_) {
+        dearImGuiAdapter_->AttachDirectX11(device_.Get(), context_.Get());
+    }
 }
 
 void DirectX11BouncingBallRenderer::Tick(double deltaMilliseconds)
@@ -319,7 +331,24 @@ void DirectX11BouncingBallRenderer::Render()
         }
     }
 
+    if (dearImGuiAdapter_) {
+        dearImGuiAdapter_->RenderDirectX11();
+    }
     swapChain_->Present(1, 0);
+}
+
+void DirectX11BouncingBallRenderer::SetDearImGuiAdapter(BgeDearImGuiAdapter* adapter)
+{
+    if (dearImGuiAdapter_ == adapter) {
+        return;
+    }
+    if (dearImGuiAdapter_) {
+        dearImGuiAdapter_->DetachRenderer();
+    }
+    dearImGuiAdapter_ = adapter;
+    if (dearImGuiAdapter_ && initialized_) {
+        dearImGuiAdapter_->AttachDirectX11(device_.Get(), context_.Get());
+    }
 }
 
 void DirectX11BouncingBallRenderer::AddBall()

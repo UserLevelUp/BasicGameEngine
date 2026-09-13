@@ -1,0 +1,7 @@
+# Live click-to-link witness: two rendered Inti node endpoints are seeded by
+# canonical commands before Julia arms link mode and clicks them.
+author start inti-map-link-live
+inti map create live-link-map "../../../exports/sprites/templates/User Level Up LLC Logo.png"
+inti map node add link-left 0.25 0.30
+inti map node add link-right 0.75 0.70
+author placement link path inti map path add {a} {b}

@@ -3,10 +3,16 @@
 #include <iostream>
 #include <functional>
 #include <algorithm>
+#include <stdexcept>
 
 
 CommandHistoryOperation::CommandHistoryOperation(int maxDepth)
-    : symbol_("CH"), maxDepth_(maxDepth), cursorPosition_(0), currentHistory_(nullptr), currentDepth_(0) {}
+    : symbol_("CH"), maxDepth_(maxDepth), cursorPosition_(-1), currentHistory_(nullptr), branchPosition_(-1), currentDepth_(1) {
+    if (maxDepth < 1) {
+        throw std::invalid_argument("History depth must be at least one.");
+    }
+    commandEntries_.reserve(CollectionCapacity);
+}
 
 std::string CommandHistoryOperation::Symbol() const {
     return symbol_;
@@ -22,108 +28,116 @@ void CommandHistoryOperation::Operate(std::shared_ptr<OpNode> node) {
 }
 
 void CommandHistoryOperation::AddCommand(const std::shared_ptr<OpNode>& commandNode) {
-    // Ensure the command node is valid
     if (!commandNode) {
-        std::cerr << "Error: Invalid command node provided." << std::endl;
-        return;
+        throw std::invalid_argument("Command node must not be null.");
     }
 
-    // Determine if we are appending or inserting a new command
-    bool isAppending = (cursorPosition_ == static_cast<int>(commandEntries_.size()) - 1) || commandEntries_.empty();
-
-    if (!isAppending) {
-        // Check index validity before accessing
-        if (cursorPosition_ < 0 || cursorPosition_ >= static_cast<int>(commandEntries_.size())) {
-            std::cerr << "Error: cursorPosition_ is out of bounds!" << std::endl;
-            return;
+    CommandAction action;
+    const auto commandType = commandNode->GetValue("CommandType");
+    if (!commandType.empty()) {
+        auto factory = commandFactories_.find(commandType);
+        if (factory == commandFactories_.end()) {
+            throw std::invalid_argument("Unknown command type: " + commandType);
         }
+        action = factory->second(commandNode);
+        if (!action.execute || !action.undo) {
+            throw std::invalid_argument("Executable commands require execute and undo actions.");
+        }
+    }
+    AddPreparedCommand(commandNode, action);
+}
 
-        // Inserting a command: create a new CommandHistoryOperation node
-        auto newBranch = std::make_shared<CommandHistoryOperation>(maxDepth_);
-        newBranch->AddCommand(commandNode);  // Add the command to the new branch
+void CommandHistoryOperation::RegisterCommand(const std::string& commandType, CommandFactory factory) {
+    if (commandType.empty() || !factory) {
+        throw std::invalid_argument("Command registration requires a type and factory.");
+    }
+    commandFactories_[commandType] = std::move(factory);
+}
 
-        // Link the new branch as a child of the current history at the correct position
-        commandEntries_[cursorPosition_].childCommandHistory = newBranch;
-
-        // Update current history and depth
+void CommandHistoryOperation::AddPreparedCommand(const std::shared_ptr<OpNode>& commandNode, const CommandAction& action) {
+    if (currentHistory_ && cursorPosition_ >= branchPosition_) {
+        currentHistory_->AddPreparedCommand(commandNode, action);
+    }
+    else if (cursorPosition_ + 1 < static_cast<int>(commandEntries_.size()) && maxDepth_ > 1) {
+        auto newBranch = std::make_shared<CommandHistoryOperation>(maxDepth_ - 1);
+        newBranch->commandFactories_ = commandFactories_;
+        newBranch->AddPreparedCommand(commandNode, action);
+        branchPosition_ = cursorPosition_;
+        commandEntries_[cursorPosition_ + 1].childCommandHistory = newBranch;
         currentHistory_ = newBranch;
-        currentDepth_ = CalculateDepth(*this);  // Adjust depth based on actual state
-
-        std::cout << "currentDepth is incremented: " << currentDepth_ << std::endl;  // Debug output
-
-        // Move the cursor to the new leaf node
-        MoveCursorToEnd();
+    }
+    else if (commandEntries_.size() == CollectionCapacity && cursorPosition_ == static_cast<int>(CollectionCapacity) - 1) {
+        auto next = nextCollection_ ? nextCollection_ : CreateNewHistoryIfNeeded();
+        next->AddPreparedCommand(commandNode, action);
+        nextCollection_ = next;
     }
     else {
-        // Appending a command: simply add it to the current leaf
-        commandEntries_.emplace_back(CommandEntry{ commandNode, CommandState::Executed, nullptr });
-        cursorPosition_ = static_cast<int>(commandEntries_.size()) - 1;  // Update the cursor to the end
-
-        // Calculate depth based on current state
-        currentDepth_ = CalculateDepth(*this);
-
-        std::cout << "Appended a command. Current command count: " << commandEntries_.size()
-            << ", cursorPosition_: " << cursorPosition_ << ", currentDepth is incremented: " << currentDepth_ << std::endl;
-    }
-
-    // Enforce depth constraints
-    if (currentDepth_ > maxDepth_) {
-        auto newHistory = CreateNewHistoryIfNeeded();
-        if (newHistory) {
-            newHistory->SetAttribute("NewHistory", "True");
-            newHistory->SetAttribute("Justification", "MaxDepthReached");
-            commandEntries_.back().childCommandHistory = newHistory;
-            currentHistory_ = newHistory;
-            currentDepth_ = 1;  // Reset depth for the new branch
+        if (action.execute) {
+            action.execute();
         }
+        // At the depth limit, replace only the undone suffix rather than nesting another branch.
+        commandEntries_.erase(commandEntries_.begin() + (cursorPosition_ + 1), commandEntries_.end());
+        nextCollection_.reset();
+        currentHistory_.reset();
+        commandEntries_.push_back(CommandEntry{ commandNode, CommandState::Executed, nullptr, action });
+        cursorPosition_ = static_cast<int>(commandEntries_.size()) - 1;
     }
+    currentDepth_ = CalculateDepth(*this);
 }
 
 bool CommandHistoryOperation::Undo() {
-    if (cursorPosition_ > 0) {
-        commandEntries_[cursorPosition_].state = CommandState::Undone;
-        cursorPosition_--;
-        currentDepth_ = CalculateDepth(*this);  // Adjust depth based on actual state
-        std::cout << "Undoing command: " << commandEntries_[cursorPosition_].node->GetName()
-            << ", cursorPosition is decremented and currentDepth is " << currentDepth_ << std::endl;
+    if (currentHistory_ && cursorPosition_ >= branchPosition_ && currentHistory_->Undo()) {
+        return true;
+    }
+    if (!currentHistory_ && nextCollection_ && cursorPosition_ == static_cast<int>(commandEntries_.size()) - 1 && nextCollection_->Undo()) {
+        return true;
+    }
+    if (cursorPosition_ >= 0) {
+        auto& entry = commandEntries_[cursorPosition_];
+        if (entry.action.undo) {
+            entry.action.undo();
+        }
+        entry.state = CommandState::Undone;
+        --cursorPosition_;
         return true;
     }
     return false;
 }
 
 bool CommandHistoryOperation::Redo() {
+    if (currentHistory_ && cursorPosition_ >= branchPosition_) {
+        return currentHistory_->Redo();
+    }
     if (cursorPosition_ < static_cast<int>(commandEntries_.size()) - 1) {
-        MoveCursorDown();
-        commandEntries_[cursorPosition_].state = CommandState::Executed;
-        std::cout << "Redoing command: " << commandEntries_[cursorPosition_].node->GetName() << std::endl;
+        auto& entry = commandEntries_[cursorPosition_ + 1];
+        if (entry.action.execute) {
+            entry.action.execute();
+        }
+        entry.state = CommandState::Executed;
+        ++cursorPosition_;
         return true;
     }
-    return false;
+    return !currentHistory_ && nextCollection_ && nextCollection_->Redo();
 }
 
 void CommandHistoryOperation::MoveCursorToEnd() {
-    cursorPosition_ = static_cast<int>(commandEntries_.size()) - 1;
+    while (Redo()) {}
 }
 
 void CommandHistoryOperation::MoveCursorUp() {
-    if (cursorPosition_ > 0) {
-        cursorPosition_--;
-        std::cout << "cursorPosition is decremented and currentDepth is " << currentDepth_;
-    }
-    else {
-        std::cerr << "Warning: Attempted to move cursor up but cursorPosition_ is already at the beginning." << std::endl;
-    }
+    Undo();
 }
 
 void CommandHistoryOperation::MoveCursorDown() {
-    if (cursorPosition_ < static_cast<int>(commandEntries_.size()) - 1) {
-        cursorPosition_++;
-        std::cout << "cursorPosition is incremented and currentDepth is " << currentDepth_;
-    }
+    Redo();
 }
 
 bool CommandHistoryOperation::IsAtLeafNode() const {
-    return (cursorPosition_ == static_cast<int>(commandEntries_.size()) - 1);
+    if (currentHistory_) {
+        return cursorPosition_ >= branchPosition_ && currentHistory_->IsAtLeafNode();
+    }
+    return cursorPosition_ == static_cast<int>(commandEntries_.size()) - 1
+        && (!nextCollection_ || nextCollection_->IsAtLeafNode());
 }
 
 void CommandHistoryOperation::CleanUpOldHistory() {
@@ -136,10 +150,14 @@ void CommandHistoryOperation::CleanUpOldHistory() {
 }
 
 std::shared_ptr<CommandHistoryOperation> CommandHistoryOperation::CreateNewHistoryIfNeeded() {
-    if (currentDepth_ > maxDepth_) {
+    if (commandEntries_.size() == CollectionCapacity) {
+        if (nextCollection_) {
+            return nextCollection_;
+        }
         auto newSiblingHistory = std::make_shared<CommandHistoryOperation>(maxDepth_);
+        newSiblingHistory->commandFactories_ = commandFactories_;
         newSiblingHistory->SetAttribute("NewHistory", "True");
-        newSiblingHistory->SetAttribute("Justification", "MaxDepthReached");
+        newSiblingHistory->SetAttribute("Justification", "CollectionCapacityReached");
         return newSiblingHistory;  // Return the new instance
     }
     return nullptr;
@@ -161,12 +179,19 @@ const std::vector<CommandEntry>& CommandHistoryOperation::GetCommandEntries() co
     return commandEntries_;
 }
 
+const std::shared_ptr<CommandHistoryOperation>& CommandHistoryOperation::GetNextCollection() const {
+    return nextCollection_;
+}
+
 void CommandHistoryOperation::TraverseCommands(std::function<void(const std::shared_ptr<OpNode>&)> visitor) const {
     for (const auto& entry : commandEntries_) {
         visitor(entry.node);
         if (entry.childCommandHistory) {
             entry.childCommandHistory->TraverseCommands(visitor);
         }
+    }
+    if (nextCollection_) {
+        nextCollection_->TraverseCommands(visitor);
     }
 }
 
@@ -185,6 +210,9 @@ int CommandHistoryOperation::CalculateDepth(const CommandHistoryOperation& histo
         }
     }
             
+    if (history.GetNextCollection()) {
+        maxDepth = (std::max)(maxDepth, CalculateDepth(*history.GetNextCollection()));
+    }
     return maxDepth;
 }
 

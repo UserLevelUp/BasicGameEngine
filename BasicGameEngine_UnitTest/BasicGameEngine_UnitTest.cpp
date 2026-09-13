@@ -60,54 +60,68 @@ namespace BasicGameEngine_UnitTests
             Assert::AreEqual(std::string("value"), node->GetValue("key"), L"The attribute value should be 'value'.");
         }
 
-        //TEST_METHOD(TestAddOperation)
-        //{
-        //    // Arrange: Create a node and a mock operation
-        //    auto node = std::make_shared<OpNode>("Node");
-        //    auto operation = std::make_shared<CommandHistory>(); // Assuming CommandHistory implements IOperate
+        TEST_METHOD(TestAddAndRemoveOperation)
+        {
+            auto node = std::make_shared<OpNode>("Node");
+            auto operation = std::make_shared<DirectXOperation>();
+            Assert::AreEqual(0, node->OperationsCount());
+            node->AddOperation(operation);
+            Assert::AreEqual(1, node->OperationsCount());
+            node->RemoveOperation(operation);
+            Assert::AreEqual(0, node->OperationsCount());
+            node->RemoveOperation(operation);
+            Assert::AreEqual(0, node->OperationsCount());
+        }
 
-        //    // Act: Add the operation to the node
-        //    node->AddOperation(operation);
+        TEST_METHOD(TestClearOperations)
+        {
+            auto node = std::make_shared<OpNode>("Node");
+            node->AddOperation(std::make_shared<DirectXOperation>());
+            node->AddOperation(std::make_shared<DirectXOperation>());
+            Assert::AreEqual(2, node->OperationsCount());
+            node->ClearOperations();
+            Assert::AreEqual(0, node->OperationsCount());
+            Assert::IsTrue(node->OperationIcons().empty());
+            node->ClearOperations();
+            Assert::AreEqual(0, node->OperationsCount());
+        }
 
-        //    // Assert: Verify that the operation was added
-        //    Assert::AreEqual(1, node->OperationsCount(), L"The node should have one operation after adding.");
-        //}
+        TEST_METHOD(TestGetKeys)
+        {
+            OpNode node("Node");
+            Assert::IsTrue(node.GetKeys().empty());
+            node.AddAttribute("b", "two");
+            node.AddAttribute("a", "one");
+            node.SetAttribute("a", "updated");
+            auto keys = node.GetKeys();
+            Assert::AreEqual(size_t(2), keys.size());
+            Assert::AreEqual(std::string("a"), keys.front());
+            Assert::AreEqual(std::string("b"), keys.back());
+            node.DeleteAttribute("a");
+            Assert::AreEqual(size_t(1), node.GetKeys().size());
+        }
 
-        //TEST_METHOD(TestRemoveOperation)
-        //{
-        //    // Arrange: Create a node and add an operation
-        //    auto node = std::make_shared<OpNode>("Node");
-        //    auto operation = std::make_shared<CommandHistory>(); // Assuming CommandHistory implements IOperate
-        //    #ifndef COMMANDHISTORY_H
-        //    #define COMMANDHISTORY_H
-
-        //    #include "IOperate.h"
-        //    #include <string>
-        //    #include <memory>
-
-        //    class CommandHistory : public IOperate {
-        //    public:
-        //        CommandHistory() = default;
-        //        virtual ~CommandHistory() = default;
-
-        //        std::string Symbol() const override {
-        //            return "CH";
-        //        }
-
-        //        void Operate(std::shared_ptr<OpNode> node) override {
-        //            // Implementation of the operation
-        //        }
-        //    };
-
-        //    #endif // COMMANDHISTORY_H
-        //    node->AddOperation(operation);
-
-        //    // Act: Remove the operation from the node
-        //    node->RemoveOperation(operation);
-
-        //    // Assert: Verify that the operation was removed
-        //    Assert::AreEqual(0, node->OperationsCount(), L"The node should have no operations after removal.");
-        //}
+        TEST_METHOD(TestFindRecursivelyWithCharacterOffset)
+        {
+            auto root = std::make_shared<OpNode>("MatchRoot");
+            auto child = std::make_shared<OpNode>("xMatchChild");
+            auto leaf = std::make_shared<OpNode>("xxMatchLeaf");
+            root->AddChild(child);
+            child->AddChild(leaf);
+            auto matches = root->Find("Match", 0);
+            Assert::AreEqual(size_t(3), matches.size());
+            Assert::IsTrue(matches.front() == root);
+            Assert::IsTrue(matches.back() == leaf);
+            matches = root->Find("Match", 1);
+            Assert::AreEqual(size_t(2), matches.size());
+            Assert::IsTrue(matches.front() == child);
+            Assert::AreEqual(size_t(1), root->Find("Match", 2).size());
+            Assert::IsTrue(root->Find("Match", 3).empty());
+            Assert::IsTrue(root->Find("missing", 0).empty());
+            Assert::IsTrue(root->Find("Match", -1).empty());
+            Assert::IsTrue(root->Find("Match", 100).empty());
+            Assert::AreEqual(size_t(3), root->Find("", 0).size());
+        }
 
         TEST_METHOD(TestNamespace)
         {
@@ -130,12 +144,9 @@ namespace BasicGameEngine_UnitTests
             // Arrange: Create a node and add an attribute
             auto node = std::make_shared<OpNode>("Node");
             node->AddAttribute("key", "value");
-
-            // Act: Delete the attribute
             node->DeleteAttribute("key");
-
-            // Assert: Verify that the attribute was deleted
-            Assert::AreEqual(std::string(""), node->GetValue("key"), L"The attribute value should be empty after deletion.");
+            Assert::AreEqual(std::string(""), node->GetValue("key"));
+            Assert::IsTrue(node->GetKeys().empty());
         }
          
 
@@ -145,12 +156,9 @@ namespace BasicGameEngine_UnitTests
             auto node = std::make_shared<OpNode>("Node");
             node->AddAttribute("deleted", "true");
 			node->SetNamespace(std::make_shared<NameSpace>("ulu", "deleted", "http://userlevelup.com/ulu", "http://userlevelup.com/deleted"));
-
-            // Act: Delete the attribute
-            node->DeleteAttribute("key");
-
-            // Assert: Verify that the attribute was deleted
-            Assert::AreEqual(std::string(""), node->GetValue("key"), L"The attribute value should be empty after deletion.");
+            Assert::AreEqual(std::string("true"), node->GetValue("deleted"));
+            Assert::AreEqual(std::string("deleted"), node->GetNamespace()->GetSuffix());
+            Assert::AreEqual(std::string("Node"), node->GetName(), L"Soft deletion must preserve the node.");
         }
 
         TEST_METHOD(TestChildOperationInheritance)

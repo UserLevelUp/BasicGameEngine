@@ -1,0 +1,6 @@
+inti map create validation-valid "../../../exports/sprites/templates/User Level Up LLC Logo.png"
+inti map node add start 0.20 0.50
+inti map node add finish 0.80 0.50
+inti map path add start finish
+inti map exit add finish-exit 0.80 0.50 next.intimap
+inti map validate

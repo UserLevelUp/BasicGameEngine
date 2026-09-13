@@ -6,6 +6,8 @@
 #include "BgeScenePrimitives.h"
 #include "DirectXIncludes.h"
 
+class BgeDearImGuiAdapter;
+
 class DirectX11BouncingBallRenderer {
 public:
     DirectX11BouncingBallRenderer() = default;
@@ -30,6 +32,7 @@ public:
     void SetSceneOverlayText(const std::vector<BgeSceneOverlayText>& overlays);
     void SetSceneGeometry(const std::vector<BgeColorVertex>& vertices);
     bool LoadBackgroundImage(const std::wstring& path);
+    void SetDearImGuiAdapter(BgeDearImGuiAdapter* adapter);
 
     bool IsInitialized() const { return initialized_; }
     bool HasBall() const;
@@ -94,6 +97,7 @@ private:
     std::vector<BgeColorVertex> sceneGeometryVertices_;
     std::vector<BgeSceneOverlayText> sceneOverlayText_;
     std::wstring spriteTexturePath_;
+    BgeDearImGuiAdapter* dearImGuiAdapter_ = nullptr;
     UINT spriteTextureWidth_ = 0;
     UINT spriteTextureHeight_ = 0;
     int selectedSlot_ = 0;

@@ -1,0 +1,3 @@
+inti map create resolution-live "../../../exports/sprites/templates/User Level Up LLC Logo.png"
+mode resolution
+resolution set 800 600

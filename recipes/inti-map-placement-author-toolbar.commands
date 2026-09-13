@@ -1,0 +1,12 @@
+# Command-backed map authoring toolbar. Buttons only select a generic tool or
+# execute an existing canonical Inti command; map data remains plugin-owned.
+plugin import-set inti-chasqui
+author start inti-map-placement-toolbar
+inti map create toolbar-map "../../../exports/sprites/templates/User Level Up LLC Logo.png"
+author button bind Node author placement arm node map-node inti map node add {name} {x} {y}
+author button bind Power-up author placement arm powerup map-powerup inti map powerup add {name} {x} {y} courier-boost
+author button bind Link author placement link path inti map path add {a} {b}
+author button bind Exit author placement arm exit map-exit inti map exit add {name} {x} {y} next.intimap
+author button bind Save inti map save authoring/map-placement-toolbar.intimap
+author button bind Cancel author placement cancel
+author button show
