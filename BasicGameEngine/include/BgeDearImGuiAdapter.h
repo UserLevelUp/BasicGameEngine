@@ -5,8 +5,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <set>
 
 #include "DirectXIncludes.h"
+#include "BgeUiWindowMgr.h"
 
 class BgeDearImGuiAdapter {
 public:
@@ -28,6 +30,8 @@ public:
     void SetVisible(bool visible);
     bool IsVisible() const;
     bool IsInitialized() const;
+    void SetWindowManager(std::shared_ptr<BgeUiWindowMgr> manager);
+    void AddWindowManager(std::shared_ptr<BgeUiWindowMgr> manager);
     void SetCommandCallback(CommandCallback callback);
     void SetDiagnosticCallback(DiagnosticCallback callback);
     void RenderDirectX11();
@@ -46,6 +50,12 @@ private:
     void DrawSpikeSurface();
     void InvokeCommand(const std::wstring& actionId, const std::wstring& command);
 
+    std::shared_ptr<BgeUiWindowMgr> windowManager_;
+    void ActivateItem(const std::shared_ptr<BgeUiWindowMgr>& owner, const std::string& id);
+    void DrawWindowSurface(const std::shared_ptr<BgeUiWindowMgr>& owner, float offset);
+    std::vector<std::shared_ptr<BgeUiWindowMgr>> additionalWindows_;
+    void ReportItemBounds(const std::string& id);
+    std::set<std::string> reportedBounds_;
     HWND hWnd_ = nullptr;
     mutable std::mutex mutex_;
     bool initialized_ = false;

@@ -4,6 +4,22 @@
 #include <algorithm>
 #include "../../OpNode/OpNode.h"
 
+namespace {
+void DrawRoundedGradient(ImDrawList* list, ImVec2 min, ImVec2 max, ImU32 top, ImU32 bottom, float rounding) {
+    const int first = list->VtxBuffer.Size;
+    list->AddRectFilled(min, max, IM_COL32_WHITE, rounding);
+    const auto a = ImGui::ColorConvertU32ToFloat4(top);
+    const auto b = ImGui::ColorConvertU32ToFloat4(bottom);
+    const float height = (std::max)(1.0f, max.y - min.y);
+    for (int i = first; i < list->VtxBuffer.Size; ++i) {
+        auto& vertex = list->VtxBuffer[i];
+        const float t = (std::clamp)((vertex.pos.y - min.y) / height, 0.0f, 1.0f);
+        const float coverage = static_cast<float>((vertex.col >> IM_COL32_A_SHIFT) & 255) / 255.0f;
+        vertex.col = ImGui::ColorConvertFloat4ToU32(ImVec4(a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.z+(b.z-a.z)*t, (a.w+(b.w-a.w)*t)*coverage));
+    }
+}
+}
+
 void DrawOverlayCloverFourLeaf(ImDrawList* drawList, ImVec2 min, ImVec2 max, float alpha) {
     if (!drawList || alpha <= 0.0f) return;
 
@@ -78,7 +94,9 @@ bool DrawGlassButton(ImDrawList* drawList, const BgeGlassButtonDescriptor& desc,
     if (!drawList) return false;
 
     // Standard public Dear ImGui button interaction
-    bool pressed = ImGui::InvisibleButton(desc.id.c_str(), size);
+    ImGui::BeginDisabled(!desc.enabled);
+    bool pressed = ImGui::InvisibleButton(desc.id.c_str(), size, ImGuiButtonFlags_EnableNav) && desc.enabled;
+    ImGui::EndDisabled();
     bool hovered = ImGui::IsItemHovered();
     bool held = ImGui::IsItemActive();
 
@@ -93,9 +111,13 @@ bool DrawGlassButton(ImDrawList* drawList, const BgeGlassButtonDescriptor& desc,
     // LAYER 1: BASE LAYER (Functional Core)
     // High-contrast text, drop shadows, icon
     // ==========================================
-    const ImU32 baseBg = held ? IM_COL32(12, 18, 28, 240)
-                              : (hovered ? IM_COL32(20, 32, 48, 230)
-                                         : IM_COL32(15, 24, 38, 220));
+    ImVec4 tint = ImGui::ColorConvertU32ToFloat4(desc.glassTint);
+    const float light = held ? -0.02f : (hovered ? 0.04f : 0.0f);
+    tint.x = (std::clamp)(tint.x + light, 0.0f, 1.0f);
+    tint.y = (std::clamp)(tint.y + light, 0.0f, 1.0f);
+    tint.z = (std::clamp)(tint.z + light, 0.0f, 1.0f);
+    if (!desc.enabled) tint.w *= 0.55f;
+    const ImU32 baseBg = ImGui::ColorConvertFloat4ToU32(tint);
     drawList->AddRectFilled(min, max, baseBg, desc.cornerRadius);
 
     // Crisp text sizing and centering
@@ -117,7 +139,7 @@ bool DrawGlassButton(ImDrawList* drawList, const BgeGlassButtonDescriptor& desc,
     // ==========================================
     const ImU32 glassTop = hovered ? IM_COL32(255, 255, 255, 45) : IM_COL32(255, 255, 255, 25);
     const ImU32 glassBot = hovered ? IM_COL32(255, 255, 255, 10) : IM_COL32(255, 255, 255, 4);
-    drawList->AddRectFilledMultiColor(min, max, glassTop, glassTop, glassBot, glassBot);
+    DrawRoundedGradient(drawList, min, max, glassTop, glassBot, desc.cornerRadius);
 
     // Beveled rim stroke
     const ImU32 borderCol = hovered ? IM_COL32(180, 220, 255, 160)
@@ -137,6 +159,7 @@ bool DrawGlassButton(ImDrawList* drawList, const BgeGlassButtonDescriptor& desc,
     // Guarded light overtones (0.10 <= alpha <= 0.35)
     // ==========================================
     const float alpha = (std::clamp)(desc.overlayAlpha, 0.10f, 0.35f);
+    const auto paintReflection = [&]() {
     switch (desc.overlay) {
         case BgeGlassOverlayStyle::CloverFourLeaf:
             DrawOverlayCloverFourLeaf(drawList, min, max, alpha);
@@ -147,9 +170,27 @@ bool DrawGlassButton(ImDrawList* drawList, const BgeGlassButtonDescriptor& desc,
         case BgeGlassOverlayStyle::SpecularSheen:
             DrawOverlaySpecularSheen(drawList, min, max, alpha);
             break;
+        case BgeGlassOverlayStyle::FrostedDiffuse:
+            DrawRoundedGradient(drawList, min, max, IM_COL32(210, 230, 245, 22), IM_COL32(180, 205, 220, 8), desc.cornerRadius);
+            break;
         default:
             break;
     }
+    };
+    // Keep the functional label and its shadow clear of reflection highlights.
+    // Four disjoint clips preserve the reflection geometry outside that area.
+    const ImVec2 guardMin((std::max)(min.x, textPos.x - 3.0f), (std::max)(min.y, textPos.y - 2.0f));
+    const ImVec2 guardMax((std::min)(max.x, textPos.x + textSize.x + 3.0f), (std::min)(max.y, textPos.y + textSize.y + 2.0f));
+    const auto paintClip = [&](ImVec2 a, ImVec2 b) {
+        if (a.x >= b.x || a.y >= b.y) return;
+        drawList->PushClipRect(a, b, true);
+        paintReflection();
+        drawList->PopClipRect();
+    };
+    paintClip(min, ImVec2(max.x, guardMin.y));
+    paintClip(ImVec2(min.x, guardMax.y), max);
+    paintClip(ImVec2(min.x, guardMin.y), ImVec2(guardMin.x, guardMax.y));
+    paintClip(ImVec2(guardMax.x, guardMin.y), ImVec2(max.x, guardMax.y));
 
     return pressed;
 }

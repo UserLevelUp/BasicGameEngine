@@ -1,4 +1,4 @@
-﻿#include "../include/BgeDearImGuiAdapter.h"
+#include "../include/BgeDearImGuiAdapter.h"
 #include "../include/BgeGlassUi.h"
 
 #include <array>
@@ -153,24 +153,9 @@ bool BgeDearImGuiAdapter::HandleWin32Message(HWND hWnd, UINT message, WPARAM wPa
         return false;
     }
 
-    if (message == WM_MOUSELEAVE || message == WM_CAPTURECHANGED) {
-        return true;
-    }
-
-    if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP) {
-        lastMouseX_ = static_cast<float>(static_cast<short>(LOWORD(lParam)));
-        lastMouseY_ = static_cast<float>(static_cast<short>(HIWORD(lParam)));
-        ImGui::GetIO().AddMousePosEvent(lastMouseX_, lastMouseY_);
-    }
-
     ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam);
     ImGuiIO& io = ImGui::GetIO();
 
-    if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP) {
-        lastMouseX_ = static_cast<float>(static_cast<short>(LOWORD(lParam)));
-        lastMouseY_ = static_cast<float>(static_cast<short>(HIWORD(lParam)));
-        io.AddMousePosEvent(lastMouseX_, lastMouseY_);
-    }
     const bool keyboardMessage = message == WM_KEYDOWN || message == WM_KEYUP || message == WM_CHAR || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP;
     const bool mouseMessage = message >= WM_MOUSEFIRST && message <= WM_MOUSELAST;
     if (message == WM_KEYDOWN && wParam == VK_ESCAPE) {
@@ -185,6 +170,7 @@ void BgeDearImGuiAdapter::SetVisible(bool visible)
     std::lock_guard<std::mutex> lock(mutex_);
     if (visible && !visible_) {
         buttonBoundsReported_ = false;
+        reportedBounds_.clear();
     }
     visible_ = initialized_ && visible;
 }
@@ -317,139 +303,125 @@ void BgeDearImGuiAdapter::BeginFrame()
         ImGui_ImplDX12_NewFrame();
     }
     ImGui_ImplWin32_NewFrame();
-    if (lastMouseX_ >= 0.0f && lastMouseY_ >= 0.0f) {
-        ImGui::GetIO().AddMousePosEvent(lastMouseX_, lastMouseY_);
-    }
     ImGui::NewFrame();
     DrawSpikeSurface();
 }
 
+void BgeDearImGuiAdapter::SetWindowManager(std::shared_ptr<BgeUiWindowMgr> manager)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    windowManager_ = std::move(manager);
+}
+
+void BgeDearImGuiAdapter::AddWindowManager(std::shared_ptr<BgeUiWindowMgr> manager)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (manager && std::find(additionalWindows_.begin(), additionalWindows_.end(), manager) == additionalWindows_.end()) additionalWindows_.push_back(std::move(manager));
+}
+
+void BgeDearImGuiAdapter::ActivateItem(const std::shared_ptr<BgeUiWindowMgr>& owner, const std::string& id)
+{
+    if (!owner) return;
+    owner->Activate(id, [this](const BgeUiActionViewModel& action) {
+        // This adapter's callback is local. Never silently execute a remote target.
+        if (action.target != "local") return;
+        InvokeCommand(std::wstring(action.id.begin(), action.id.end()),
+                      std::wstring(action.command.begin(), action.command.end()));
+    });
+}
+
 void BgeDearImGuiAdapter::DrawSpikeSurface()
 {
-    ImGui::SetNextWindowPos(ImVec2(24.0f, 164.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(360.0f, 480.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("BGE Command UI Spike", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_MenuBar)) {
-        ImGui::End();
-        return;
-    }
+    DrawWindowSurface(windowManager_, 0);
+    float offset = 390;
+    for (const auto& owner : additionalWindows_) { DrawWindowSurface(owner, offset); offset += 390; }
+}
 
+void BgeDearImGuiAdapter::DrawWindowSurface(const std::shared_ptr<BgeUiWindowMgr>& owner, float offset)
+{
+    if (!owner) return;
+    const auto model = owner->Snapshot();
+    ImGui::SetNextWindowPos(ImVec2(24.0f + offset, 164.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(360.0f, 480.0f), ImGuiCond_FirstUseEver);
+    ImGui::PushStyleColor(ImGuiCol_Text, model.theme.text);
+    if (!ImGui::Begin(model.title.c_str(), nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_MenuBar)) {
+        ImGui::End(); ImGui::PopStyleColor(); return;
+    }
     ImGui::TextUnformatted(kRendererName);
     ImGui::Separator();
     if (ImGui::BeginMenuBar()) {
-        if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Resolution status")) {
-                InvokeCommand(L"menu.resolution-status", L"resolution status");
+        for (const auto& menu : model.menus) {
+            const bool open = ImGui::BeginMenu(menu.label.c_str());
+            ReportItemBounds("menu." + menu.id);
+            if (open) {
+                for (const auto& item : menu.children) {
+                    BgeUiActionViewModel binding;
+                    const bool enabled = owner->Resolve(item.id, binding);
+                    ImGui::PushID(item.id.c_str());
+                    if (ImGui::MenuItem(item.label.c_str(), nullptr, false, enabled)) ActivateItem(owner, item.id);
+                    ReportItemBounds("menu-item." + item.id);
+                    ImGui::PopID();
+                }
+                ImGui::EndMenu();
             }
-            ImGui::EndMenu();
         }
-if (ImGui::BeginMenu("Modes")) {
-    if (ImGui::MenuItem("Ball Mode")) {
-        InvokeCommand(L"menu.mode.ball", L"mode ball");
-    }
-    if (ImGui::MenuItem("Arcade Mode")) {
-        InvokeCommand(L"menu.mode.arcade", L"mode arcade");
-    }
-    ImGui::EndMenu();
-}
-if (ImGui::BeginMenu("Display")) {
-    if (ImGui::MenuItem("1080p FHD")) {
-        InvokeCommand(L"menu.res.1080", L"resolution 1920 1080");
-    }
-    if (ImGui::MenuItem("720p HD")) {
-        InvokeCommand(L"menu.res.720", L"resolution 1280 720");
-    }
-    ImGui::EndMenu();
-}
-if (ImGui::BeginMenu("Tools")) {
-    if (ImGui::MenuItem("Spawn 10 Balls")) {
-        InvokeCommand(L"menu.tools.spawn10", L"spawn ball 10");
-    }
-    if (ImGui::MenuItem("Launch Warp")) {
-        InvokeCommand(L"menu.tools.warp", L"warp bubble activate");
-    }
-    ImGui::EndMenu();
-}
         ImGui::EndMenuBar();
     }
-    if (ImGui::Button("Resolution status")) {
-        InvokeCommand(L"button.resolution-status", L"resolution status");
-    }
-    if (!buttonBoundsReported_ && diagnosticCallback_) {
-        const ImVec2 minimum = ImGui::GetItemRectMin();
-        const ImVec2 maximum = ImGui::GetItemRectMax();
-        diagnosticCallback_(L"bge.event.command-ui.button.bounds min="
-            + std::to_wstring(static_cast<int>(minimum.x)) + L"," + std::to_wstring(static_cast<int>(minimum.y))
-            + L" max=" + std::to_wstring(static_cast<int>(maximum.x)) + L"," + std::to_wstring(static_cast<int>(maximum.y)));
-        buttonBoundsReported_ = true;
-    }
-
-    static int selection = 0;
-    const std::array<const char*, 2> commands = { "resolution status", "plugin commands" };
-    if (ImGui::BeginCombo("Command", commands[selection])) {
-        for (int index = 0; index < static_cast<int>(commands.size()); ++index) {
-            bool selected = selection == index;
-            if (ImGui::Selectable(commands[index], selected)) {
-                selection = index;
-                InvokeCommand(L"dropdown.command", index == 0 ? L"resolution status" : L"plugin commands");
-            }
-            if (selected) {
-                ImGui::SetItemDefaultFocus();
-            }
+    // Ungrouped actions are supplied by the manager in display order.
+    std::vector<BgeUiActionViewModel> ungrouped;
+    for (const auto& item : model.actions) if (item.group.empty()) ungrouped.push_back(item);
+    if (!ungrouped.empty()) {
+        const auto& item = ungrouped.front();
+        ImGui::BeginDisabled(!item.enabled);
+        if (ImGui::Button(item.label.c_str())) ActivateItem(owner, item.id);
+        ImGui::EndDisabled();
+        if (!buttonBoundsReported_ && diagnosticCallback_) {
+            const ImVec2 minimum = ImGui::GetItemRectMin();
+            const ImVec2 maximum = ImGui::GetItemRectMax();
+            diagnosticCallback_(L"bge.event.command-ui.button.bounds min="
+                + std::to_wstring(static_cast<int>(minimum.x)) + L"," + std::to_wstring(static_cast<int>(minimum.y))
+                + L" max=" + std::to_wstring(static_cast<int>(maximum.x)) + L"," + std::to_wstring(static_cast<int>(maximum.y)));
+            buttonBoundsReported_ = true;
         }
-        ImGui::EndCombo();
     }
-
-    
-    // =========================================================================
-    // Glass Buttons & Menu Subsystems (bge.ui.buttons + bge.ui.menu)
-    // 3-layer visual model: Base (crisp text), Middle (glass body), Top (overlay)
-    // =========================================================================
-    ImGui::Separator();
+    if (ungrouped.size() > 1) {
+        const BgeUiActionViewModel* selected = &ungrouped[1];
+        for (const auto& item : ungrouped) if (item.id == model.selectedAction) selected = &item;
+        if (ImGui::BeginCombo("Command", selected->label.c_str())) {
+            for (size_t i = 1; i < ungrouped.size(); ++i) {
+                const auto& item = ungrouped[i];
+                ImGui::BeginDisabled(!item.enabled);
+                if (ImGui::Selectable(item.label.c_str(), item.id == selected->id)) {
+                    owner->Select(item.id); ActivateItem(owner, item.id);
+                }
+                ImGui::EndDisabled();
+            }
+            ImGui::EndCombo();
+        }
+    }
+    ImGui::Separator(); ImGui::Spacing();
+    ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "BGE Glass Control Center");
     ImGui::Spacing();
-    ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "BGE Glass Control Center (OpNode Host)");
-    ImGui::Spacing();
-
-    ImDrawList* drawList = ImGui::GetWindowDrawList();
-    auto clickAdapter = [this](const std::string& actionId, const std::string& command) {
-        std::wstring wAction(actionId.begin(), actionId.end());
-        std::wstring wCmd(command.begin(), command.end());
-        InvokeCommand(wAction, wCmd);
-    };
-
-    // Group 1: Game Modes (Clover Four-Leaf Reflection Overlay)
-    BgeGlassButtonGroupDescriptor modesGroup;
-    modesGroup.id = "group.modes";
-    modesGroup.label = "Game Modes (Clover Overlay)";
-    modesGroup.buttons = {
-        { "mode.ball", "Ball Mode", "mode ball", "icon-ball", "group.modes", BgeGlassOverlayStyle::CloverFourLeaf, 0.28f },
-        { "mode.arcade", "Arcade Mode", "mode arcade", "icon-rocket", "group.modes", BgeGlassOverlayStyle::CloverFourLeaf, 0.28f }
-    };
-    DrawGlassButtonGroup(drawList, modesGroup, clickAdapter);
-
-    // Group 2: Display & Resolution (Four-Pane Lit Window Reflection Overlay)
-    BgeGlassButtonGroupDescriptor displayGroup;
-    displayGroup.id = "group.display";
-    displayGroup.label = "Display & Resolution (4-Pane Window Overlay)";
-    displayGroup.buttons = {
-        { "res.1080", "1080p FHD", "resolution 1920 1080", "icon-display", "group.display", BgeGlassOverlayStyle::WindowFourPane, 0.26f },
-        { "res.720", "720p HD", "resolution 1280 720", "icon-display", "group.display", BgeGlassOverlayStyle::WindowFourPane, 0.26f }
-    };
-    DrawGlassButtonGroup(drawList, displayGroup, clickAdapter);
-
-    // Group 3: Custom Tools (Specular Sheen Overlay)
-    BgeGlassButtonGroupDescriptor toolsGroup;
-    toolsGroup.id = "group.tools";
-    toolsGroup.label = "Custom Tools (Specular Sheen Overlay)";
-    toolsGroup.buttons = {
-        { "tools.spawn10", "Spawn 10 Balls", "spawn ball 10", "icon-plus", "group.tools", BgeGlassOverlayStyle::SpecularSheen, 0.30f },
-        { "tools.warp", "Launch Warp", "warp bubble activate", "icon-portal", "group.tools", BgeGlassOverlayStyle::SpecularSheen, 0.30f }
-    };
-    DrawGlassButtonGroup(drawList, toolsGroup, clickAdapter);
-
+    auto* drawList = ImGui::GetWindowDrawList();
+    for (const auto& group : model.groups) {
+        ImGui::PushID(group.id.c_str());
+        DrawGlassButtonGroup(drawList, group, [this, owner](const std::string& id, const std::string&) { ActivateItem(owner, id); });
+        ImGui::PopID();
+    }
     ImGui::Separator();
-    ImGui::TextUnformatted("Texture thumbnail gate: pending BGE asset bridge");
     ImGui::TextUnformatted("Esc closes the spike.");
     ImGui::End();
+    ImGui::PopStyleColor();
+}
+
+void BgeDearImGuiAdapter::ReportItemBounds(const std::string& id)
+{
+    if (!diagnosticCallback_ || !reportedBounds_.insert(id).second) return;
+    const auto minimum = ImGui::GetItemRectMin();
+    const auto maximum = ImGui::GetItemRectMax();
+    diagnosticCallback_(L"bge.event.command-ui.item.bounds id=" + std::wstring(id.begin(), id.end())
+        + L" min=" + std::to_wstring(static_cast<int>(minimum.x)) + L"," + std::to_wstring(static_cast<int>(minimum.y))
+        + L" max=" + std::to_wstring(static_cast<int>(maximum.x)) + L"," + std::to_wstring(static_cast<int>(maximum.y)));
 }
 
 void BgeDearImGuiAdapter::InvokeCommand(const std::wstring& actionId, const std::wstring& command)
@@ -459,5 +431,3 @@ void BgeDearImGuiAdapter::InvokeCommand(const std::wstring& actionId, const std:
     pendingActions_.push_back({ actionId, command });
 
 }
-
-

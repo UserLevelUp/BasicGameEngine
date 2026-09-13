@@ -1,4 +1,4 @@
-#include "../include/BgeDearImGuiAdapter.h"
+﻿#include "../include/BgeDearImGuiAdapter.h"
 // BasicGameEngine.cpp : Defines the entry point for the application.
 
 #include "../include/StatusBarMgr.h"
@@ -66,6 +66,9 @@ std::mutex gameLoopMutex;      // Mutex for synchronizing game loop
 std::mutex ballConfigMutex;
 
 std::unique_ptr<BgeDearImGuiAdapter> g_dearImGuiAdapter;
+std::shared_ptr<BgeUiWindowMgr> g_uiWindowManager = BgeUiWindowMgr::CreateWorkbench();
+std::shared_ptr<BgeUiThemeMgr> g_uiThemeManager = std::make_shared<BgeUiThemeMgr>();
+std::shared_ptr<BgeUiWindowMgr> g_uiSecondaryWindow;
 bool g_dearImGuiAttachRequested = false;
 
 std::string Narrow(const std::wstring& value);
@@ -895,6 +898,8 @@ void InitializeDearImGuiAdapter(HWND hWnd)
             g_dearImGuiAdapter.reset();
             return;
         }
+        g_uiWindowManager->SetTheme(g_uiThemeManager);
+        g_dearImGuiAdapter->SetWindowManager(g_uiWindowManager);
         g_dearImGuiAdapter->SetCommandCallback([](const std::wstring& actionId, const std::wstring& command) {
             std::wstring statusText;
             const bool ok = ExecuteCommandText(command, statusText);
@@ -9966,6 +9971,70 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
         return false;
     }
 
+
+    if (command == L"ui-theme") {
+        if (tokens.size() != 2) { statusText = L"ui-theme default|clover|window|sheen|frosted"; return false; }
+        auto theme = g_uiThemeManager->Snapshot();
+        theme.overrideOverlay = true;
+        const auto style = LowerArg(tokens[1]);
+        if (style == L"default") theme.overrideOverlay = false;
+        else if (style == L"clover") theme.overlay = BgeGlassOverlayStyle::CloverFourLeaf;
+        else if (style == L"window") theme.overlay = BgeGlassOverlayStyle::WindowFourPane;
+        else if (style == L"sheen") theme.overlay = BgeGlassOverlayStyle::SpecularSheen;
+        else if (style == L"frosted") theme.overlay = BgeGlassOverlayStyle::FrostedDiffuse;
+        else { statusText = L"Unknown UI theme"; return false; }
+        g_uiThemeManager->Set(theme);
+        statusText = L"Shared UI theme updated";
+        logCommand("ui-theme-ok"); return true;
+    }
+    if (command == L"ui-panel") {
+        if (tokens.size() != 2 || LowerArg(tokens[1]) != L"show" || !g_dearImGuiAdapter) {
+            statusText = L"Show the UI first, then use ui-panel show"; return false;
+        }
+        if (!g_uiSecondaryWindow) {
+            g_uiSecondaryWindow = BgeUiWindowMgr::CreateWorkbench();
+            g_uiSecondaryWindow->SetTitle("BGE Shared Controls");
+            g_uiSecondaryWindow->SetTheme(g_uiThemeManager);
+        }
+        g_dearImGuiAdapter->AddWindowManager(g_uiSecondaryWindow);
+        statusText = L"Shared controls panel shown"; logCommand("ui-panel-ok"); return true;
+    }
+    if (command == L"ui-action") {
+        if (!CurrentProcessOwnsGameLoop() || tokens.size() < 3) {
+            statusText = L"ui-action run|enable|disable|remove <id> | move <id> <group> | bind <id> <command...> (game-loop only)";
+            return false;
+        }
+        const auto verb = LowerArg(tokens[1]);
+        const auto id = Narrow(tokens[2]);
+        bool ok = false;
+        if (verb == L"run") {
+            BgeUiActionViewModel action;
+            if (!g_uiWindowManager->Resolve(id, action) || action.target != "local") {
+                statusText = L"Action unavailable for local execution";
+                return false;
+            }
+            static thread_local int depth = 0;
+            if (depth >= 16) { statusText = L"UI action recursion limit"; return false; }
+            struct DepthGuard { int& value; DepthGuard(int& v) : value(v) { ++value; } ~DepthGuard() { --value; } } guard(depth);
+            ok = ExecuteCommandText(std::wstring(action.command.begin(), action.command.end()), statusText);
+        } else if (verb == L"enable" || verb == L"disable") {
+            ok = g_uiWindowManager->SetEnabled(id, verb == L"enable");
+        } else if (verb == L"remove") {
+            ok = g_uiWindowManager->Remove(id);
+        } else if (verb == L"move" && tokens.size() == 4) {
+            ok = g_uiWindowManager->Move(id, Narrow(tokens[3]));
+        } else if (verb == L"bind" && tokens.size() >= 4) {
+            std::wstring binding;
+            std::wistringstream input(commandText);
+            std::wstring prefix, operation, identity;
+            input >> prefix >> operation >> identity;
+            std::getline(input >> std::ws, binding);
+            ok = g_uiWindowManager->Rebind(id, Narrow(binding), "local");
+        }
+        if (verb != L"run") statusText = ok ? L"UI action updated" : L"UI action update rejected";
+        logCommand(ok ? "ui-action-ok" : "ui-action-failed");
+        return ok;
+    }
 
     if (command == L"ui-spike") {
         if (!CurrentProcessOwnsGameLoop() || g_playerRuntimeMode) {
