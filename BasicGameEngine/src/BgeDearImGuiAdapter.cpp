@@ -1,4 +1,5 @@
 ﻿#include "../include/BgeDearImGuiAdapter.h"
+#include "../include/BgeGlassUi.h"
 
 #include <array>
 
@@ -326,7 +327,7 @@ void BgeDearImGuiAdapter::BeginFrame()
 void BgeDearImGuiAdapter::DrawSpikeSurface()
 {
     ImGui::SetNextWindowPos(ImVec2(24.0f, 164.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(360.0f, 210.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(360.0f, 480.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("BGE Command UI Spike", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_MenuBar)) {
         ImGui::End();
         return;
@@ -341,6 +342,33 @@ void BgeDearImGuiAdapter::DrawSpikeSurface()
             }
             ImGui::EndMenu();
         }
+if (ImGui::BeginMenu("Modes")) {
+    if (ImGui::MenuItem("Ball Mode")) {
+        InvokeCommand(L"menu.mode.ball", L"mode ball");
+    }
+    if (ImGui::MenuItem("Arcade Mode")) {
+        InvokeCommand(L"menu.mode.arcade", L"mode arcade");
+    }
+    ImGui::EndMenu();
+}
+if (ImGui::BeginMenu("Display")) {
+    if (ImGui::MenuItem("1080p FHD")) {
+        InvokeCommand(L"menu.res.1080", L"resolution 1920 1080");
+    }
+    if (ImGui::MenuItem("720p HD")) {
+        InvokeCommand(L"menu.res.720", L"resolution 1280 720");
+    }
+    ImGui::EndMenu();
+}
+if (ImGui::BeginMenu("Tools")) {
+    if (ImGui::MenuItem("Spawn 10 Balls")) {
+        InvokeCommand(L"menu.tools.spawn10", L"spawn ball 10");
+    }
+    if (ImGui::MenuItem("Launch Warp")) {
+        InvokeCommand(L"menu.tools.warp", L"warp bubble activate");
+    }
+    ImGui::EndMenu();
+}
         ImGui::EndMenuBar();
     }
     if (ImGui::Button("Resolution status")) {
@@ -371,6 +399,54 @@ void BgeDearImGuiAdapter::DrawSpikeSurface()
         ImGui::EndCombo();
     }
 
+    
+    // =========================================================================
+    // Glass Buttons & Menu Subsystems (bge.ui.buttons + bge.ui.menu)
+    // 3-layer visual model: Base (crisp text), Middle (glass body), Top (overlay)
+    // =========================================================================
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "BGE Glass Control Center (OpNode Host)");
+    ImGui::Spacing();
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    auto clickAdapter = [this](const std::string& actionId, const std::string& command) {
+        std::wstring wAction(actionId.begin(), actionId.end());
+        std::wstring wCmd(command.begin(), command.end());
+        InvokeCommand(wAction, wCmd);
+    };
+
+    // Group 1: Game Modes (Clover Four-Leaf Reflection Overlay)
+    BgeGlassButtonGroupDescriptor modesGroup;
+    modesGroup.id = "group.modes";
+    modesGroup.label = "Game Modes (Clover Overlay)";
+    modesGroup.buttons = {
+        { "mode.ball", "Ball Mode", "mode ball", "icon-ball", "group.modes", BgeGlassOverlayStyle::CloverFourLeaf, 0.28f },
+        { "mode.arcade", "Arcade Mode", "mode arcade", "icon-rocket", "group.modes", BgeGlassOverlayStyle::CloverFourLeaf, 0.28f }
+    };
+    DrawGlassButtonGroup(drawList, modesGroup, clickAdapter);
+
+    // Group 2: Display & Resolution (Four-Pane Lit Window Reflection Overlay)
+    BgeGlassButtonGroupDescriptor displayGroup;
+    displayGroup.id = "group.display";
+    displayGroup.label = "Display & Resolution (4-Pane Window Overlay)";
+    displayGroup.buttons = {
+        { "res.1080", "1080p FHD", "resolution 1920 1080", "icon-display", "group.display", BgeGlassOverlayStyle::WindowFourPane, 0.26f },
+        { "res.720", "720p HD", "resolution 1280 720", "icon-display", "group.display", BgeGlassOverlayStyle::WindowFourPane, 0.26f }
+    };
+    DrawGlassButtonGroup(drawList, displayGroup, clickAdapter);
+
+    // Group 3: Custom Tools (Specular Sheen Overlay)
+    BgeGlassButtonGroupDescriptor toolsGroup;
+    toolsGroup.id = "group.tools";
+    toolsGroup.label = "Custom Tools (Specular Sheen Overlay)";
+    toolsGroup.buttons = {
+        { "tools.spawn10", "Spawn 10 Balls", "spawn ball 10", "icon-plus", "group.tools", BgeGlassOverlayStyle::SpecularSheen, 0.30f },
+        { "tools.warp", "Launch Warp", "warp bubble activate", "icon-portal", "group.tools", BgeGlassOverlayStyle::SpecularSheen, 0.30f }
+    };
+    DrawGlassButtonGroup(drawList, toolsGroup, clickAdapter);
+
+    ImGui::Separator();
     ImGui::TextUnformatted("Texture thumbnail gate: pending BGE asset bridge");
     ImGui::TextUnformatted("Esc closes the spike.");
     ImGui::End();

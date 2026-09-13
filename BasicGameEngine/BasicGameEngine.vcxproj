@@ -157,6 +157,7 @@
     <ClInclude Include="include\BasicGameRoleOperation.h" />
     <ClInclude Include="include\BgeGameModule.h" />
     <ClInclude Include="include\BgeDearImGuiAdapter.h" />
+    <ClInclude Include="include\BgeGlassUi.h" />
     <ClInclude Include="include\BgeScenePrimitives.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="include\DirectX11BouncingBallOperation.h" />
@@ -181,6 +182,7 @@
     <ClCompile Include="src\AsteroidGameModule.cpp" />
     <ClCompile Include="src\BgeScenePrimitives.cpp" />
     <ClCompile Include="src\BgeDearImGuiAdapter.cpp" />
+    <ClCompile Include="src\BgeGlassUi.cpp" />
     <ClCompile Include="src\BasicGameEngine.cpp" />
     <ClCompile Include="src\BgeHierarchy.cpp" />
     <ClCompile Include="src\DirectX11BouncingBallRenderer.cpp" />
