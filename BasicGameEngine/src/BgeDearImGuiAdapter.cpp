@@ -201,24 +201,17 @@ void BgeDearImGuiAdapter::SetDiagnosticCallback(DiagnosticCallback callback)
 
 void BgeDearImGuiAdapter::RenderDirectX11()
 {
-    std::vector<PendingAction> actions;
-    CommandCallback callback;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!visible_ || rendererBackend_ != RendererBackend::DirectX11) return;
         BeginFrame();
         ImGui::Render();
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-        actions.swap(pendingActions_);
-        callback = commandCallback_;
     }
-    DispatchActions(actions, callback);
 }
 
 void BgeDearImGuiAdapter::RenderDirectX12(ID3D12GraphicsCommandList* commandList)
 {
-    std::vector<PendingAction> actions;
-    CommandCallback callback;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!visible_ || rendererBackend_ != RendererBackend::DirectX12 || !commandList) return;
@@ -227,9 +220,20 @@ void BgeDearImGuiAdapter::RenderDirectX12(ID3D12GraphicsCommandList* commandList
         ID3D12DescriptorHeap* descriptorHeaps[] = { dx12SrvHeap_.Get() };
         commandList->SetDescriptorHeaps(1, descriptorHeaps);
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+    }
+}
+
+void BgeDearImGuiAdapter::DispatchPendingCommands()
+{
+    std::vector<PendingAction> actions;
+    CommandCallback callback;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
         actions.swap(pendingActions_);
         callback = commandCallback_;
     }
+    // Commands may resize the swap chain, rebuild ImGui resources or change renderer.
+    // The host must finish recording/submitting its frame before reaching this point.
     DispatchActions(actions, callback);
 }
 
@@ -381,7 +385,8 @@ void BgeDearImGuiAdapter::DrawWindowSurface(const std::shared_ptr<BgeUiWindowMgr
     auto* drawList = ImGui::GetWindowDrawList();
     for (const auto& group : model.groups) {
         ImGui::PushID(group.id.c_str());
-        DrawGlassButtonGroup(drawList, group, [this, owner](const std::string& id, const std::string&) { ActivateItem(owner, id); });
+        DrawGlassButtonGroup(drawList, group, [this, owner](const std::string& id, const std::string&) { ActivateItem(owner, id); },
+            [this](const std::string& id) { ReportItemBounds("glass." + id); });
         ImGui::PopID();
     }
     ImGui::Separator();

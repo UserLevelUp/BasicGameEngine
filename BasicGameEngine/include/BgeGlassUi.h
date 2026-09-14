@@ -62,7 +62,8 @@ bool DrawGlassButton(ImDrawList* drawList, const BgeGlassButtonDescriptor& desc,
                      const std::function<void(const std::string&, const std::string&)>& onClick = nullptr);
 
 void DrawGlassButtonGroup(ImDrawList* drawList, const BgeGlassButtonGroupDescriptor& group,
-                          const std::function<void(const std::string&, const std::string&)>& onClick = nullptr);
+                          const std::function<void(const std::string&, const std::string&)>& onClick = nullptr,
+                          const std::function<void(const std::string&)>& onItem = {});
 
 // OpNode Bridge
 std::vector<BgeGlassButtonGroupDescriptor> BuildGlassGroupsFromOpNode(const std::shared_ptr<OpNode>& rootNode);

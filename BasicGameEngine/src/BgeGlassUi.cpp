@@ -144,7 +144,8 @@ bool DrawGlassButton(ImDrawList* drawList, const BgeGlassButtonDescriptor& desc,
 }
 
 void DrawGlassButtonGroup(ImDrawList* drawList, const BgeGlassButtonGroupDescriptor& group,
-                          const std::function<void(const std::string&, const std::string&)>& onClick) {
+                          const std::function<void(const std::string&, const std::string&)>& onClick,
+                          const std::function<void(const std::string&)>& onItem) {
     if (!drawList) return;
 
     ImGui::TextDisabled("%s", group.label.c_str());
@@ -159,6 +160,7 @@ void DrawGlassButtonGroup(ImDrawList* drawList, const BgeGlassButtonGroupDescrip
             ImGui::SameLine(0.0f, spacing);
         }
         DrawGlassButton(drawList, group.buttons[i], ImVec2(btnWidth, btnHeight), onClick);
+        if (onItem) onItem(group.buttons[i].id);
     }
     ImGui::Spacing();
 }

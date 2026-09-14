@@ -9523,9 +9523,11 @@ void RenderActiveRenderer()
 {
     if (g_rendererApi.load() == BgeRendererApi::DirectX12) {
         if (g_directX12Renderer) g_directX12Renderer->Render();
-        return;
+    } else if (g_directX11Renderer) {
+        g_directX11Renderer->Render();
     }
-    if (g_directX11Renderer) g_directX11Renderer->Render();
+    // Renderer submission/presentation must finish before a UI command can resize it.
+    if (g_dearImGuiAdapter) g_dearImGuiAdapter->DispatchPendingCommands();
 }
 
 float ReadFloatControl(HWND control, float fallback)

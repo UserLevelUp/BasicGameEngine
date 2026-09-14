@@ -37,6 +37,8 @@ public:
     void SetDiagnosticCallback(DiagnosticCallback callback);
     void RenderDirectX11();
     void RenderDirectX12(ID3D12GraphicsCommandList* commandList);
+    // Host calls this only after its renderer has submitted/presented the frame.
+    void DispatchPendingCommands();
 
 private:
     enum class RendererBackend {
