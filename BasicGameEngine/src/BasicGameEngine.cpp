@@ -9422,6 +9422,7 @@ void InitializeSelectedRenderer(HWND hWnd)
             return;
         }
         ApplyBallStateToRenderer();
+        AttachDearImGuiToActiveRenderer();
         LogRendererMessage("[DirectX12BouncingBallRenderer] initialized");
         return;
     }
@@ -9433,6 +9434,7 @@ void InitializeSelectedRenderer(HWND hWnd)
         return;
     }
     ApplyBallStateToRenderer();
+    AttachDearImGuiToActiveRenderer();
     LogRendererMessage("[DirectX11BouncingBallRenderer] initialized");
 }
 
