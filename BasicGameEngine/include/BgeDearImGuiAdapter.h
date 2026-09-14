@@ -56,6 +56,7 @@ private:
     std::vector<std::shared_ptr<BgeUiWindowMgr>> additionalWindows_;
     void ReportItemBounds(const std::string& id);
     std::set<std::string> reportedBounds_;
+    std::map<std::string, std::pair<int,int>> reportedWindowPositions_;
     HWND hWnd_ = nullptr;
     mutable std::mutex mutex_;
     bool initialized_ = false;

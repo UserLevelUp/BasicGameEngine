@@ -1,4 +1,5 @@
 #include "../include/BgeGlassUi.h"
+#include "../include/BgeGlassReflection.h"
 
 #include <cmath>
 #include <algorithm>
@@ -20,73 +21,40 @@ void DrawRoundedGradient(ImDrawList* list, ImVec2 min, ImVec2 max, ImU32 top, Im
 }
 }
 
-void DrawOverlayCloverFourLeaf(ImDrawList* drawList, ImVec2 min, ImVec2 max, float alpha) {
-    if (!drawList || alpha <= 0.0f) return;
-
-    // Subtle 4-leaf clover reflection in the upper-left quadrant of the glass button
-    const float width = max.x - min.x;
-    const float height = max.y - min.y;
-    const float size = (std::min)(width, height) * 0.38f;
-    const ImVec2 center(min.x + size * 0.85f, min.y + size * 0.85f);
-    const float petalRadius = size * 0.26f;
-    const float offset = petalRadius * 0.75f;
-
-    const ImU32 cloverColor = ImColor(1.0f, 1.0f, 1.0f, (std::min)(alpha, 0.35f));
-    const ImU32 centerGlint = ImColor(1.0f, 1.0f, 1.0f, (std::min)(alpha * 1.3f, 0.45f));
-
-    // 4 rounded petals
-    drawList->AddCircleFilled(ImVec2(center.x, center.y - offset), petalRadius, cloverColor, 16);
-    drawList->AddCircleFilled(ImVec2(center.x + offset, center.y), petalRadius, cloverColor, 16);
-    drawList->AddCircleFilled(ImVec2(center.x, center.y + offset), petalRadius, cloverColor, 16);
-    drawList->AddCircleFilled(ImVec2(center.x - offset, center.y), petalRadius, cloverColor, 16);
-
-    // Center subtle glint
-    drawList->AddCircleFilled(center, petalRadius * 0.45f, centerGlint, 12);
+namespace {
+void DrawCurvedReflection(ImDrawList* list, ImVec2 min, ImVec2 max, float alpha,
+                          BgeGlassOverlayStyle style, float radius = 8.0f) {
+    if (!list || alpha <= 0 || max.x <= min.x || max.y <= min.y) return;
+    const float width = max.x-min.x, height = max.y-min.y;
+    const int columns = (std::clamp)(static_cast<int>(width/2), 24, 96);
+    const int rows = (std::clamp)(static_cast<int>(height/2), 16, 48);
+    const ImVec2 uv = ImGui::GetFontTexUvWhitePixel();
+    // Shared vertices keep the mesh below the 16-bit index limit for normal groups.
+    list->PrimReserve(columns*rows*6, (columns+1)*(rows+1));
+    const unsigned int base = list->_VtxCurrentIdx;
+    for (int row=0; row<rows; ++row) for (int col=0; col<columns; ++col) {
+        const unsigned int a = base+row*(columns+1)+col, b=a+1, c=a+columns+1, d=c+1;
+        list->PrimWriteIdx(static_cast<ImDrawIdx>(a)); list->PrimWriteIdx(static_cast<ImDrawIdx>(b)); list->PrimWriteIdx(static_cast<ImDrawIdx>(d));
+        list->PrimWriteIdx(static_cast<ImDrawIdx>(a)); list->PrimWriteIdx(static_cast<ImDrawIdx>(d)); list->PrimWriteIdx(static_cast<ImDrawIdx>(c));
+    }
+    for (int row=0; row<=rows; ++row) for (int col=0; col<=columns; ++col) {
+        const float u=static_cast<float>(col)/columns, v=static_cast<float>(row)/rows;
+        const float opacity = alpha * BgeGlassReflection::Intensity(style,u,v)
+            * BgeGlassReflection::Coverage(u*width,v*height,width,height,radius);
+        list->PrimWriteVtx(ImVec2(min.x+u*width,min.y+v*height), uv,
+            ImGui::ColorConvertFloat4ToU32(ImVec4(0.93f,0.97f,1.0f,opacity)));
+    }
+}
 }
 
-void DrawOverlayWindowFourPane(ImDrawList* drawList, ImVec2 min, ImVec2 max, float alpha) {
-    if (!drawList || alpha <= 0.0f) return;
-
-    // Subtle 4-pane lit window reflection across the glass surface
-    const float width = max.x - min.x;
-    const float height = max.y - min.y;
-    
-    // Window reflection bounds (angled quadrant reflection)
-    const float startX = min.x + width * 0.12f;
-    const float endX = min.x + width * 0.58f;
-    const float startY = min.y + height * 0.10f;
-    const float endY = min.y + height * 0.70f;
-    const float midX = (startX + endX) * 0.5f;
-    const float midY = (startY + endY) * 0.5f;
-    const float gap = 2.0f;
-
-    const ImU32 paneColor = ImColor(0.92f, 0.96f, 1.0f, (std::min)(alpha, 0.35f));
-    const float rounding = 2.0f;
-
-    // Top-Left pane
-    drawList->AddRectFilled(ImVec2(startX, startY), ImVec2(midX - gap, midY - gap), paneColor, rounding);
-    // Top-Right pane
-    drawList->AddRectFilled(ImVec2(midX + gap, startY), ImVec2(endX, midY - gap), paneColor, rounding);
-    // Bottom-Left pane
-    drawList->AddRectFilled(ImVec2(startX, midY + gap), ImVec2(midX - gap, endY), paneColor, rounding);
-    // Bottom-Right pane
-    drawList->AddRectFilled(ImVec2(midX + gap, midY + gap), ImVec2(endX, endY), paneColor, rounding);
+void DrawOverlayCloverFourLeaf(ImDrawList* list, ImVec2 min, ImVec2 max, float alpha) {
+    DrawCurvedReflection(list,min,max,alpha,BgeGlassOverlayStyle::CloverFourLeaf);
 }
-
-void DrawOverlaySpecularSheen(ImDrawList* drawList, ImVec2 min, ImVec2 max, float alpha) {
-    if (!drawList || alpha <= 0.0f) return;
-
-    // Crisp dual specular band across top bevel
-    const float height = max.y - min.y;
-    const ImU32 sheenCol1 = ImColor(1.0f, 1.0f, 1.0f, (std::min)(alpha * 1.2f, 0.35f));
-    const ImU32 sheenCol2 = ImColor(1.0f, 1.0f, 1.0f, 0.0f);
-
-    // Diagonal specular sweep (6 arguments: min, max, top-left, top-right, bot-right, bot-left)
-    drawList->AddRectFilledMultiColor(
-        min,
-        ImVec2(max.x, min.y + height * 0.45f),
-        sheenCol1, sheenCol1, sheenCol2, sheenCol2
-    );
+void DrawOverlayWindowFourPane(ImDrawList* list, ImVec2 min, ImVec2 max, float alpha) {
+    DrawCurvedReflection(list,min,max,alpha,BgeGlassOverlayStyle::WindowFourPane);
+}
+void DrawOverlaySpecularSheen(ImDrawList* list, ImVec2 min, ImVec2 max, float alpha) {
+    DrawCurvedReflection(list,min,max,alpha,BgeGlassOverlayStyle::SpecularSheen);
 }
 
 bool DrawGlassButton(ImDrawList* drawList, const BgeGlassButtonDescriptor& desc, ImVec2 size,
@@ -159,38 +127,18 @@ bool DrawGlassButton(ImDrawList* drawList, const BgeGlassButtonDescriptor& desc,
     // Guarded light overtones (0.10 <= alpha <= 0.35)
     // ==========================================
     const float alpha = (std::clamp)(desc.overlayAlpha, 0.10f, 0.35f);
-    const auto paintReflection = [&]() {
-    switch (desc.overlay) {
-        case BgeGlassOverlayStyle::CloverFourLeaf:
-            DrawOverlayCloverFourLeaf(drawList, min, max, alpha);
-            break;
-        case BgeGlassOverlayStyle::WindowFourPane:
-            DrawOverlayWindowFourPane(drawList, min, max, alpha);
-            break;
-        case BgeGlassOverlayStyle::SpecularSheen:
-            DrawOverlaySpecularSheen(drawList, min, max, alpha);
-            break;
-        case BgeGlassOverlayStyle::FrostedDiffuse:
-            DrawRoundedGradient(drawList, min, max, IM_COL32(210, 230, 245, 22), IM_COL32(180, 205, 220, 8), desc.cornerRadius);
-            break;
-        default:
-            break;
+    const int reflectionStart = drawList->VtxBuffer.Size;
+    DrawCurvedReflection(drawList, min, max, alpha * (desc.enabled ? 1.0f : 0.45f), desc.overlay, desc.cornerRadius);
+    // Soft attenuation over the label keeps the continuous outer surface visible
+    // without the old rectangular cutout in the reflection.
+    for (int i=reflectionStart; i<drawList->VtxBuffer.Size; ++i) {
+        auto& vertex = drawList->VtxBuffer[i];
+        const float dx = (std::max)((std::max)(textPos.x-vertex.pos.x, vertex.pos.x-textPos.x-textSize.x),0.0f);
+        const float dy = (std::max)((std::max)(textPos.y-vertex.pos.y, vertex.pos.y-textPos.y-textSize.y),0.0f);
+        const float attenuation = 0.16f + 0.84f*BgeGlassReflection::Smooth(0,6,std::hypot(dx,dy));
+        const auto color = ImGui::ColorConvertU32ToFloat4(vertex.col);
+        vertex.col = ImGui::ColorConvertFloat4ToU32(ImVec4(color.x,color.y,color.z,color.w*attenuation));
     }
-    };
-    // Keep the functional label and its shadow clear of reflection highlights.
-    // Four disjoint clips preserve the reflection geometry outside that area.
-    const ImVec2 guardMin((std::max)(min.x, textPos.x - 3.0f), (std::max)(min.y, textPos.y - 2.0f));
-    const ImVec2 guardMax((std::min)(max.x, textPos.x + textSize.x + 3.0f), (std::min)(max.y, textPos.y + textSize.y + 2.0f));
-    const auto paintClip = [&](ImVec2 a, ImVec2 b) {
-        if (a.x >= b.x || a.y >= b.y) return;
-        drawList->PushClipRect(a, b, true);
-        paintReflection();
-        drawList->PopClipRect();
-    };
-    paintClip(min, ImVec2(max.x, guardMin.y));
-    paintClip(ImVec2(min.x, guardMax.y), max);
-    paintClip(ImVec2(min.x, guardMin.y), ImVec2(guardMin.x, guardMax.y));
-    paintClip(ImVec2(guardMax.x, guardMin.y), ImVec2(max.x, guardMax.y));
 
     return pressed;
 }

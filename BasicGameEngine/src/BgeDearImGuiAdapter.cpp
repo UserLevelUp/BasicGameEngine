@@ -347,6 +347,14 @@ void BgeDearImGuiAdapter::DrawWindowSurface(const std::shared_ptr<BgeUiWindowMgr
     if (!ImGui::Begin(model.title.c_str(), nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_MenuBar)) {
         ImGui::End(); ImGui::PopStyleColor(); return;
     }
+    const auto position = ImGui::GetWindowPos();
+    const std::pair<int,int> location(static_cast<int>(position.x), static_cast<int>(position.y));
+    auto previous = reportedWindowPositions_.find(model.title);
+    if (diagnosticCallback_ && (previous == reportedWindowPositions_.end() || previous->second != location)) {
+        reportedWindowPositions_[model.title] = location;
+        diagnosticCallback_(L"bge.event.command-ui.panel.position title=" + std::wstring(model.title.begin(),model.title.end())
+            + L" x=" + std::to_wstring(location.first) + L" y=" + std::to_wstring(location.second));
+    }
     ImGui::TextUnformatted(kRendererName);
     ImGui::Separator();
     if (ImGui::BeginMenuBar()) {
