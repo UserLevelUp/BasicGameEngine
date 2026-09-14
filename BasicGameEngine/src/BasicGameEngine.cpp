@@ -77,7 +77,7 @@ void ShutdownDearImGuiAdapter();
 void AttachDearImGuiToActiveRenderer();
 bool HandleDearImGuiMessage(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 bool isFocused = true;         // Indicates whether this instance is focused
-bool shouldRun = true;         // Controls the main game loop
+std::atomic<bool> shouldRun{true}; // Shared stop signal for the runtime thread
 bool isPaused = false;         // Indicates whether the game is paused
 
 double lineX = 10.0; // Initial X position of the line
@@ -1314,6 +1314,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     }
 
     ShutdownActiveRenderer();
+    // Renderers retain the adapter pointer until they have shut down.
+    ShutdownDearImGuiAdapter();
 
     UnregisterCurrentProcess();
     windowMutexMgr.ReleaseInstanceMutex(mutexName); // Release the unique mutex
@@ -14649,7 +14651,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     break;
 
     case WM_DESTROY:
-        ShutdownDearImGuiAdapter();
+        // Keep the adapter alive until the runtime thread and renderers stop.
         PostQuitMessage(0);
         break;
 
