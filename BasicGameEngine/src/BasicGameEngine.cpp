@@ -1,4 +1,4 @@
-﻿#include "../include/BgeDearImGuiAdapter.h"
+#include "../include/BgeDearImGuiAdapter.h"
 // BasicGameEngine.cpp : Defines the entry point for the application.
 
 #include "../include/StatusBarMgr.h"
@@ -906,6 +906,7 @@ void InitializeDearImGuiAdapter(HWND hWnd)
             LogRendererMessage("[BgeCommandUi] bge.event.command-ui.action id=" + Narrow(actionId)
                 + " command=" + Narrow(command) + (ok ? " result=ok" : " result=failed"));
             SetCommandStatus(statusText);
+            return BgeUiActionResult{ok ? BgeUiActionState::Succeeded : BgeUiActionState::Failed, Narrow(statusText)};
         });
         g_dearImGuiAdapter->SetDiagnosticCallback([](const std::wstring& message) {
             LogRendererMessage("[BgeCommandUi] " + Narrow(message));
@@ -10008,15 +10009,19 @@ bool ExecuteCommandText(const std::wstring& commandText, std::wstring& statusTex
         const auto id = Narrow(tokens[2]);
         bool ok = false;
         if (verb == L"run") {
-            BgeUiActionViewModel action;
-            if (!g_uiWindowManager->Resolve(id, action) || action.target != "local") {
-                statusText = L"Action unavailable for local execution";
-                return false;
-            }
             static thread_local int depth = 0;
             if (depth >= 16) { statusText = L"UI action recursion limit"; return false; }
             struct DepthGuard { int& value; DepthGuard(int& v) : value(v) { ++value; } ~DepthGuard() { --value; } } guard(depth);
-            ok = ExecuteCommandText(std::wstring(action.command.begin(), action.command.end()), statusText);
+            const auto result = g_uiWindowManager->Activate(id, [&](const BgeUiActionViewModel& action) {
+                if (action.target != "local") {
+                    statusText = L"Action unavailable for local execution";
+                    return BgeUiActionResult{BgeUiActionState::Failed, Narrow(statusText)};
+                }
+                const bool completed = ExecuteCommandText(std::wstring(action.command.begin(), action.command.end()), statusText);
+                return BgeUiActionResult{completed ? BgeUiActionState::Succeeded : BgeUiActionState::Failed, Narrow(statusText)};
+            });
+            if (result.state == BgeUiActionState::Rejected) statusText = L"Action missing or disabled";
+            ok = result;
         } else if (verb == L"enable" || verb == L"disable") {
             ok = g_uiWindowManager->SetEnabled(id, verb == L"enable");
         } else if (verb == L"remove") {

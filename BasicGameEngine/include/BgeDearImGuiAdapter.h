@@ -6,13 +6,14 @@
 #include <utility>
 #include <vector>
 #include <set>
+#include <map>
 
 #include "DirectXIncludes.h"
 #include "BgeUiWindowMgr.h"
 
 class BgeDearImGuiAdapter {
 public:
-    using CommandCallback = std::function<void(const std::wstring& actionId, const std::wstring& command)>;
+    using CommandCallback = std::function<BgeUiActionResult(const std::wstring& actionId, const std::wstring& command)>;
     using DiagnosticCallback = std::function<void(const std::wstring& message)>;
 
     BgeDearImGuiAdapter() = default;
@@ -48,7 +49,11 @@ private:
     void DetachRendererLocked();
     void BeginFrame();
     void DrawSpikeSurface();
-    void InvokeCommand(const std::wstring& actionId, const std::wstring& command);
+    struct PendingAction {
+        std::shared_ptr<BgeUiWindowMgr> owner;
+        BgeUiActionRequest request;
+    };
+    void DispatchActions(const std::vector<PendingAction>& actions, const CommandCallback& callback);
 
     std::shared_ptr<BgeUiWindowMgr> windowManager_;
     void ActivateItem(const std::shared_ptr<BgeUiWindowMgr>& owner, const std::string& id);
@@ -68,7 +73,7 @@ private:
     bool buttonBoundsReported_ = false;
     CommandCallback commandCallback_;
     DiagnosticCallback diagnosticCallback_;
-    std::vector<std::pair<std::wstring, std::wstring>> pendingActions_;
+    std::vector<PendingAction> pendingActions_;
     float lastMouseX_ = -1.0f;
     float lastMouseY_ = -1.0f;
 };

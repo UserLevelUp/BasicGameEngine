@@ -200,83 +200,55 @@ void BgeDearImGuiAdapter::SetDiagnosticCallback(DiagnosticCallback callback)
 }
 
 void BgeDearImGuiAdapter::RenderDirectX11()
-
 {
-
-    std::vector<std::pair<std::wstring, std::wstring>> actionsToDispatch;
-
+    std::vector<PendingAction> actions;
+    CommandCallback callback;
     {
-
         std::lock_guard<std::mutex> lock(mutex_);
-
-        if (!visible_ || rendererBackend_ != RendererBackend::DirectX11) {
-
-            return;
-
-        }
-
+        if (!visible_ || rendererBackend_ != RendererBackend::DirectX11) return;
         BeginFrame();
-
         ImGui::Render();
-
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-
-        actionsToDispatch.swap(pendingActions_);
-
+        actions.swap(pendingActions_);
+        callback = commandCallback_;
     }
-
-    for (const auto& action : actionsToDispatch) {
-
-        if (commandCallback_) {
-
-            commandCallback_(action.first, action.second);
-
-        }
-
-    }
-
+    DispatchActions(actions, callback);
 }
 
 void BgeDearImGuiAdapter::RenderDirectX12(ID3D12GraphicsCommandList* commandList)
-
 {
-
-    std::vector<std::pair<std::wstring, std::wstring>> actionsToDispatch;
-
+    std::vector<PendingAction> actions;
+    CommandCallback callback;
     {
-
         std::lock_guard<std::mutex> lock(mutex_);
-
-        if (!visible_ || rendererBackend_ != RendererBackend::DirectX12 || !commandList) {
-
-            return;
-
-        }
-
+        if (!visible_ || rendererBackend_ != RendererBackend::DirectX12 || !commandList) return;
         BeginFrame();
-
         ImGui::Render();
-
         ID3D12DescriptorHeap* descriptorHeaps[] = { dx12SrvHeap_.Get() };
-
         commandList->SetDescriptorHeaps(1, descriptorHeaps);
-
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
-
-        actionsToDispatch.swap(pendingActions_);
-
+        actions.swap(pendingActions_);
+        callback = commandCallback_;
     }
+    DispatchActions(actions, callback);
+}
 
-    for (const auto& action : actionsToDispatch) {
-
-        if (commandCallback_) {
-
-            commandCallback_(action.first, action.second);
-
+void BgeDearImGuiAdapter::DispatchActions(const std::vector<PendingAction>& actions, const CommandCallback& callback)
+{
+    for (const auto& pending : actions) {
+        const auto& action = pending.request.action;
+        BgeUiActionResult result;
+        // Until remote transport is wired, reject explicitly rather than executing locally.
+        if (action.target != "local") {
+            result = {BgeUiActionState::Failed, "Target unavailable: " + action.target};
+        } else if (!callback) {
+            result = {BgeUiActionState::Failed, "Command dispatcher unavailable"};
+        } else {
+            result = callback(std::wstring(action.id.begin(), action.id.end()),
+                              std::wstring(action.command.begin(), action.command.end()));
         }
-
+        pending.owner->CompleteAction(pending.request, result);
     }
-
 }
 
 void BgeDearImGuiAdapter::AllocateDx12Descriptor(D3D12_CPU_DESCRIPTOR_HANDLE* cpuHandle, D3D12_GPU_DESCRIPTOR_HANDLE* gpuHandle)
@@ -322,12 +294,8 @@ void BgeDearImGuiAdapter::AddWindowManager(std::shared_ptr<BgeUiWindowMgr> manag
 void BgeDearImGuiAdapter::ActivateItem(const std::shared_ptr<BgeUiWindowMgr>& owner, const std::string& id)
 {
     if (!owner) return;
-    owner->Activate(id, [this](const BgeUiActionViewModel& action) {
-        // This adapter's callback is local. Never silently execute a remote target.
-        if (action.target != "local") return;
-        InvokeCommand(std::wstring(action.id.begin(), action.id.end()),
-                      std::wstring(action.command.begin(), action.command.end()));
-    });
+    BgeUiActionRequest request;
+    if (owner->PrepareAction(id, request)) pendingActions_.push_back({owner, std::move(request)});
 }
 
 void BgeDearImGuiAdapter::DrawSpikeSurface()
@@ -417,6 +385,9 @@ void BgeDearImGuiAdapter::DrawWindowSurface(const std::shared_ptr<BgeUiWindowMgr
         ImGui::PopID();
     }
     ImGui::Separator();
+    if (!model.lastActionId.empty()) {
+        ImGui::TextWrapped("%s: %s", model.lastResult.Label(), model.lastResult.message.c_str());
+    }
     ImGui::TextUnformatted("Esc closes the spike.");
     ImGui::End();
     ImGui::PopStyleColor();
@@ -430,12 +401,4 @@ void BgeDearImGuiAdapter::ReportItemBounds(const std::string& id)
     diagnosticCallback_(L"bge.event.command-ui.item.bounds id=" + std::wstring(id.begin(), id.end())
         + L" min=" + std::to_wstring(static_cast<int>(minimum.x)) + L"," + std::to_wstring(static_cast<int>(minimum.y))
         + L" max=" + std::to_wstring(static_cast<int>(maximum.x)) + L"," + std::to_wstring(static_cast<int>(maximum.y)));
-}
-
-void BgeDearImGuiAdapter::InvokeCommand(const std::wstring& actionId, const std::wstring& command)
-
-{
-
-    pendingActions_.push_back({ actionId, command });
-
 }
